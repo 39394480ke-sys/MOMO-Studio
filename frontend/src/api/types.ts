@@ -330,6 +330,125 @@ export interface UpdateMotionRequest {
   playback_defaults?: MotionPlaybackDefaults;
 }
 
+export interface PreflightMotionRequest {
+  expected_revision: number;
+  sample_rate_hz?: number;
+}
+
+export interface TrajectoryViolation {
+  code: string;
+  message: string;
+  segment_index?: number | null;
+  keyframe_id?: string | null;
+  check?: string | null;
+  sample_index?: number | null;
+  joint_id?: string | null;
+  actual?: number | null;
+  limit?: number | null;
+  unit?: DomainUnit | null;
+  blocking?: boolean;
+}
+
+export interface TrajectoryCheck {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface TrajectoryPreflightReport {
+  passed: boolean;
+  digest: string | null;
+  motion_id: string;
+  motion_revision: number;
+  duration_s: number;
+  sample_count: number;
+  segment_count: number;
+  sample_rate_hz: number;
+  violations: TrajectoryViolation[];
+  checks: TrajectoryCheck[];
+  prepared_at?: string | null;
+}
+
+export interface PlayMotionRequest {
+  expected_revision: number;
+  trajectory_digest: string;
+  loop: boolean;
+  rate: number;
+}
+
+export type PlaybackState =
+  | 'IDLE'
+  | 'PREFLIGHTING'
+  | 'READY'
+  | 'PLAYING'
+  | 'PAUSED'
+  | 'STOPPING'
+  | 'STOPPED'
+  | 'COMPLETED'
+  | 'FAULTED';
+
+export interface PlaybackStatus {
+  session_id?: string | null;
+  state: PlaybackState;
+  motion_id?: string | null;
+  trajectory_digest?: string | null;
+  progress: number;
+  elapsed_s: number;
+  duration_s: number;
+  current_keyframe_id?: string | null;
+  current_segment_index?: number | null;
+  current_sample_index?: number | null;
+  loop: boolean;
+  rate: number;
+  error?: string | null;
+  updated_at: string;
+  hardware_accessed: false;
+}
+
+export type TrajectorySegmentMode = MotionMode | 'HOLD';
+
+export interface TrajectoryPreviewSegment {
+  segment_index: number;
+  motion_mode: TrajectorySegmentMode;
+  start_time_s: number;
+  end_time_s: number;
+  sample_count: number;
+  start_keyframe_id?: string | null;
+  end_keyframe_id?: string | null;
+}
+
+export interface JointTrajectoryPoint {
+  time_s: number;
+  value: number;
+  unit: DomainUnit;
+}
+
+export interface TcpTrajectoryPoint {
+  time_s: number;
+  x_mm: number;
+  y_mm: number;
+  z_mm: number;
+}
+
+export interface TrajectoryKeyframeMarker {
+  keyframe_id: string;
+  label: string;
+  time_s: number;
+  sample_index: number;
+}
+
+export interface TrajectoryPreview {
+  digest: string;
+  motion_id: string;
+  duration_s: number;
+  sample_rate_hz: number;
+  sample_count: number;
+  segments: TrajectoryPreviewSegment[];
+  joint_series: Record<string, JointTrajectoryPoint[]>;
+  tcp_path: TcpTrajectoryPoint[];
+  keyframe_markers: TrajectoryKeyframeMarker[];
+}
+
 export interface ForwardKinematicsResponse {
   robot_id: string;
   variant: RobotVariant;

@@ -9,6 +9,7 @@ from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.library_service import LibraryApplicationService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
+from momo.application.services.trajectory_service import TrajectoryApplicationService
 from momo.settings import Settings
 
 
@@ -34,3 +35,7 @@ def get_jog_service(request: Request) -> JogLeaseService:
 
 def get_library_service(request: Request) -> LibraryApplicationService:
     return cast(LibraryApplicationService, request.app.state.library_service)
+
+
+def get_trajectory_service(request: Request) -> TrajectoryApplicationService:
+    return cast(TrajectoryApplicationService, request.app.state.trajectory_service)

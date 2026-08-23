@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -6,10 +6,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   MotionEntity,
   MotionSummary,
+  PlaybackStatus,
   PoseEntity,
   PoseSnapshot,
   PoseSummary,
   RobotVariant,
+  TrajectoryPreflightReport,
+  TrajectoryPreview,
 } from '../api/types';
 import {
   RuntimeStatusContext,
@@ -22,6 +25,8 @@ import { LibraryPage } from './LibraryPage';
 const START_ID = '11111111-1111-4111-8111-111111111111';
 const END_ID = '22222222-2222-4222-8222-222222222222';
 const MOTION_ID = '33333333-3333-4333-8333-333333333333';
+const START_KEYFRAME_ID = '44444444-4444-4444-8444-444444444444';
+const END_KEYFRAME_ID = '55555555-5555-4555-8555-555555555555';
 
 function snapshot(x: number, variant: RobotVariant = 'V2'): PoseSnapshot {
   const jointIds = variant === 'V2' ? ['j10', 'j11', 'j12', 'j13', 'j14', 'j15'] : ['j11', 'j12', 'j13', 'j14', 'j15'];
@@ -90,7 +95,7 @@ const fullMotion: MotionEntity = {
   robot_variant: 'V2',
   keyframes: [
     {
-      id: '44444444-4444-4444-8444-444444444444',
+      id: START_KEYFRAME_ID,
       label: 'Start',
       pose_snapshot: startPose.snapshot,
       source_pose_id: START_ID,
@@ -98,7 +103,7 @@ const fullMotion: MotionEntity = {
       incoming_transition: null,
     },
     {
-      id: '55555555-5555-4555-8555-555555555555',
+      id: END_KEYFRAME_ID,
       label: 'End',
       pose_snapshot: endPose.snapshot,
       source_pose_id: END_ID,
@@ -131,6 +136,87 @@ const motionSummary: MotionSummary = {
   revision: fullMotion.revision,
 };
 
+const passedPreflight: TrajectoryPreflightReport = {
+  passed: true,
+  digest: 'sha256:prepared-trajectory',
+  motion_id: MOTION_ID,
+  motion_revision: fullMotion.revision,
+  duration_s: 2.25,
+  sample_count: 46,
+  segment_count: 2,
+  sample_rate_hz: 20,
+  violations: [],
+  checks: [
+    { name: 'profile', passed: true, detail: 'Profile fingerprint matches' },
+    { name: 'limits', passed: true, detail: 'All samples remain within limits' },
+  ],
+  prepared_at: '2026-08-24T02:30:00Z',
+};
+
+const trajectoryPreview: TrajectoryPreview = {
+  digest: passedPreflight.digest as string,
+  motion_id: MOTION_ID,
+  duration_s: 2.25,
+  sample_rate_hz: 20,
+  sample_count: 46,
+  segments: [
+    {
+      segment_index: 0,
+      motion_mode: 'JOINT',
+      start_time_s: 0,
+      end_time_s: 2,
+      sample_count: 41,
+      start_keyframe_id: START_KEYFRAME_ID,
+      end_keyframe_id: END_KEYFRAME_ID,
+    },
+    {
+      segment_index: 1,
+      motion_mode: 'HOLD',
+      start_time_s: 2,
+      end_time_s: 2.25,
+      sample_count: 5,
+      start_keyframe_id: END_KEYFRAME_ID,
+      end_keyframe_id: END_KEYFRAME_ID,
+    },
+  ],
+  joint_series: {
+    j10: [
+      { time_s: 0, value: 101, unit: 'mm' },
+      { time_s: 2.25, value: 151, unit: 'mm' },
+    ],
+    j11: [
+      { time_s: 0, value: -20, unit: 'deg' },
+      { time_s: 2.25, value: 35, unit: 'deg' },
+    ],
+  },
+  tcp_path: [
+    { time_s: 0, x_mm: 101, y_mm: 202, z_mm: 303 },
+    { time_s: 2.25, x_mm: 151, y_mm: 212, z_mm: 318 },
+  ],
+  keyframe_markers: [
+    { keyframe_id: START_KEYFRAME_ID, label: 'Start', time_s: 0, sample_index: 0 },
+    { keyframe_id: END_KEYFRAME_ID, label: 'End', time_s: 2, sample_index: 40 },
+  ],
+};
+
+const idlePlayback: PlaybackStatus = {
+  session_id: null,
+  state: 'IDLE',
+  motion_id: null,
+  trajectory_digest: null,
+  progress: 0,
+  elapsed_s: 0,
+  duration_s: 0,
+  current_keyframe_id: null,
+  current_segment_index: null,
+  current_sample_index: null,
+  loop: false,
+  rate: 1,
+  error: null,
+  updated_at: '2026-08-24T02:00:00Z',
+  hardware_accessed: false,
+};
+
 function runtime(overrides: Partial<RuntimeStatus> = {}): RuntimeStatus {
   return {
     ...SAFE_RUNTIME_STATUS,
@@ -158,6 +244,12 @@ interface BackendOptions {
   listError?: boolean;
   duplicateConflict?: boolean;
   changedSourceRevision?: boolean;
+  preflightPassed?: boolean;
+  playbackStatus?: PlaybackStatus;
+  playbackGetResponse?: Promise<Response>;
+  preflightResponse?: Promise<Response>;
+  previewResponse?: Promise<Response>;
+  pauseErrorOnce?: boolean;
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -170,6 +262,9 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function mockLibraryBackend(options: BackendOptions = {}) {
   const requests: RequestRecord[] = [];
+  let playbackStatus = options.playbackStatus ?? idlePlayback;
+  let delayedPlaybackResponse = options.playbackGetResponse;
+  let pauseErrorPending = options.pauseErrorOnce ?? false;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://momo.test');
     const path = url.pathname.replace(/^\/api\/v1/, '');
@@ -193,6 +288,105 @@ function mockLibraryBackend(options: BackendOptions = {}) {
     }
     if (path === `/poses/${END_ID}` && method === 'GET') return jsonResponse(endPose);
     if (path === `/motions/${MOTION_ID}` && method === 'GET') return jsonResponse(fullMotion);
+    if (path === `/motions/${MOTION_ID}/preflight` && method === 'POST') {
+      playbackStatus = {
+        ...idlePlayback,
+        state: 'PREFLIGHTING',
+        motion_id: MOTION_ID,
+      };
+      if (options.preflightResponse) return options.preflightResponse;
+      if (options.preflightPassed === false) {
+        playbackStatus = {
+          ...playbackStatus,
+          state: 'FAULTED',
+          error: 'Trajectory preflight rejected',
+        };
+        return jsonResponse({
+          ...passedPreflight,
+          passed: false,
+          digest: null,
+          sample_count: 0,
+          violations: [{
+            code: 'JOINT_LIMIT',
+            message: 'Joint J11 exceeds its configured limit in a deliberately long violation message that must wrap safely.',
+            segment_index: 0,
+            keyframe_id: END_KEYFRAME_ID,
+            check: 'joint_limits',
+            sample_index: 21,
+            joint_id: 'j11',
+            actual: 93,
+            limit: 90,
+            unit: 'deg',
+            blocking: true,
+          }],
+          checks: [{ name: 'limits', passed: false, detail: 'One or more samples exceed limits' }],
+        });
+      }
+      playbackStatus = {
+        ...idlePlayback,
+        state: 'READY',
+        motion_id: MOTION_ID,
+        trajectory_digest: passedPreflight.digest,
+        duration_s: passedPreflight.duration_s,
+      };
+      return jsonResponse(passedPreflight);
+    }
+    if (path === `/trajectory/${encodeURIComponent(passedPreflight.digest as string)}/preview` && method === 'GET') {
+      if (options.previewResponse) return options.previewResponse;
+      return jsonResponse(trajectoryPreview);
+    }
+    if (path === `/motions/${MOTION_ID}/play` && method === 'POST') {
+      playbackStatus = {
+        ...idlePlayback,
+        session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        state: 'PLAYING',
+        motion_id: MOTION_ID,
+        trajectory_digest: passedPreflight.digest,
+        duration_s: passedPreflight.duration_s,
+        current_keyframe_id: START_KEYFRAME_ID,
+        current_segment_index: 0,
+        current_sample_index: 0,
+        loop: (body as { loop: boolean }).loop,
+        rate: (body as { rate: number }).rate,
+      };
+      return jsonResponse(playbackStatus, 202);
+    }
+    if (path === '/playback' && method === 'GET') {
+      if (delayedPlaybackResponse) {
+        const response = delayedPlaybackResponse;
+        delayedPlaybackResponse = undefined;
+        return response;
+      }
+      return jsonResponse(playbackStatus);
+    }
+    if (path === '/playback/pause' && method === 'POST') {
+      if (pauseErrorPending) {
+        pauseErrorPending = false;
+        return jsonResponse({
+          code: 'MOTION_CONFLICT',
+          message: 'Pause was rejected because the runner changed state',
+          details: { state: playbackStatus.state },
+        }, 409);
+      }
+      playbackStatus = { ...playbackStatus, state: 'PAUSED' };
+      return jsonResponse(playbackStatus);
+    }
+    if (path === '/playback/resume' && method === 'POST') {
+      playbackStatus = { ...playbackStatus, state: 'PLAYING' };
+      return jsonResponse(playbackStatus);
+    }
+    if (path === '/playback/stop' && method === 'POST') {
+      playbackStatus = { ...playbackStatus, state: 'STOPPED' };
+      return jsonResponse(playbackStatus);
+    }
+    if (path === '/playback/rate' && method === 'PUT') {
+      playbackStatus = { ...playbackStatus, rate: (body as { rate: number }).rate };
+      return jsonResponse(playbackStatus);
+    }
+    if (path === '/playback/loop' && method === 'PUT') {
+      playbackStatus = { ...playbackStatus, loop: (body as { loop: boolean }).loop };
+      return jsonResponse(playbackStatus);
+    }
     if (path === '/poses/capture' && method === 'POST') {
       return jsonResponse({ ...startPose, id: '66666666-6666-4666-8666-666666666666', name: (body as { name: string }).name }, 201);
     }
@@ -233,6 +427,12 @@ function mockLibraryBackend(options: BackendOptions = {}) {
     fetchMock,
     requests,
     requestsMatching: (fragment: string) => requests.filter((request) => request.path.includes(fragment)),
+    setNextPlaybackResponse: (response: Promise<Response>) => {
+      delayedPlaybackResponse = response;
+    },
+    setPlaybackStatus: (next: PlaybackStatus) => {
+      playbackStatus = next;
+    },
   };
 }
 
@@ -251,7 +451,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Stage 4 Library', () => {
+describe('Stage 5 Library', () => {
   it('renders Pose summaries, loads explicit detail, and uses UUID-only Studio links', async () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend();
@@ -512,26 +712,374 @@ describe('Stage 4 Library', () => {
     expect(backend.requestsMatching(`/poses/${END_ID}`)).toHaveLength(1);
   });
 
-  it('renders bounded Motion summaries, keeps Play gated, and loads full keyframes only on View', async () => {
+  it('renders bounded Motion summaries and opens full playback detail only on demand', async () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend();
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
     expect(await screen.findByText('2.25 s')).toBeVisible();
     expect(screen.getByText('JOINT')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled();
-    expect(screen.getByText('Play is unavailable until Stage 5.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled();
     expect(screen.getByRole('link', { name: 'Open in Studio' })).toHaveAttribute(
       'href',
       `/studio?motion=${MOTION_ID}`,
     );
 
     expect(backend.requestsMatching(`/motions/${MOTION_ID}`)).toHaveLength(0);
-    await user.click(screen.getByRole('button', { name: 'View details' }));
+    await user.click(screen.getByRole('button', { name: 'Play' }));
     expect(await screen.findByRole('dialog', { name: 'Pick and place' })).toBeVisible();
     expect(screen.getByText(/Start keyframe · no incoming transition/)).toBeVisible();
     expect(screen.getByText(/JOINT · 2.00 s · SMOOTHSTEP/)).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Preflight & playback' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Run preflight' })).toBeEnabled();
     expect(backend.requestsMatching(`/motions/${MOTION_ID}`)).toHaveLength(1);
+  });
+
+  it('preflights, renders the responsive trajectory, and drives every playback transition', async () => {
+    const user = userEvent.setup();
+    const backend = mockLibraryBackend();
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
+    const controls = within(dialog);
+
+    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
+    expect(await controls.findByText('Preflight passed')).toBeVisible();
+    const report = controls.getByRole('region', { name: 'Preflight result' });
+    expect(within(report).getByText('2.25 s')).toBeVisible();
+    expect(within(report).getByText('46')).toBeVisible();
+    expect(within(report).getByText('2')).toBeVisible();
+    expect(within(report).getByText('20 Hz')).toBeVisible();
+    expect(await controls.findByRole('heading', { name: 'Trajectory preview' })).toBeVisible();
+    expect(controls.getByRole('img', { name: /Joint trajectory over 2.3 seconds/ })).toHaveAttribute(
+      'viewBox',
+      '0 0 720 250',
+    );
+    expect(controls.getByText('JOINT · segment 1')).toBeVisible();
+    expect(controls.getByText('HOLD · segment 2')).toBeVisible();
+    expect(controls.getAllByText(/101.0–151.0 mm/).length).toBeGreaterThan(0);
+    expect(controls.getByText(/303.0–318.0 mm/)).toBeVisible();
+    expect(backend.requestsMatching(`/motions/${MOTION_ID}/preflight`)[0]?.body).toEqual({
+      expected_revision: 4,
+    });
+    await waitFor(() => expect(controls.getByRole('button', { name: 'Play' })).toBeEnabled());
+
+    await user.selectOptions(controls.getByLabelText('Playback rate'), '1.5');
+    await user.click(controls.getByRole('checkbox', { name: 'Loop playback' }));
+    await user.click(controls.getByRole('button', { name: 'Play' }));
+    await waitFor(() => expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0));
+    expect(backend.requestsMatching(`/motions/${MOTION_ID}/play`)[0]?.body).toEqual({
+      expected_revision: 4,
+      trajectory_digest: passedPreflight.digest,
+      loop: true,
+      rate: 1.5,
+    });
+    expect(screen.getByLabelText('Name')).toBeDisabled();
+    expect(screen.getByRole('link', { name: 'Open in Studio' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Duplicate' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+
+    await user.click(controls.getByRole('button', { name: 'Pause' }));
+    await waitFor(() => expect(controls.getAllByText('PAUSED').length).toBeGreaterThan(0));
+    expect(controls.getByRole('button', { name: 'Resume' })).toBeEnabled();
+    await user.click(controls.getByRole('button', { name: 'Resume' }));
+    await waitFor(() => expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0));
+
+    await user.selectOptions(controls.getByLabelText('Playback rate'), '2');
+    await waitFor(() => expect(
+      backend.requests.filter(
+        (request) => request.path === '/playback/rate' && request.method === 'PUT',
+      ).at(-1)?.body,
+    ).toEqual({ rate: 2 }));
+    await user.click(controls.getByRole('checkbox', { name: 'Loop playback' }));
+    await waitFor(() => expect(
+      backend.requests.filter(
+        (request) => request.path === '/playback/loop' && request.method === 'PUT',
+      ).at(-1)?.body,
+    ).toEqual({ loop: false }));
+
+    await user.click(controls.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(controls.getAllByText('STOPPED').length).toBeGreaterThan(0));
+    expect(backend.requests.some((request) => request.path === '/playback/pause')).toBe(true);
+    expect(backend.requests.some((request) => request.path === '/playback/resume')).toBe(true);
+    expect(backend.requests.some((request) => request.path === '/playback/stop')).toBe(true);
+  });
+
+  it('shows structured preflight violations and never enables Play without a digest', async () => {
+    const user = userEvent.setup();
+    mockLibraryBackend({ preflightPassed: false });
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
+    const controls = within(dialog);
+
+    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
+    expect(await controls.findByText('Preflight rejected')).toBeVisible();
+    expect(controls.getByText('JOINT_LIMIT')).toBeVisible();
+    expect(controls.getByText(/deliberately long violation message/)).toBeVisible();
+    expect(controls.getByText(`Keyframe ${END_KEYFRAME_ID}`)).toBeVisible();
+    expect(controls.getByText('Segment 1')).toBeVisible();
+    expect(controls.getByText('Check joint_limits')).toBeVisible();
+    expect(controls.getByText('Sample 21')).toBeVisible();
+    expect(controls.getByText(/Joint j11 · actual 93 deg · limit 90 deg/)).toBeVisible();
+    expect(controls.getByRole('button', { name: 'Play' })).toBeDisabled();
+    expect(controls.queryByRole('heading', { name: 'Trajectory preview' })).not.toBeInTheDocument();
+  });
+
+  it('shows polled progress and lets the active Motion reopen while other Library actions stay locked', async () => {
+    const user = userEvent.setup();
+    mockLibraryBackend({
+      playbackStatus: {
+        ...idlePlayback,
+        session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        state: 'PLAYING',
+        motion_id: MOTION_ID,
+        trajectory_digest: passedPreflight.digest,
+        progress: 0.42,
+        elapsed_s: 0.95,
+        duration_s: 2.25,
+        current_keyframe_id: END_KEYFRAME_ID,
+        current_segment_index: 1,
+        current_sample_index: 19,
+        loop: true,
+        rate: 1.5,
+      },
+    });
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    const cardPlay = await screen.findByRole('button', { name: 'Play' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Duplicate' })).toBeDisabled());
+    expect(cardPlay).toBeEnabled();
+    await user.click(cardPlay);
+    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
+    const controls = within(dialog);
+
+    expect(controls.getByText('42%')).toBeVisible();
+    expect(controls.getByText('0.95 s / 2.25 s')).toBeVisible();
+    expect(controls.getByText('End')).toBeVisible();
+    expect(controls.getByText('19')).toBeVisible();
+    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeChecked();
+    expect(controls.getByLabelText('Playback rate')).toHaveValue('1.5');
+    expect(controls.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    expect(controls.getByRole('button', { name: 'Run preflight' })).toBeDisabled();
+  });
+
+  it('keeps polling playback after switching to Poses so completed sessions release the Library lock', async () => {
+    const user = userEvent.setup();
+    const playing: PlaybackStatus = {
+      ...idlePlayback,
+      session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      state: 'PLAYING',
+      motion_id: MOTION_ID,
+      trajectory_digest: passedPreflight.digest,
+      duration_s: passedPreflight.duration_s,
+    };
+    const backend = mockLibraryBackend({ playbackStatus: playing });
+    renderLibrary();
+
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await screen.findByRole('heading', { name: 'Pick and place' });
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeDisabled());
+    await user.click(screen.getByRole('tab', { name: 'POSES' }));
+    await screen.findByRole('heading', { name: 'Ready' });
+    expect(screen.getByLabelText('Name')).toBeDisabled();
+
+    backend.setPlaybackStatus({
+      ...playing,
+      state: 'COMPLETED',
+      progress: 1,
+      elapsed_s: passedPreflight.duration_s,
+    });
+
+    await waitFor(
+      () => expect(screen.getByLabelText('Name')).toBeEnabled(),
+      { timeout: 2_000 },
+    );
+    expect(screen.getByRole('button', { name: 'Capture current pose' })).toBeEnabled();
+  });
+
+  it('keeps a rejected playback command visible across healthy polls until it is dismissed', async () => {
+    const user = userEvent.setup();
+    const backend = mockLibraryBackend({
+      pauseErrorOnce: true,
+      playbackStatus: {
+        ...idlePlayback,
+        session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        state: 'PLAYING',
+        motion_id: MOTION_ID,
+        trajectory_digest: passedPreflight.digest,
+        duration_s: passedPreflight.duration_s,
+      },
+    });
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
+    await waitFor(() => expect(controls.getByRole('button', { name: 'Pause' })).toBeEnabled());
+
+    await user.click(controls.getByRole('button', { name: 'Pause' }));
+    expect(await controls.findByText('Pause was rejected because the runner changed state')).toBeVisible();
+    const pollsAfterError = backend.requests.filter(
+      (request) => request.path === '/playback' && request.method === 'GET',
+    ).length;
+    await waitFor(() => expect(backend.requests.filter(
+      (request) => request.path === '/playback' && request.method === 'GET',
+    ).length).toBeGreaterThan(pollsAfterError), { timeout: 2_000 });
+    expect(controls.getByText('Pause was rejected because the runner changed state')).toBeVisible();
+
+    await user.click(controls.getByRole('button', { name: 'Dismiss playback error' }));
+    expect(controls.queryByText('Pause was rejected because the runner changed state')).not.toBeInTheDocument();
+  });
+
+  it('gates controls exactly during PREFLIGHTING, STOPPING, and terminal playback states', async () => {
+    const user = userEvent.setup();
+    const preflighting: PlaybackStatus = {
+      ...idlePlayback,
+      state: 'PREFLIGHTING',
+      motion_id: MOTION_ID,
+    };
+    const backend = mockLibraryBackend({ playbackStatus: preflighting });
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
+    await waitFor(() => expect(controls.getAllByText('PREFLIGHTING').length).toBeGreaterThan(0));
+
+    expect(controls.getByRole('button', { name: 'Run preflight' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: 'Play' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: 'Pause' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: 'Resume' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
+    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeDisabled();
+
+    backend.setPlaybackStatus({ ...preflighting, state: 'STOPPING' });
+    await waitFor(
+      () => expect(controls.getAllByText('STOPPING').length).toBeGreaterThan(0),
+      { timeout: 2_000 },
+    );
+    expect(controls.getByRole('button', { name: 'Stop' })).toBeDisabled();
+    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
+    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeDisabled();
+
+    backend.setPlaybackStatus({ ...preflighting, state: 'COMPLETED', progress: 1 });
+    await waitFor(
+      () => expect(controls.getAllByText('COMPLETED').length).toBeGreaterThan(0),
+      { timeout: 2_000 },
+    );
+    expect(controls.getByRole('button', { name: 'Play' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: 'Stop' })).toBeDisabled();
+    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
+    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeDisabled();
+  });
+
+  it('lets Stop supersede an in-flight preflight and ignores its late result', async () => {
+    const user = userEvent.setup();
+    let resolvePreflight!: (response: Response) => void;
+    const pendingPreflight = new Promise<Response>((resolve) => {
+      resolvePreflight = resolve;
+    });
+    const backend = mockLibraryBackend({ preflightResponse: pendingPreflight });
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
+
+    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
+    await waitFor(
+      () => expect(controls.getByRole('button', { name: 'Stop' })).toBeEnabled(),
+      { timeout: 2_000 },
+    );
+    expect(controls.getByRole('button', { name: 'Preflighting…' })).toBeDisabled();
+    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
+
+    await user.click(controls.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(backend.requestsMatching('/playback/stop')).toHaveLength(1));
+    await waitFor(() => expect(controls.getAllByText('STOPPED').length).toBeGreaterThan(0));
+
+    await act(async () => {
+      resolvePreflight(jsonResponse(passedPreflight));
+      await pendingPreflight;
+    });
+    expect(controls.queryByText('Preflight passed')).not.toBeInTheDocument();
+    expect(controls.getAllByText('STOPPED').length).toBeGreaterThan(0);
+    expect(controls.getByRole('button', { name: 'Run preflight' })).toBeEnabled();
+  });
+
+  it('ignores an older playback poll that resolves after a Play command response', async () => {
+    const user = userEvent.setup();
+    let resolveOldPoll!: (response: Response) => void;
+    const oldPoll = new Promise<Response>((resolve) => {
+      resolveOldPoll = resolve;
+    });
+    const backend = mockLibraryBackend();
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
+    const controls = within(dialog);
+    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
+    await controls.findByText('Preflight passed');
+    await waitFor(() => expect(controls.getByRole('button', { name: 'Play' })).toBeEnabled());
+    const pollsBeforeDelay = backend.requests.filter(
+      (request) => request.path === '/playback' && request.method === 'GET',
+    ).length;
+    backend.setNextPlaybackResponse(oldPoll);
+    await waitFor(() => expect(backend.requests.filter(
+      (request) => request.path === '/playback' && request.method === 'GET',
+    ).length).toBeGreaterThan(pollsBeforeDelay), { timeout: 2_000 });
+    await user.click(controls.getByRole('button', { name: 'Play' }));
+    await waitFor(() => expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0));
+
+    await act(async () => {
+      resolveOldPoll(jsonResponse(idlePlayback));
+      await oldPoll;
+    });
+    expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Duplicate' })).toBeDisabled();
+  });
+
+  it('disables preflight and card playback for offline-quality robot state', async () => {
+    const user = userEvent.setup();
+    mockLibraryBackend();
+    renderLibrary(runtime({
+      stale: true,
+      robot: { ...robotFor('V2', true), stale: true } as NonNullable<RuntimeStatus['robot']>,
+    }));
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    expect(await screen.findByRole('button', { name: 'Play' })).toBeDisabled();
+    expect(screen.getByText('Playback unavailable · robot state is stale')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'View details' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
+    expect(within(dialog).getByRole('button', { name: 'Run preflight' })).toBeDisabled();
+    expect(within(dialog).getByText('Playback unavailable · robot state is stale')).toBeVisible();
+  });
+
+  it('ignores a late trajectory preview after Motion details close', async () => {
+    const user = userEvent.setup();
+    let resolvePreview!: (response: Response) => void;
+    const pendingPreview = new Promise<Response>((resolve) => {
+      resolvePreview = resolve;
+    });
+    const backend = mockLibraryBackend({ previewResponse: pendingPreview });
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
+    await user.click(within(dialog).getByRole('button', { name: 'Run preflight' }));
+    expect(await within(dialog).findByText('Loading bounded trajectory preview…')).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Close details' }));
+
+    await act(async () => {
+      resolvePreview(jsonResponse(trajectoryPreview));
+      await pendingPreview;
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Trajectory preview' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled());
+    expect(backend.requestsMatching('/trajectory/')).toHaveLength(1);
   });
 
   it('shows an explicit conflict, keeps the Motion draft, and offers Reload', async () => {

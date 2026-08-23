@@ -14,7 +14,7 @@ test:
 
 lint:
 	$(BACKEND_PYTHON) -m ruff check backend
-	$(BACKEND_PYTHON) -m mypy backend/src backend/tests backend/scripts
+	MYPYPATH=backend/src $(BACKEND_PYTHON) -m mypy --config-file backend/pyproject.toml backend/src backend/tests backend/scripts
 	$(NPM) --prefix frontend run lint
 	$(NPM) --prefix frontend run typecheck
 

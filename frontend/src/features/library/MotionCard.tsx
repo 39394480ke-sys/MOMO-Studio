@@ -7,25 +7,33 @@ import { formatEntityDate } from './libraryFormat';
 interface MotionCardProps {
   motion: MotionSummary;
   busy: boolean;
+  playBusy: boolean;
+  viewBusy: boolean;
   deletePending: boolean;
   onDeleteCancel: () => void;
   onDeleteConfirm: (motion: MotionSummary) => void;
   onDeleteRequest: (motion: MotionSummary) => void;
   onDuplicate: (motion: MotionSummary) => void;
+  onPlay: (motion: MotionSummary) => void;
   onTagSelect: (tag: string) => void;
   onView: (motion: MotionSummary) => void;
+  playDisabledReason: string | null;
 }
 
 export function MotionCard({
   motion,
   busy,
+  playBusy,
+  viewBusy,
   deletePending,
   onDeleteCancel,
   onDeleteConfirm,
   onDeleteRequest,
   onDuplicate,
+  onPlay,
   onTagSelect,
   onView,
+  playDisabledReason,
 }: MotionCardProps) {
   const titleId = `motion-title-${motion.id}`;
 
@@ -75,25 +83,37 @@ export function MotionCard({
       <code className="entity-id" title={motion.id}>ID {motion.id}</code>
 
       <div className="library-card__actions">
-        <button className="command-button" disabled={busy} onClick={() => onView(motion)} type="button">
+        <button className="command-button" disabled={viewBusy} onClick={() => onView(motion)} type="button">
           View details
         </button>
-        <Link className="command-button command-button--primary" to={`/studio?motion=${encodeURIComponent(motion.id)}`}>
+        <Link
+          aria-disabled={busy}
+          className="command-button command-button--primary"
+          onClick={(event) => {
+            if (busy) event.preventDefault();
+          }}
+          tabIndex={busy ? -1 : undefined}
+          to={`/studio?motion=${encodeURIComponent(motion.id)}`}
+        >
           <ExternalLink aria-hidden="true" />
           Open in Studio
         </Link>
         <button
-          aria-describedby={`play-stage-${motion.id}`}
+          aria-describedby={playDisabledReason ? `play-reason-${motion.id}` : undefined}
           className="command-button"
-          disabled
+          disabled={playBusy || playDisabledReason !== null}
+          onClick={() => onPlay(motion)}
+          title={playDisabledReason ?? 'Open this Motion playback workflow'}
           type="button"
         >
           <Play aria-hidden="true" />
           Play
         </button>
-        <span className="visually-hidden" id={`play-stage-${motion.id}`}>
-          Playback becomes available in Stage 5
-        </span>
+        {playDisabledReason ? (
+          <span className="visually-hidden" id={`play-reason-${motion.id}`}>
+            Playback unavailable: {playDisabledReason}
+          </span>
+        ) : null}
         <button
           className="command-button"
           disabled={busy}
@@ -113,7 +133,7 @@ export function MotionCard({
           Delete
         </button>
       </div>
-      <p className="stage-boundary-note">Play is unavailable until Stage 5.</p>
+      {playDisabledReason ? <p className="stage-boundary-note">Playback unavailable · {playDisabledReason}</p> : null}
 
       {deletePending ? (
         <div aria-labelledby={`delete-motion-${motion.id}`} className="delete-confirmation" role="alertdialog">

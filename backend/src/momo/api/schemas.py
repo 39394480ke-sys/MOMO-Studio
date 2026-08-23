@@ -16,7 +16,7 @@ class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     product: str
     version: str
-    stage: Literal[4] = 4
+    stage: Literal[5] = 5
     control_mode: Literal[ControlMode.DRY_RUN] = ControlMode.DRY_RUN
     hardware_access_policy: Literal[HardwareAccessPolicy.DISABLED] = HardwareAccessPolicy.DISABLED
     real_motion_enabled: Literal[False] = False
@@ -28,7 +28,7 @@ class MetaResponse(BaseModel):
     product: str
     version: str
     api_version: Literal["v1"] = "v1"
-    stage: Literal[4] = 4
+    stage: Literal[5] = 5
     active_robot_variant: RobotVariant
     supported_robot_variants: list[RobotVariant] = Field(
         default_factory=lambda: [RobotVariant.V1, RobotVariant.V2]
@@ -46,9 +46,10 @@ class ProductScopeResponse(BaseModel):
 
     product: str
     release: Literal["first_version"] = "first_version"
-    stage: Literal[4] = 4
+    stage: Literal[5] = 5
     stage_3_available: list[str]
     stage_4_available: list[str]
+    stage_5_available: list[str]
     included_in_first_version: list[str]
     excluded_from_first_version: list[str]
 

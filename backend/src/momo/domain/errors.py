@@ -130,5 +130,10 @@ class PoseIncompatibleError(RobotApplicationError):
     status_code = 422
 
 
+class PreparedTrajectoryNotFoundError(RobotApplicationError):
+    code = "PREPARED_TRAJECTORY_NOT_FOUND"
+    status_code = 404
+
+
 class HardwareMappingError(DomainValidationError):
     """A logical/raw conversion cannot be proven valid from explicit inputs."""

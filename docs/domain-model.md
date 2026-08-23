@@ -4,7 +4,7 @@
 
 `RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases.
 `ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability
-gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 4 continues to permit only
+gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 5 continues to permit only
 `DRY_RUN` plus `DISABLED`; the other enum members reserve vocabulary and grant no
 current capability.
 
@@ -111,7 +111,7 @@ Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE
 - `VALID_FOR_DRY_RUN`
 - `READY_FOR_REAL`
 
-Stage 4 still never returns effective Real readiness: `real_readiness` remains
+Stage 5 still never returns effective Real readiness: `real_readiness` remains
 `BLOCKED_BY_STAGE_POLICY`. A complete matching template can be structurally valid for
 diagnostics, but it cannot authorize hardware. Mapping mismatch is classified as
 `INCOMPLETE` and makes `calibration_valid=false`. The repository is read-only and loads
@@ -133,7 +133,7 @@ goal_raw = calibration_home_present_raw + relative_raw
 
 `logical_to_goal_raw`, `goal_raw_to_logical`, `validate_goal_raw`, and `effective_logical_limits_from_raw_bounds` are pure functions. Profile and Calibration raw bounds are intersected; the resulting raw range is converted in both directions and intersected with logical Profile limits. Inputs must be finite, scale/counts positive, direction valid, operating mode matching, Home configured, and the joint known. The rounding tolerance is derived from one half of a raw count in that joint's declared scale.
 
-These functions remain characterization and preflight inputs only. Stage 4 Dry Run
+These functions remain characterization and preflight inputs only. Stage 5 Dry Run
 commands never emit raw values and no API exposes raw mapping. A later reviewed Real
 gateway may use raw-derived reachable limits, but no Stage 3 executor can write them.
 
@@ -151,7 +151,7 @@ The file repository constrains robot IDs and paths, writes atomically, and quara
 `RobotStatus` is the read-only API projection: identity, variant, mode/policy, connection
 state, connected flag, Profile identity/verification, Calibration status, positions,
 units, optional raw positions, last error, timestamp, sequence, stale marker, and
-`hardware_accessed=false`. Stage 4 continues to return `raw_positions=null`; command and
+`hardware_accessed=false`. Stage 5 continues to return `raw_positions=null`; command and
 TCP status may extend the transport projection without changing the persisted runtime
 schema.
 
@@ -239,9 +239,42 @@ keyframe has no incoming transition and every later keyframe has one. Stage 4 pr
 those playable invariants rather than introducing an incomplete editing shape; Stage 6
 will use a separate `MotionDraft`. Motion schema `2.0.0` may carry typed, bounded
 `LegacyImportMetadata` for importer-owned provenance; Library API clients cannot set it.
-Stage 3 Move Pose remains an explicit transient
-TCP target; Stage 4 adds storage and Library workflows but no trajectory compiler or
-playback.
+Stage 3 Move Pose remains an explicit transient TCP target. Stage 4 adds storage and
+Library workflows. Stage 5 compiles stored Motion revisions and plays only accepted
+prepared plans.
+
+## Trajectory, preflight, and playback
+
+`TrajectoryPlan` is a complete immutable sample plan in domain units. It binds Motion
+UUID/revision, variant, Profile/Kinematics fingerprints, start-state sequence, sample
+rate, duration, ordered `TrajectorySegment` and `TrajectorySample` values, and a
+deterministic SHA-256 `TrajectoryDigest`. Its semantic digest excludes only
+`compiled_at`. Forged or internally inconsistent plans fail domain validation.
+
+Segments are `JOINT`, `CARTESIAN_LINEAR`, or `HOLD`. Joint transitions apply the target
+keyframe's `LINEAR`, `SMOOTHSTEP`, or `EASE_IN_OUT` setting. Cartesian position is
+linear and orientation is shortest-path quaternion SLERP; IK is solved at every sample
+using the prior accepted solution as seed. Holds are explicit stationary time segments.
+Sample times are strictly increasing, adjacent segments share one boundary, and the
+last sample equals exact total duration.
+
+`TrajectoryPreflightReport` carries named checks and typed blocking violations. It can
+expose a digest only when the complete plan is accepted. `PreparedTrajectory` binds that
+report to the exact plan. The cache is bounded and process-local; preview uses that same
+prepared value and never compiles a second path. Execution rechecks repository revision,
+variant, fingerprints, state sequence, connection/freshness, Stop capability, Dry Run
+policy, and single-motion ownership through `MotionSafetyGateway`.
+
+`PlaybackOperatorIntent` is explicit and digest-bound. `PlaybackStatus` has `IDLE`,
+`PREFLIGHTING`, `READY`, `PLAYING`, `PAUSED`, `STOPPING`, `STOPPED`, `COMPLETED`, and
+`FAULTED` states plus bounded progress/rate/loop data. Scheduling uses monotonic absolute
+deadlines; pause/resume and rate changes rebase time without backlog bursts. Looping
+requires a closed plan and is bounded to 100 traversals. Latest-value playback events
+extend the read-only robot WebSocket and never form a command queue.
+
+The full interpolation, residual, dynamics, workspace, resource, and timing rules are
+specified in `docs/trajectory-semantics.md`. All Stage 5 results remain
+`hardware_accessed=false`; no plan grants Real readiness.
 
 ## Entity repositories and revisions
 

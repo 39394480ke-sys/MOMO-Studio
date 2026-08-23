@@ -1,8 +1,11 @@
-"""The single reviewed entry point for every Stage 3 motion intent."""
+"""The single reviewed entry point for every motion intent."""
 
 from __future__ import annotations
 
-from math import ceil, sqrt
+import asyncio
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from math import ceil, isclose, sqrt
 from typing import NoReturn
 
 from momo.application.services.calibration_service import CalibrationService
@@ -17,7 +20,7 @@ from momo.domain.enums import (
     MotionCommandType,
     RobotConnectionState,
 )
-from momo.domain.errors import HardwareMappingError, MotionPreflightError
+from momo.domain.errors import HardwareMappingError, MotionConflictError, MotionPreflightError
 from momo.domain.hardware_mapping import effective_logical_limits_from_raw_bounds
 from momo.domain.motion_command import (
     MAX_EFFECTIVE_MOTION_DURATION_S,
@@ -35,13 +38,71 @@ from momo.domain.motion_preflight import (
     PreparedContinuousJog,
     PreparedMotion,
 )
+from momo.domain.playback import PlaybackExecutionSnapshot, PlaybackOperatorIntent
 from momo.domain.robot import JointState, RobotProfile
 from momo.domain.safety import validate_logical_value
+from momo.domain.trajectory import PreparedTrajectory
 from momo.ports.motion_executor import MotionExecutor
 
 PreparedCommand = PreparedMotion | PreparedContinuousJog
 MIN_EFFECTIVE_CONTINUOUS_SPEED = 0.1
 SMOOTHSTEP_PEAK_VELOCITY_FACTOR = 1.5
+
+
+class MotionAdmissionCoordinator:
+    """Serialize motion ownership and fence lifecycle transitions."""
+
+    def __init__(self, slot_is_free: Callable[[], bool]) -> None:
+        self._slot_is_free = slot_is_free
+        self._guard = asyncio.Lock()
+        self._lifecycle_epoch = 0
+        self._lifecycle_count = 0
+
+    @asynccontextmanager
+    async def admit(self) -> AsyncIterator[None]:
+        async with self._guard:
+            yield
+
+    def motion_slot_is_free(self) -> bool:
+        """Read both owners while the caller holds ``admit``."""
+
+        return self._slot_is_free()
+
+    @property
+    def lifecycle_epoch(self) -> int:
+        return self._lifecycle_epoch
+
+    @property
+    def lifecycle_count(self) -> int:
+        return self._lifecycle_count
+
+    def capture_lifecycle_epoch(self) -> int:
+        """Capture a request fence, rejecting work that starts during lifecycle Stop."""
+
+        epoch = self._lifecycle_epoch
+        self.require_lifecycle_epoch(epoch)
+        return epoch
+
+    def require_lifecycle_epoch(self, epoch: int) -> None:
+        """Reject work begun before or during a lifecycle transition."""
+
+        if self._lifecycle_count or epoch != self._lifecycle_epoch:
+            raise MotionConflictError(
+                "Motion intent was superseded by a lifecycle Stop",
+                details={"reason": "LIFECYCLE_EPOCH_CHANGED"},
+            )
+
+    def begin_lifecycle(self) -> None:
+        """Fence new work before lifecycle cancellation starts."""
+
+        self._lifecycle_count += 1
+        self._lifecycle_epoch += 1
+
+    def end_lifecycle(self) -> None:
+        """Open a new request epoch after one lifecycle transition completes."""
+
+        self._lifecycle_epoch += 1
+        self._lifecycle_count -= 1
 
 
 class MotionSafetyGateway:
@@ -58,6 +119,16 @@ class MotionSafetyGateway:
         self.kinematics_service = kinematics_service
         self.calibration_service = calibration_service
         self.executor = executor
+        self._external_motion_active: Callable[[], bool] = lambda: False
+        self.motion_admission = MotionAdmissionCoordinator(self.motion_slot_is_free)
+
+    def register_external_motion_guard(self, guard: Callable[[], bool]) -> None:
+        """Bind one high-level playback owner without exposing an executor or driver."""
+
+        self._external_motion_active = guard
+
+    def motion_slot_is_free(self) -> bool:
+        return self.executor.active_command_id is None and not self._external_motion_active()
 
     async def prepare(self, command: MotionCommand) -> PreparedCommand:
         status, profile, current = await self.robot_service.get_motion_snapshot()
@@ -99,7 +170,7 @@ class MotionSafetyGateway:
         )
         check(not status.stale, "state_freshness", "robot state is stale")
         check(
-            self.executor.active_command_id is None,
+            self.motion_slot_is_free(),
             "command_conflict",
             "another motion is already active",
         )
@@ -228,6 +299,91 @@ class MotionSafetyGateway:
             target_state=target,
             duration_s=duration_s / command.speed_scale,
             preflight=preflight,
+        )
+
+    async def validate_prepared_trajectory(
+        self,
+        prepared: PreparedTrajectory,
+        intent: PlaybackOperatorIntent,
+        *,
+        motion_revision: int,
+    ) -> PlaybackExecutionSnapshot:
+        """Revalidate the exact compiled plan at the single safety entry point."""
+
+        plan = prepared.plan
+        status, profile, current = await self.robot_service.get_motion_snapshot()
+        model = self.kinematics_service.model_for(profile)
+        reasons: list[str] = []
+        if not prepared.preflight.accepted:
+            reasons.append("PREFLIGHT_NOT_ACCEPTED")
+        if (
+            intent.motion_id != plan.motion_id
+            or intent.motion_revision != plan.motion_revision
+            or intent.trajectory_digest != plan.digest.sha256
+        ):
+            reasons.append("OPERATOR_INTENT_MISMATCH")
+        reasons.extend(
+            violation.code
+            for violation in prepared.binding_violations(
+                motion_revision=motion_revision,
+                robot_variant=status.variant,
+                profile_fingerprint=profile.fingerprint,
+                kinematics_fingerprint=model.fingerprint,
+                state_sequence=status.state_sequence,
+            )
+        )
+        if not status.connected:
+            reasons.append("ROBOT_NOT_CONNECTED")
+        if status.stale:
+            reasons.append("ROBOT_STATE_STALE")
+        if status.control_mode is not ControlMode.DRY_RUN:
+            reasons.append("CONTROL_MODE_CHANGED")
+        if status.hardware_access_policy is not HardwareAccessPolicy.DISABLED:
+            reasons.append("HARDWARE_POLICY_CHANGED")
+        if self.executor.active_command_id is not None:
+            reasons.append("MOTION_COMMAND_ACTIVE")
+        first = plan.samples[0]
+        if (
+            set(current.positions) != set(first.positions)
+            or current.units is None
+            or dict(current.units) != dict(first.units)
+            or any(
+                not isclose(
+                    current.positions[joint_id],
+                    first.positions[joint_id],
+                    rel_tol=0.0,
+                    abs_tol=1e-6,
+                )
+                for joint_id in first.positions
+            )
+        ):
+            reasons.append("START_STATE_CHANGED")
+        stop_capable = callable(getattr(self.executor, "cancel_active", None)) and callable(
+            getattr(self.robot_service, "stop", None)
+        )
+        if not stop_capable:
+            reasons.append("STOP_CAPABILITY_UNAVAILABLE")
+        if reasons:
+            unique_reasons = list(dict.fromkeys(reasons))
+            raise MotionPreflightError(
+                "Prepared trajectory became unsafe before playback",
+                details={"reasons": unique_reasons},
+            )
+        return PlaybackExecutionSnapshot(
+            operator_intent_id=intent.intent_id,
+            motion_id=plan.motion_id,
+            motion_revision=motion_revision,
+            robot_variant=status.variant,
+            state_sequence=status.state_sequence,
+            profile_fingerprint=profile.fingerprint,
+            kinematics_fingerprint=model.fingerprint,
+            connected=status.connected,
+            stale=status.stale,
+            stop_capable=stop_capable,
+            control_mode=status.control_mode,
+            hardware_access_policy=status.hardware_access_policy,
+            safety_gateway_validated=True,
+            hardware_accessed=False,
         )
 
     def _continuous_jog_bounds(

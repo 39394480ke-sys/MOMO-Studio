@@ -1,17 +1,17 @@
 # Safety
 
-## Stage 4 safety boundary
+## Stage 5 safety boundary
 
-Stage 3 is complete. Stage 4 adds only server-owned Pose/Motion persistence, Library
-workflows, and an explicit offline Legacy action importer. Its final code, browser,
-dependency, isolation, and independent audit gates pass, with P1=0/P2=0. The entire
-application remains Dry Run only and structurally unable to command physical hardware:
+Stages 3 and 4 are complete. Stage 5 adds deterministic trajectory compilation,
+whole-path preflight, digest-bound preview, and bounded playback. The entire application
+remains Dry Run only and structurally unable to command physical hardware:
 
 - settings require `control_mode=DRY_RUN`, `real_motion_enabled=false`, and
   `hardware_access_policy=DISABLED`;
 - the composition root may inject only in-memory Dry Run motion implementations;
 - no serial or Feetech adapter/dependency is available through the product path;
-- no startup, Connect, Capture, Goto, import, route, WebSocket, executor, or kinematics
+- no startup, Connect, Capture, Goto, import, compile, playback, route, WebSocket,
+  executor, or kinematics
   operation may enumerate, scan, read, write, Home, torque, calibrate, or move a device;
 - Robot status, FK, command-status, Stop, diagnostics, lifecycle, and WebSocket contracts
   that carry hardware-access evidence report `hardware_accessed=false`; accepted-motion,
@@ -21,10 +21,8 @@ application remains Dry Run only and structurally unable to command physical har
 - no raw Servo, arbitrary register, arbitrary file, arbitrary Python, or driver-selection
   endpoint exists.
 
-The Stage 4 root test/build gates, browser acceptance, and focused route/import/hardware
-isolation checks passed. The Stage report records exact counts and the dedicated
-containing commit's self-SHA limitation; design documentation alone is not completion
-evidence.
+The Stage report records exact executed code, browser, and isolation evidence; design
+documentation alone is not completion evidence.
 
 ## Provisional kinematics are not Real authority
 
@@ -49,6 +47,29 @@ functions may convert them. Unit conversion cannot depend on the name `j10`.
 There is one reviewed application admission point for every movement source. Joint
 Move, single/continuous Joint Jog, Home, Cartesian Jog, Move Pose, Library Goto, and
 later Playback, Studio, and Vision commands may not call an executor or driver directly.
+
+The gateway owns one atomic admission coordinator for ordinary motion, trajectory
+preflight, and playback. Each final safety recheck and owner claim stays inside that
+coordinator. Playback additionally rechecks the exact prepared-object identity and
+latest preflight generation after every asynchronous boundary and after claiming its
+runner; superseded or evicted prepared work fails closed.
+
+That same coordinator owns a lifecycle epoch/count fence. Work beginning during Stop,
+Disconnect, or Shutdown is rejected, and work captured before the transition cannot
+publish or dispatch afterward. Playback Stop completion is owned by one shielded task;
+canceling an HTTP/lifecycle caller cannot cancel cleanup, and a repeated Stop joins the
+same task until terminal state publication releases motion ownership.
+
+Ordinary executor submission rechecks that lifecycle epoch after its awaited claim. If
+Stop began in that window, the exact command is canceled before conflict is returned and
+no idempotency acceptance is published. Global Stop itself also has one shielded
+completion owner, so cancellation of its first caller cannot interrupt Jog, trajectory,
+or executor hook iteration; repeated Stop joins the same operation.
+
+Motion update/delete and execution validation share one process-local revision lease.
+The lease stays held through fresh repository read, gateway checks, and the `PLAYING`
+claim. A mutation therefore commits before that claim and invalidates the prepared
+revision, or commits only after the immutable reviewed plan is already executing.
 
 Before producing prepared Dry Run work, the gateway must fail closed unless it verifies:
 
@@ -87,7 +108,22 @@ Stage 4 permits only a `LIBRARY`-source `MOVE_JOINTS` Goto command. Before gatew
 submission, the Library service must match the entity revision, active variant, exact
 joint/unit membership, Profile fingerprint, Kinematics fingerprint, and validated joint
 state. The repository has no driver/executor dependency and cannot dispatch motion.
-Motion CRUD and the Legacy importer never imply playback; Play remains Stage 5.
+Motion CRUD and the Legacy importer never imply playback.
+
+Stage 5 extends the same gateway for `PreparedTrajectory` execution. Successful
+compilation is not permission to run later: immediately before dispatch the gateway
+must revalidate the exact cached object, digest, Motion revision, active variant,
+Profile/Kinematics fingerprints, start-state sequence, freshness, connection, Stop
+capability, Dry Run/disabled-hardware policy, and single motion slot. Any changed fact
+requires new preflight. API routes cannot provide samples or select an executor.
+
+Whole-path preflight checks every Joint/Cartesian/hold sample, logical and applicable
+raw-derived limits, provisional velocity/acceleration, workspace, FK/IK residual, and
+Cartesian continuity before returning a digest. Cartesian failure rejects the plan; it
+never degrades to Joint interpolation. Compilation, cache, samples, segments, duration,
+preview, rate, and loop count are all bounded. Playback uses monotonic absolute
+deadlines, skips overdue samples instead of bursting, and keeps Stop cancellable during
+validation, sleep, pause, state application, or looping.
 
 ## Dry Run executor
 
@@ -279,3 +315,26 @@ issues. Fixes landed and the final independent re-review passes P1=0/P2=0. The c
 main post-fix gate also passes, so Stage 4 is GREEN and complete. Its containing commit's
 exact SHA/remote state is recorded by Stage 5 because the commit cannot contain its own
 SHA. The Stage 3 evidence above remains valid only for its committed scope.
+
+## Stage 5 evidence status
+
+Stage 5 remains Dry Run/Fake-only. The final root gate passes 352 backend tests and 85
+frontend tests; the focused route/import/hardware/trajectory/playback suite passes 128
+tests. Ruff, strict mypy, Ruff format, ESLint, TypeScript, Vite build, schema
+determinism, lock checks, Python/npm vulnerability audits, and `git diff --check` pass.
+Browser acceptance preflighted and played only isolated logical samples, reported
+`hardware_accessed=false`, had no page-level horizontal overflow, and produced console
+warnings/errors `[]`.
+
+Independent review found and closed P2 issues in cooperative compiler cancellation,
+preflight ownership, preview-cache event-loop affinity, public fault sanitization,
+rate-change time continuity, cross-tab status freshness, durable command errors,
+lifecycle-exact controls/priority Stop, atomic cross-source admission, and stale prepared
+identity rejection, lifecycle epoch fencing, and cancellation-safe Stop finalization.
+Lifecycle invalidation after preflight has claimed state also performs Stop before its
+epoch conflict is returned, preserving `STOPPED` over generic `FAULTED`. Regression tests
+also cover ordinary post-submit rollback and cancellation-safe global Stop hook
+completion, plus API update/delete fencing at the execution claim. Final independent
+review passes P1=0/P2=0. Stage 5
+does not add a serial/camera dependency or persisted user schema, and cannot authorize
+Real Playback.

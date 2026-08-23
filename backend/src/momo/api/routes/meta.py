@@ -51,6 +51,12 @@ def product_scope(settings: SettingsDependency) -> ProductScopeResponse:
             "bounded searchable Pose and Motion Library APIs",
             "explicit-path default-dry-run validated Legacy action import",
         ],
+        stage_5_available=[
+            "deterministic Joint and true Cartesian trajectory compilation",
+            "whole-plan preflight with immutable digest-bound prepared trajectories",
+            "bounded Dry Run playback with pause, resume, stop, loop, and rate",
+            "read-only trajectory preview and real-time playback status",
+        ],
         included_in_first_version=[
             "single active MOMO V1 or V2 robot",
             "joint and Cartesian control",

@@ -2025,6 +2025,529 @@ a {
   overflow-wrap: anywhere;
 }
 
+.command-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.48;
+  pointer-events: none;
+}
+
+.motion-playback-panel {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #a9c6d1;
+  border-radius: 6px;
+  color: #344c59;
+  background: #fff;
+}
+
+.motion-playback-panel > header,
+.trajectory-preview > header,
+.playback-controls > header,
+.preflight-report > header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.motion-playback-panel h4,
+.trajectory-preview h4,
+.playback-controls h5 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 17px;
+}
+
+.playback-state {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid #bec8ce;
+  border-radius: 99px;
+  color: #52626d;
+  background: #f5f7f8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.playback-state--playing,
+.playback-state--ready {
+  border-color: #8cc59a;
+  color: #236137;
+  background: #f0faf2;
+}
+
+.playback-state--paused,
+.playback-state--preflighting,
+.playback-state--stopping {
+  border-color: #d6b874;
+  color: #73551b;
+  background: #fff9ed;
+}
+
+.playback-state--faulted {
+  border-color: #dda8a1;
+  color: #8d3028;
+  background: #fff5f4;
+}
+
+.motion-playback-panel__intro,
+.playback-blocker,
+.playback-error,
+.trajectory-loading {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.motion-playback-panel__intro {
+  color: #62717b;
+}
+
+.playback-blocker,
+.playback-error,
+.trajectory-loading {
+  padding: 10px 11px;
+  border: 1px solid #d9bd83;
+  border-radius: 4px;
+  color: #71531d;
+  background: #fffaf0;
+}
+
+.playback-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-color: #dfb0aa;
+  color: #8c3128;
+  background: #fff7f6;
+}
+
+.playback-error > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.playback-error > .command-button {
+  flex: 0 0 auto;
+}
+
+.trajectory-loading {
+  border-color: #b9d2dc;
+  color: #315f70;
+  background: #f3fafc;
+}
+
+.preflight-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.preflight-actions > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #6c7881;
+  font-size: 10px;
+}
+
+.preflight-report {
+  min-width: 0;
+  display: grid;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid #d3b67a;
+  border-radius: 5px;
+  background: #fffaf0;
+}
+
+.preflight-report--passed {
+  border-color: #9bcba6;
+  background: #f3faf4;
+}
+
+.preflight-report > header strong,
+.preflight-report > header code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.preflight-report > header code {
+  max-width: 58%;
+  color: #536873;
+  font-size: 9px;
+  word-break: break-all;
+}
+
+.preflight-metrics,
+.playback-progress dl,
+.tcp-preview dl {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  border: 1px solid #d6dedf;
+  background: #d6dedf;
+}
+
+.preflight-metrics > div,
+.playback-progress dl > div,
+.tcp-preview dl > div {
+  min-width: 0;
+  padding: 8px;
+  background: #fff;
+}
+
+.preflight-metrics dt,
+.playback-progress dt,
+.tcp-preview dt {
+  margin-bottom: 4px;
+  color: #71808a;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.preflight-metrics dd,
+.playback-progress dd,
+.tcp-preview dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #324c59;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.preflight-violations,
+.preflight-checks {
+  min-width: 0;
+}
+
+.preflight-violations > strong,
+.preflight-checks summary {
+  color: #6b4b19;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.preflight-violations ul,
+.preflight-checks ul {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.preflight-violations li,
+.preflight-checks li {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid #dec594;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 10px;
+}
+
+.preflight-violations li code,
+.preflight-violations li span,
+.preflight-violations li small,
+.preflight-checks li strong,
+.preflight-checks li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.trajectory-preview {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #d5dfe3;
+}
+
+.trajectory-preview > header > span,
+.playback-controls > header > span {
+  overflow-wrap: anywhere;
+  color: #687781;
+  font-size: 10px;
+  text-align: right;
+}
+
+.trajectory-preview__layout {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(190px, 0.8fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.trajectory-chart,
+.tcp-preview {
+  min-width: 0;
+  margin: 0;
+  padding: 11px;
+  border: 1px solid #cfdbdf;
+  border-radius: 5px;
+  background: #fbfdfe;
+}
+
+.trajectory-chart figcaption,
+.tcp-preview figcaption {
+  margin-bottom: 8px;
+  color: #536773;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.trajectory-chart__svg,
+.tcp-preview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.trajectory-chart__axis {
+  stroke: #85939c;
+  stroke-width: 1;
+}
+
+.trajectory-chart__grid {
+  stroke: #d9e0e4;
+  stroke-width: 1;
+}
+
+.trajectory-chart__label {
+  fill: #71808a;
+  font-size: 10px;
+}
+
+.trajectory-chart__segment {
+  fill: #d8f1f7;
+  opacity: 0.32;
+}
+
+.trajectory-chart__segment--cartesian_linear {
+  fill: #fae6c4;
+}
+
+.trajectory-chart__segment--hold {
+  fill: #e5dff4;
+}
+
+.trajectory-chart__path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trajectory-chart__marker {
+  stroke: #344b58;
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trajectory-chart__legend,
+.trajectory-timeline ol {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trajectory-chart__legend li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-wrap: anywhere;
+  font-size: 9px;
+}
+
+.trajectory-chart__legend li > span {
+  width: 10px;
+  height: 3px;
+  flex: 0 0 auto;
+  border-radius: 99px;
+}
+
+.trajectory-chart__legend small {
+  color: #74808a;
+}
+
+.tcp-preview__frame {
+  fill: #fff;
+  stroke: #d4dde1;
+}
+
+.tcp-preview__path {
+  fill: none;
+  stroke: #147a99;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.tcp-preview dl {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 8px;
+}
+
+.trajectory-timeline {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.trajectory-timeline__segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.trajectory-mode {
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid #99c4d1;
+  border-radius: 99px;
+  overflow-wrap: anywhere;
+  color: #235c70;
+  background: #eef9fc;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.trajectory-mode--cartesian_linear {
+  border-color: #d7b87a;
+  color: #71531d;
+  background: #fff8ea;
+}
+
+.trajectory-mode--hold {
+  border-color: #b7a7d3;
+  color: #594678;
+  background: #f7f3fc;
+}
+
+.trajectory-timeline ol li {
+  min-width: min(100%, 140px);
+  display: grid;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 2px solid #7898a7;
+  overflow-wrap: anywhere;
+  font-size: 9px;
+}
+
+.trajectory-timeline ol span {
+  color: #71808a;
+}
+
+.playback-controls {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #d5dfe3;
+}
+
+.playback-controls__buttons {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.playback-options {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+.playback-options label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #536773;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.playback-options select {
+  min-height: 36px;
+  padding: 0 28px 0 9px;
+  border: 1px solid #b8c3ca;
+  border-radius: 4px;
+  color: var(--text);
+  background: #fff;
+  font: inherit;
+}
+
+.playback-loop-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.playback-options select:focus,
+.playback-loop-toggle input:focus-visible {
+  outline: 2px solid #70cfe3;
+  outline-offset: 2px;
+}
+
+.playback-progress {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid #cad6dc;
+  border-radius: 5px;
+  background: #f8fbfc;
+}
+
+.playback-progress > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.playback-progress progress {
+  width: 100%;
+  height: 13px;
+  accent-color: #176c88;
+}
+
+.playback-progress small {
+  overflow-wrap: anywhere;
+  color: #687781;
+  font-size: 9px;
+}
+
 .studio-handoff {
   min-width: 0;
   display: grid;
@@ -2353,6 +2876,25 @@ a {
     grid-column: 1 / -1;
   }
 
+  .trajectory-preview__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tcp-preview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr);
+    align-items: start;
+    gap: 8px 12px;
+  }
+
+  .tcp-preview figcaption {
+    grid-column: 1 / -1;
+  }
+
+  .tcp-preview dl {
+    margin-top: 0;
+  }
+
   .stage-placeholder h2 {
     margin-bottom: 17px;
     font-size: 25px;
@@ -2475,6 +3017,42 @@ a {
 
   .studio-handoff .command-button {
     width: 100%;
+  }
+
+  .motion-playback-panel {
+    padding: 12px;
+  }
+
+  .motion-playback-panel > header,
+  .trajectory-preview > header,
+  .playback-controls > header,
+  .preflight-report > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .preflight-report > header code,
+  .trajectory-preview > header > span,
+  .playback-controls > header > span {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .preflight-metrics,
+  .playback-progress dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .playback-controls__buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tcp-preview {
+    display: block;
+  }
+
+  .tcp-preview dl {
+    margin-top: 8px;
   }
 }
 

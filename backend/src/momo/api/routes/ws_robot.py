@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.motion_service import MotionApplicationService
+from momo.application.services.playback_service import PlaybackService
 from momo.application.services.robot_service import RobotApplicationService
 
 router = APIRouter(tags=["robot-state"])
@@ -26,6 +27,7 @@ async def robot_state_socket(websocket: WebSocket) -> None:
     robot_service: RobotApplicationService = websocket.app.state.robot_service
     kinematics: KinematicsService = websocket.app.state.kinematics_service
     motion: MotionApplicationService = websocket.app.state.motion_service
+    playback: PlaybackService = websocket.app.state.playback_service
     try:
         while True:
             status, profile, state = await robot_service.get_motion_snapshot()
@@ -43,6 +45,7 @@ async def robot_state_socket(websocket: WebSocket) -> None:
                 "command_status": (
                     latest_command.model_dump(mode="json") if latest_command is not None else None
                 ),
+                "playback_status": playback.get_status().model_dump(mode="json"),
                 "state_sequence": status.state_sequence,
                 "hardware_accessed": False,
             }

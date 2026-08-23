@@ -8,11 +8,11 @@ delegates use cases to application services. Domain code expresses product, kine
 and safety invariants without importing the web framework or a hardware SDK.
 
 Stage 2 established one Active Robot, Profile/Calibration diagnostics, an in-memory Dry
-Run driver, and atomic runtime state. Stage 3 is complete and adds Dry Run kinematics
-and control. Stage 4 is complete and adds Pose/Motion persistence and Library workflows;
-the final root, browser, isolation, and dependency gates pass, and the independent audit
-passes P1=0/P2=0. Real hardware, trajectory playback, Studio authoring, and Vision remain
-outside the Stage 4 boundary.
+Run driver, and atomic runtime state. Stage 3 adds Dry Run kinematics and control. Stage
+4 adds Pose/Motion persistence and Library workflows. Stage 5 adds deterministic
+whole-path trajectory compilation, immutable prepared-plan identity, preview, and
+bounded Dry Run playback. Studio authoring, Vision, and Real hardware remain outside
+the Stage 5 boundary.
 
 ```text
 React Control workspace
@@ -36,6 +36,13 @@ React Library workspace
           -> coherent Capture via Robot + Kinematics services
           -> Goto as LIBRARY / MOVE_JOINTS
               -> Motion application service -> MotionSafetyGateway
+
+  -> Motion preflight / preview / playback
+      -> TrajectoryApplicationService
+          -> TrajectoryCompiler -> immutable PreparedTrajectory + digest
+          -> bounded process-local prepared-plan cache
+          -> PlaybackService -> fresh MotionSafetyGateway validation
+              -> high-level Dry Run logical-state sink
 ```
 
 Dependencies point inward toward domain and port contracts. API routes do not import a
@@ -92,8 +99,8 @@ increments rotate translation and orientation through the current TCP frame.
 
 ## Unified motion path
 
-Every movement source—Joint Move, Joint Jog, Home, Cartesian Jog, Move Pose, and all
-later Goto/Playback/Studio/Vision sources—must submit an immutable command to the same
+Every movement source—Joint Move, Joint Jog, Home, Cartesian Jog, Move Pose, Goto, and
+Playback, plus later Studio/Vision sources—must submit immutable intent to the same
 `MotionSafetyGateway`:
 
 ```text
@@ -123,7 +130,38 @@ Stage 4 permits exactly one additional source/type pair:
 snapshot against the active variant, exact joint/unit set, Profile fingerprint, and
 Kinematics fingerprint before submitting it to the normal motion application service.
 Repositories never call a driver. Motion creation, duplication, listing, and deletion
-are storage operations and do not dispatch movement; playback remains Stage 5.
+are storage operations and do not dispatch movement.
+
+Stage 5 extends the gateway with prepared-trajectory validation. Compilation binds the
+Motion revision, variant, Profile/Kinematics fingerprints, start-state sequence, and
+complete sampled plan. Playback consumes only the exact cached immutable object whose
+digest was returned by preflight, rechecks mutable evidence immediately before
+dispatch, and shares the normal motion slot. No API route accepts executable samples.
+Stop cancels ordinary motion, trajectory compilation, or playback before lifecycle Stop
+proceeds.
+
+A gateway-owned admission coordinator makes the final check-and-claim transition atomic
+across ordinary commands, trajectory preflight, and playback. Ordinary dispatch retains
+the coordinator through executor submission; playback retains it through runner claim;
+preflight claims its lifecycle state only while the shared slot is free. Playback also
+rechecks exact prepared-object identity and preflight generation after every asynchronous
+boundary, including after runner claim, so an evicted or superseded plan cannot execute.
+
+The coordinator also provides the shared lifecycle epoch/count fence used by ordinary
+submission, preflight, and Play. A request cannot start during Stop/Disconnect/Shutdown
+or escape an epoch it began before. Playback Stop is completed by one shielded task;
+caller cancellation leaves that cleanup running and later Stop calls join it through
+runner cancellation, state flush, and terminal publication.
+
+Ordinary dispatch rechecks the lifecycle epoch after awaited executor submission and
+cancels that exact claim on mismatch before recording idempotency. Global Stop similarly
+uses one shielded completion owner around executor and registered-hook cancellation, so
+a disconnected caller cannot truncate the safety operation; another Stop joins it.
+
+Library Motion mutations and execution validation share a process-local revision lock.
+The validator holds the exact revision lease through repository read, gateway awaits,
+and the `PLAYING` transition, so update/delete and execution have an explicit atomic
+ordering. Mutation after the claim cannot alter immutable prepared samples.
 
 The `DryRunMotionExecutor` uses an injected monotonic clock, absolute deadlines, a fixed
 bounded update rate, and a cancellation signal. It interpolates single moves instead of
@@ -167,6 +205,12 @@ Executed enumeration records 37 method/path combinations across 31 unique HTTP p
 plus the existing read-only robot WebSocket; the focused 65-test
 route/import/hardware-isolation suite passes.
 
+Stage 5 adds Motion preflight/play, playback status/pause/resume/stop/rate/loop, and
+digest-bound preview routes. Preflight returns structured checks and violations.
+Preview down-samples only for transport and never recompiles; Play accepts only Motion
+UUID, expected revision, digest, loop, and bounded rate. The robot WebSocket remains
+read-only and now carries typed playback status.
+
 The WebSocket is read-only. Its payload carries RobotStatus (including its safe last-error
 summary), TCP pose/FK, the latest command status/progress/error, state sequence, and
 top-level `hardware_accessed=false`; it has no separate fault-list field. The current
@@ -200,8 +244,10 @@ Capture, a valid two-snapshot Motion creation path, on-demand full entity detail
 duplicate/delete confirmations, and Dry Run Goto confirmation. Motion creation obtains
 fresh full snapshots for two selected summaries and verifies their revisions before
 submit. A post-delete out-of-range page is clamped and refetched without a false empty
-state. Motion cards link into Studio by UUID, while Play remains visibly unavailable
-until Stage 5. Offline, stale response, and revision-conflict states fail closed in the
+state. Motion cards link into Studio by UUID. Stage 5 adds Preflight, bounded trajectory
+charts, digest/violation display, Play, Pause, Resume, Stop, rate, loop, and progress.
+Controls follow backend playback state and remain disabled when admission facts are
+missing. Offline, stale response, and revision-conflict states fail closed in the
 frontend suite. Desktop and exact 390 x 844 mobile browser QA passed with no horizontal
 overflow or console warning/error; the Stage report distinguishes tested browser flows
 from component/integration-only coverage.
@@ -212,7 +258,7 @@ Safe default loading uses typed defaults, tracked `config/default.yaml`, then `M
 environment values. It does **not** probe or read ignored `config/local.yaml`. A caller
 may opt in to one specific local file only by explicitly passing `local_config_path` to
 the settings loader; that explicit file is then merged before environment overrides.
-Throughout Stage 4:
+Throughout Stage 5:
 
 ```text
 control_mode: DRY_RUN
@@ -248,7 +294,8 @@ quarantined rather than silently assigned missing compatibility evidence.
 - `backend/src/momo/ports/kinematics.py` — SI adapter protocol and named unit boundaries.
 - `backend/src/momo/adapters/kinematics` — mesh-free FK/IK implementation.
 - `backend/src/momo/application/services` — lifecycle, kinematics, gateway, executor
-  coordination, command status, Jog lease, and Library use cases.
+  coordination, command status, Jog lease, Library, trajectory, and playback use cases.
+- `backend/src/momo/adapters/playback` — bounded latest-value playback observation.
 - `backend/src/momo/api` — versioned REST/read-only WebSocket transport only.
 - `backend/src/momo/adapters/hardware` — Dry Run adapter only in Stage 3.
 - `backend/src/momo/adapters/storage` — Profile, example Calibration, runtime state, and
@@ -258,7 +305,6 @@ quarantined rather than silently assigned missing compatibility evidence.
 
 Stage 3 design decisions are recorded in ADR 0009 and ADR 0010. Stage 4 persistence and
 schema compatibility are recorded in ADR 0011; importer operation is documented in
-`legacy-action-import.md`. Executed code/browser evidence and known limitations are in
-the GREEN Stage 4 report; the independent re-review passes P1=0/P2=0. The dedicated
-containing commit's exact SHA/remote state is recorded by Stage 5 because a commit cannot
-embed its own SHA.
+`legacy-action-import.md`. Stage 5 compiled identity and scheduling are recorded in ADR
+0012 and `trajectory-semantics.md`. Executed evidence and known limitations are in each
+Stage report.

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from typing import TypeVar
 from uuid import UUID, uuid4
 
@@ -58,6 +60,7 @@ class LibraryApplicationService:
         self.kinematics = kinematics
         self.motion = motion
         self.clock = clock
+        self._motion_mutation_lock = asyncio.Lock()
 
     async def list_poses(
         self,
@@ -129,6 +132,19 @@ class LibraryApplicationService:
         if motion is None:
             raise EntityNotFoundError("Motion was not found")
         return motion
+
+    @asynccontextmanager
+    async def motion_revision_lease(
+        self,
+        motion_id: UUID,
+        expected_revision: int,
+    ) -> AsyncIterator[Motion]:
+        """Fence one revision read through an execution/preflight linearization point."""
+
+        async with self._motion_mutation_lock:
+            motion = await self.get_motion(motion_id)
+            self._check_revision(motion.revision, expected_revision)
+            yield motion
 
     async def create_pose(self, request: PoseCreateCommand) -> Pose:
         self._reject_client_owned_provenance((request.snapshot,))
@@ -311,75 +327,81 @@ class LibraryApplicationService:
             },
             "motion",
         )
-        await self.motions.save(motion)
+        async with self._motion_mutation_lock:
+            await self.motions.save(motion)
         return motion
 
     async def update_motion(self, motion_id: UUID, request: MotionPatchCommand) -> Motion:
-        current = await self.get_motion(motion_id)
-        self._check_revision(current.revision, request.expected_revision)
-        if request.keyframes is not None:
-            self._reject_client_owned_provenance(
-                tuple(keyframe.pose_snapshot for keyframe in request.keyframes)
+        async with self._motion_mutation_lock:
+            current = await self.get_motion(motion_id)
+            self._check_revision(current.revision, request.expected_revision)
+            if request.keyframes is not None:
+                self._reject_client_owned_provenance(
+                    tuple(keyframe.pose_snapshot for keyframe in request.keyframes)
+                )
+                for keyframe in request.keyframes:
+                    await self._validate_client_snapshot(keyframe.pose_snapshot)
+            data = current.model_dump(mode="python")
+            editable = (
+                "name",
+                "description",
+                "robot_variant",
+                "keyframes",
+                "playback_defaults",
+                "tags",
             )
-            for keyframe in request.keyframes:
-                await self._validate_client_snapshot(keyframe.pose_snapshot)
-        data = current.model_dump(mode="python")
-        editable = (
-            "name",
-            "description",
-            "robot_variant",
-            "keyframes",
-            "playback_defaults",
-            "tags",
-        )
-        for field in editable:
-            if field in request.model_fields_set:
-                data[field] = getattr(request, field)
-        data["revision"] = current.revision + 1
-        data["updated_at"] = self.clock.now()
-        updated = self._entity_from_request(Motion, data, "motion")
-        await self.motions.save(updated, expected_revision=request.expected_revision)
-        return updated
+            for field in editable:
+                if field in request.model_fields_set:
+                    data[field] = getattr(request, field)
+            data["revision"] = current.revision + 1
+            data["updated_at"] = self.clock.now()
+            updated = self._entity_from_request(Motion, data, "motion")
+            await self.motions.save(updated, expected_revision=request.expected_revision)
+            return updated
 
     async def duplicate_motion(self, motion_id: UUID, request: DuplicateEntityCommand) -> Motion:
-        source = await self.get_motion(motion_id)
-        self._check_revision(source.revision, request.expected_revision)
-        now = self.clock.now()
-        duplicate = self._entity_from_request(
-            Motion,
-            {
-                "id": uuid4(),
-                "name": request.name if request.name is not None else self._copy_name(source.name),
-                "description": source.description,
-                "robot_variant": source.robot_variant,
-                "keyframes": [
-                    MotionKeyframe.model_validate(item.model_dump(mode="python"))
-                    for item in source.keyframes
-                ],
-                "playback_defaults": PlaybackDefaults.model_validate(
-                    source.playback_defaults.model_dump(mode="python")
-                ),
-                "tags": list(source.tags),
-                "source_metadata": (
-                    LegacyImportMetadata.model_validate(
-                        source.source_metadata.model_dump(mode="python")
-                    )
-                    if source.source_metadata is not None
-                    else None
-                ),
-                "created_at": now,
-                "updated_at": now,
-                "revision": 1,
-            },
-            "motion",
-        )
-        await self.motions.save(duplicate)
-        return duplicate
+        async with self._motion_mutation_lock:
+            source = await self.get_motion(motion_id)
+            self._check_revision(source.revision, request.expected_revision)
+            now = self.clock.now()
+            duplicate = self._entity_from_request(
+                Motion,
+                {
+                    "id": uuid4(),
+                    "name": (
+                        request.name if request.name is not None else self._copy_name(source.name)
+                    ),
+                    "description": source.description,
+                    "robot_variant": source.robot_variant,
+                    "keyframes": [
+                        MotionKeyframe.model_validate(item.model_dump(mode="python"))
+                        for item in source.keyframes
+                    ],
+                    "playback_defaults": PlaybackDefaults.model_validate(
+                        source.playback_defaults.model_dump(mode="python")
+                    ),
+                    "tags": list(source.tags),
+                    "source_metadata": (
+                        LegacyImportMetadata.model_validate(
+                            source.source_metadata.model_dump(mode="python")
+                        )
+                        if source.source_metadata is not None
+                        else None
+                    ),
+                    "created_at": now,
+                    "updated_at": now,
+                    "revision": 1,
+                },
+                "motion",
+            )
+            await self.motions.save(duplicate)
+            return duplicate
 
     async def delete_motion(self, motion_id: UUID, expected_revision: int) -> None:
-        deleted = await self.motions.delete(motion_id, expected_revision=expected_revision)
-        if not deleted:
-            raise EntityNotFoundError("Motion was not found")
+        async with self._motion_mutation_lock:
+            deleted = await self.motions.delete(motion_id, expected_revision=expected_revision)
+            if not deleted:
+                raise EntityNotFoundError("Motion was not found")
 
     @staticmethod
     def _check_revision(actual: int, expected: int) -> None:

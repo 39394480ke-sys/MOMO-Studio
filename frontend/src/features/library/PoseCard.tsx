@@ -108,7 +108,15 @@ export function PoseCard({
           <Navigation aria-hidden="true" />
           Goto
         </button>
-        <Link className="command-button" to={`/studio?pose=${encodeURIComponent(pose.id)}`}>
+        <Link
+          aria-disabled={busy}
+          className="command-button"
+          onClick={(event) => {
+            if (busy) event.preventDefault();
+          }}
+          tabIndex={busy ? -1 : undefined}
+          to={`/studio?pose=${encodeURIComponent(pose.id)}`}
+        >
           <Plus aria-hidden="true" />
           Add to Studio
         </Link>

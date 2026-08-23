@@ -44,6 +44,19 @@ See the [Stage 4 report](docs/stage-reports/stage-04-library.md),
 [atomic repository decision](docs/adr/0011-atomic-entity-repositories.md), and
 [Legacy import guide](docs/legacy-action-import.md).
 
+Stage 5 is complete and GREEN. It adds deterministic Joint/Cartesian-linear/hold
+compilation, whole-plan preflight, immutable prepared trajectories with semantic
+SHA-256 identity, bounded preview, and monotonic Dry Run playback with pause, resume,
+Stop, rate, closed-loop, progress, and read-only WebSocket status. Playback revalidates
+the exact prepared object through the existing Motion Safety Gateway and shares the one
+motion slot. The final gate passed 352 backend tests, 85 frontend tests, a 128-test
+focused isolation/integration suite, dependency/schema/build checks, and desktop/mobile
+browser acceptance with zero console warnings/errors. Real playback remains blocked.
+
+See the [Stage 5 report](docs/stage-reports/stage-05-trajectory-and-playback.md),
+[compiled trajectory decision](docs/adr/0012-compiled-trajectory-and-digest.md), and
+[trajectory semantics](docs/trajectory-semantics.md).
+
 ## Develop locally
 
 Requirements: Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and a current Node.js/npm release. `make install` consumes both committed lockfiles.
@@ -77,7 +90,7 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
 
 - `backend/` — FastAPI factory, application services, domain models, ports/adapters, schema generator, tests.
 - `frontend/` — React/Vite application, REST fallback, lifecycle/motion controls,
-  Pose/Motion Library, diagnostics, and tests.
+  Pose/Motion Library and playback, diagnostics, and tests.
 - `kinematics_models/` — mesh-free, fingerprinted V1/V2 provisional Dry Run serial chains.
 - `config/default.yaml` — safe repository defaults; Real mode and non-disabled hardware access remain rejected.
 - `robot_profiles/` — fingerprinted product-contract examples, never device-ready profiles.
@@ -101,10 +114,9 @@ and the complete [Stage 3 report](docs/stage-reports/stage-03-kinematics-and-con
 
 ## Later stages
 
-Stage 4 implementation and final code/browser evidence are GREEN after the dedicated
-Stage 3 commit; its independent audit passes P1=0/P2=0. Trajectory/playback, Studio,
-Vision, and the Real hardware boundary remain later Stage work. Every later motion source
-must reuse the Stage 3 Motion Safety Gateway rather than introducing a route-to-driver
-shortcut. Real hardware remains field-acceptance gated.
+Stage 5 implementation and code/browser evidence are GREEN after the dedicated Stage 4
+commit. Studio, Vision, and the Real hardware boundary remain later Stage work. Every
+later motion source must reuse the Motion Safety Gateway rather than introducing a
+route-to-driver shortcut. Real hardware remains field-acceptance gated.
 
 No open-source license has been selected. See `THIRD_PARTY_NOTICES.md` for provenance tracking; license selection remains a project decision.

@@ -117,15 +117,31 @@ the product or tests; the converter and fixtures are independently written.
 | Misleading units are reported, not guessed | Profile domain units for characterized `*_deg`; explicit units for generic targets | V2 J10 remains mm; unknown units reject. |
 | Repository is not a motion source | Storage ports plus Library application service | Only Goto constructs a command; gateway remains sole admission point. |
 
+## Stage 5 trajectory and playback decisions
+
+Stage 5 read only the three pinned tracked Legacy playback/interpolation modules listed
+in its Stage report. It did not execute a player, load a Legacy Motion file, import a
+controller, or inspect local runtime/Calibration/raw state.
+
+| Legacy path/area | Observed risk | Disposition | Stage 5 result |
+|---|---|---|---|
+| `仿真控制系统/动作播放器_action_player.py` | Synchronous wall-clock sleeps and direct controller calls couple scheduling to hardware behavior. | `RETIRE_AS_ARCHITECTURE` | New playback uses an injected monotonic Clock, absolute deadlines, one high-level state sink, cancellation, and fresh shared-gateway validation. |
+| `动作录制与回放增强/动作回放器_sequence_player.py` | Mutable pause/stop flags, file/controller ownership, ordered arrays, and raw/multi-turn replay do not preserve prepared-plan identity. | `REWRITE` | Motion revision compiles once to immutable unit-bearing samples and semantic digest; preview/play require the exact cached plan. Raw state is excluded. |
+| `动作录制与回放增强/动作插值器_motion_interpolator.py` | Joint-array interpolation and J10 unit guessing cannot establish product Joint membership or true TCP-linear meaning. | `REWRITE_WITH_CHARACTERIZATION` | Profile-driven Joint maps support three easing functions; Cartesian-linear uses position interpolation, shortest quaternion SLERP, prior-seeded IK, and full intermediate checks. |
+| Legacy unbounded/replay loop semantics | Drift, backlog bursts, endpoint jumps, or indefinite ownership could make Stop unreliable. | `RETIRE` | Absolute deadlines skip overdue samples; loops require closed trajectories, skip the duplicate boundary, cap at 100, and remain Stop-cancellable. |
+
+No Legacy timing constant, sample, Servo value, controller call, file layout, or raw
+mapping is product authority. Stage 5 synthetic tests establish software behavior only.
+
 ## Deferred Legacy areas
 
 | Legacy area | Disposition | Reason and gate |
 |---|---|---|
 | Physical/asset reuse from `URDF运动学仿真/` | Stage 3 software behavior `REWRITE_WITH_CHARACTERIZATION`; physical/asset authority remains `DEFER` | Mesh-free provisional chains are sufficient only for Dry Run. URDF/STL redistribution and physical V1/V2 correctness remain blocked on provenance, measurement and field acceptance. |
-| `动作录制与回放增强/` | Import slice `REWRITE_WITH_CHARACTERIZATION`; recording retired; playback `DEFER_TO_STAGE_5` | Stage 4 converts only validated explicit action JSON into immutable UUID Motion with a visible report. It does not record, compile, schedule, or play. |
+| `动作录制与回放增强/` | Import slice `REWRITE_WITH_CHARACTERIZATION`; recording retired; playback architecture `REWRITE` | Stage 4 imports only validated explicit action JSON. Stage 5 independently compiles formal Motions into immutable digest-bound plans and provides bounded Dry Run scheduling; no Legacy player/raw state is reused. |
 | `Web控制台/backend/service.py` | `RETIRE_AS_ARCHITECTURE` | More than one product area and multiple side effects are combined. Future capabilities become bounded application services with isolated construction and tests. |
 | `Web控制台/backend/action_composer.py` | Formal Motion rules `REWRITE`; interactive composition `DEFER_TO_STAGE_6` | Stage 4 creates only valid formal Motions with embedded snapshots. Draft/timeline authoring cannot weaken that invariant. |
-| `Web控制台/backend/app.py` and `schemas.py` | `REWRITE` by approved Stage | The new FastAPI app factory exposes only approved lifecycle/diagnostic, Stage 3 motion, and bounded Stage 4 Library routes. Legacy AI, multi-arm, gripper, recording, playback, arbitrary-path, and raw schemas remain absent. |
+| `Web控制台/backend/app.py` and `schemas.py` | `REWRITE` by approved Stage | The new FastAPI app factory exposes approved lifecycle/diagnostic, Stage 3 motion, bounded Stage 4 Library, and digest-bound Stage 5 playback routes. Legacy AI, multi-arm, gripper, recording, arbitrary-path, client-sample, and raw schemas remain absent. |
 | `视觉识别与跟随/` | `DEFER` | Vision is absent. A later provider must establish source freshness, target-loss inhibition, finite geometry, smoothing/dead-zone behavior, and model provenance without adding capture/recording. |
 | `硬件与装配资料/` | `ADAPT` as review evidence | Treat mapping, wiring, and maintenance notes as verification checklists, never canonical data. Do not copy operator records, serials, images, or Calibration. |
 | `THIRD_PARTY_NOTICES.md` and binary assets | `DEFER` pending provenance | Original source, exact license, attribution, modification, and redistribution rights must be recorded before any code/model/mesh/binary enters the new repository. |

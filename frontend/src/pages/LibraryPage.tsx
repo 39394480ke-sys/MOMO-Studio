@@ -17,9 +17,18 @@ import {
   duplicatePose,
   getMotion,
   getMotions,
+  getPlayback,
   getPose,
   getPoses,
+  getTrajectoryPreview,
   gotoPose,
+  pausePlayback,
+  playMotion,
+  preflightMotion,
+  resumePlayback,
+  setPlaybackLoop,
+  setPlaybackRate,
+  stopPlayback,
 } from '../api/client';
 import type {
   CapturePoseRequest,
@@ -28,8 +37,11 @@ import type {
   MotionCommandSubmission,
   MotionEntity,
   MotionSummary,
+  PlaybackStatus,
   PoseEntity,
   PoseSummary,
+  TrajectoryPreflightReport,
+  TrajectoryPreview,
 } from '../api/types';
 import { PageIntro } from '../components/PageIntro';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
@@ -43,8 +55,10 @@ import {
   type LibraryFilters,
 } from '../features/library/LibraryToolbar';
 import { MotionCard } from '../features/library/MotionCard';
+import { MotionPlaybackPanel } from '../features/library/MotionPlaybackPanel';
 import { PoseCard } from '../features/library/PoseCard';
 import { libraryIdempotencyKey, parseTags } from '../features/library/libraryFormat';
+import { playbackLocksLibrary } from '../features/library/playbackState';
 
 type LibraryTab = 'poses' | 'motions';
 type LoadState = 'idle' | 'loading' | 'ready' | 'offline' | 'error';
@@ -73,6 +87,8 @@ const INITIAL_FILTERS: LibraryFilters = {
   sort: 'created_at',
   order: 'desc',
 };
+const PLAYBACK_POLL_INTERVAL_MS = 750;
+const PLAYBACK_RATES = [0.25, 0.5, 1, 1.5, 2] as const;
 
 function gotoDisabledReason(
   pose: PoseSummary,
@@ -104,6 +120,27 @@ function gotoDisabledReason(
     return 'enabled joint set mismatch';
   }
   return null;
+}
+
+function playbackDisabledReason(
+  motion: Pick<MotionSummary, 'robot_variant'>,
+  runtime: ReturnType<typeof useRuntimeStatus>,
+): string | null {
+  if (runtime.backend !== 'connected') return 'backend offline';
+  if (runtime.stale || runtime.robot?.stale !== false) return 'robot state is stale';
+  if (!runtime.robot?.connected) return 'Dry Run robot is disconnected';
+  if (runtime.pendingAction !== null) return 'robot lifecycle action is pending';
+  if (motion.robot_variant !== runtime.robot.variant) return 'robot variant mismatch';
+  if (!runtime.profile || runtime.profile.profile.variant !== runtime.robot.variant) {
+    return 'active profile is unavailable';
+  }
+  return null;
+}
+
+function closestPlaybackRate(value: number): number {
+  return PLAYBACK_RATES.reduce((closest, option) => (
+    Math.abs(option - value) < Math.abs(closest - value) ? option : closest
+  ), PLAYBACK_RATES[0]);
 }
 
 function errorMessage(error: unknown): string {
@@ -145,6 +182,20 @@ export function LibraryPage() {
   } | null>(null);
   const detailGeneration = useRef(0);
   const detailRequest = useRef<AbortController | null>(null);
+  const preflightGeneration = useRef(0);
+  const preflightRequest = useRef<AbortController | null>(null);
+  const playbackPollGeneration = useRef(0);
+  const playbackStatusRequest = useRef(0);
+  const playbackCommandGeneration = useRef(0);
+  const [preflight, setPreflight] = useState<TrajectoryPreflightReport | null>(null);
+  const [trajectoryPreview, setTrajectoryPreview] = useState<TrajectoryPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
+  const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [playbackPollError, setPlaybackPollError] = useState<string | null>(null);
+  const [playbackLoop, setPlaybackLoopState] = useState(false);
+  const [playbackRate, setPlaybackRateState] = useState<number>(1);
   const [detail, setDetail] = useState<
     | { status: 'loading'; kind: 'pose' | 'motion'; id: string }
     | { status: 'error'; kind: 'pose' | 'motion'; id: string; message: string }
@@ -156,6 +207,8 @@ export function LibraryPage() {
   useEffect(() => () => {
     detailGeneration.current += 1;
     detailRequest.current?.abort();
+    preflightGeneration.current += 1;
+    preflightRequest.current?.abort();
   }, []);
 
   const query = useMemo<EntityListQuery>(
@@ -231,11 +284,60 @@ export function LibraryPage() {
     return () => controller.abort();
   }, [query, reloadVersion, runtime.backend, tab]);
 
+  useEffect(() => {
+    const generation = ++playbackPollGeneration.current;
+    if (runtime.backend !== 'connected') return;
+    let disposed = false;
+    let inFlight = false;
+    let controller: AbortController | null = null;
+
+    async function pollPlayback() {
+      if (disposed || inFlight) return;
+      inFlight = true;
+      const request = ++playbackStatusRequest.current;
+      const currentController = new AbortController();
+      controller = currentController;
+      try {
+        const next = await getPlayback(currentController.signal);
+        if (
+          disposed ||
+          generation !== playbackPollGeneration.current ||
+          request !== playbackStatusRequest.current
+        ) return;
+        setPlaybackStatus(next);
+        setPlaybackPollError(null);
+        if (next.motion_id && next.state !== 'IDLE') {
+          setPlaybackLoopState(next.loop);
+          setPlaybackRateState(closestPlaybackRate(next.rate));
+        }
+      } catch (error) {
+        if (
+          disposed ||
+          currentController.signal.aborted ||
+          generation !== playbackPollGeneration.current ||
+          request !== playbackStatusRequest.current
+        ) return;
+        setPlaybackPollError(`Playback status unavailable: ${errorMessage(error)}`);
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    void pollPlayback();
+    const interval = window.setInterval(() => void pollPlayback(), PLAYBACK_POLL_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(interval);
+    };
+  }, [runtime.backend]);
+
   const activePage = tab === 'poses' ? posePage : motionPage;
   const totalPages = Math.max(1, Math.ceil(activePage.total / activePage.page_size));
   const hasFilters = deferredSearch.trim().length > 0 || parseTags(deferredTags).length > 0;
   const online = runtime.backend === 'connected';
-  const anyActionBusy = actionKey !== null;
+  const playbackActive = playbackLocksLibrary(playbackStatus);
+  const anyActionBusy = actionKey !== null || playbackActive;
 
   function reload() {
     setActionError(null);
@@ -258,7 +360,7 @@ export function LibraryPage() {
     operation: () => Promise<T>,
     onSuccess: (result: T) => void,
   ): Promise<boolean> {
-    if (actionInFlight.current) return false;
+    if (actionInFlight.current || playbackLocksLibrary(playbackStatus)) return false;
     actionInFlight.current = true;
     setActionKey(key);
     setActionError(null);
@@ -402,7 +504,173 @@ export function LibraryPage() {
     );
   }
 
+  async function runPlaybackCommand(
+    key: string,
+    operation: () => Promise<PlaybackStatus>,
+    { priority = false }: { priority?: boolean } = {},
+  ) {
+    if (actionInFlight.current && !priority) return;
+    const generation = ++playbackCommandGeneration.current;
+    actionInFlight.current = true;
+    ++playbackStatusRequest.current;
+    setActionKey(key);
+    setActionError(null);
+    setPreflightError(null);
+    setPlaybackError(null);
+    setPlaybackPollError(null);
+    try {
+      const next = await operation();
+      if (generation !== playbackCommandGeneration.current) return;
+      ++playbackStatusRequest.current;
+      setPlaybackStatus(next);
+      setPlaybackLoopState(next.loop);
+      setPlaybackRateState(closestPlaybackRate(next.rate));
+    } catch (error) {
+      if (generation !== playbackCommandGeneration.current) return;
+      setPlaybackError(errorMessage(error));
+    } finally {
+      if (generation === playbackCommandGeneration.current) {
+        actionInFlight.current = false;
+        setActionKey(null);
+      }
+    }
+  }
+
+  function runMotionPreflight(motion: MotionEntity) {
+    if (
+      actionInFlight.current ||
+      playbackLocksLibrary(playbackStatus) ||
+      playbackDisabledReason(motion, runtime)
+    ) return;
+    preflightRequest.current?.abort();
+    const controller = new AbortController();
+    preflightRequest.current = controller;
+    const generation = ++preflightGeneration.current;
+    actionInFlight.current = true;
+    setActionKey(`preflight-motion-${motion.id}`);
+    setPreflight(null);
+    setTrajectoryPreview(null);
+    setPreviewLoading(false);
+    setPreflightError(null);
+    setPlaybackError(null);
+    setPlaybackPollError(null);
+
+    async function prepare() {
+      try {
+        const report = await preflightMotion(
+          motion.id,
+          { expected_revision: motion.revision },
+          controller.signal,
+        );
+        if (generation !== preflightGeneration.current || controller.signal.aborted) return;
+        setPreflight(report);
+        if (!report.passed || !report.digest) return;
+        setPreviewLoading(true);
+        try {
+          const preview = await getTrajectoryPreview(report.digest, controller.signal);
+          if (generation !== preflightGeneration.current || controller.signal.aborted) return;
+          if (preview.motion_id !== motion.id || preview.digest !== report.digest) {
+            throw new TypeError('Trajectory preview does not match the prepared Motion');
+          }
+          setTrajectoryPreview(preview);
+        } catch (error) {
+          if (generation !== preflightGeneration.current || controller.signal.aborted) return;
+          setPreflightError(`Preview unavailable: ${errorMessage(error)}`);
+        } finally {
+          if (generation === preflightGeneration.current) setPreviewLoading(false);
+        }
+      } catch (error) {
+        if (generation !== preflightGeneration.current || controller.signal.aborted) return;
+        setPreflightError(errorMessage(error));
+      } finally {
+        if (preflightRequest.current === controller) {
+          actionInFlight.current = false;
+          setActionKey(null);
+          preflightRequest.current = null;
+        }
+      }
+    }
+
+    void prepare();
+  }
+
+  function playSelectedMotion(motion: MotionEntity) {
+    if (
+      !preflight?.passed ||
+      !preflight.digest ||
+      preflight.motion_revision !== motion.revision ||
+      playbackStatus?.state !== 'READY' ||
+      playbackStatus.session_id != null ||
+      playbackStatus.motion_id !== motion.id ||
+      playbackStatus.trajectory_digest !== preflight.digest
+    ) return;
+    void runPlaybackCommand(
+      `play-motion-${motion.id}`,
+      () => playMotion(motion.id, {
+        expected_revision: motion.revision,
+        trajectory_digest: preflight.digest as string,
+        loop: playbackLoop,
+        rate: playbackRate,
+      }),
+    );
+  }
+
+  function pauseSelectedMotion(motion: MotionEntity) {
+    void runPlaybackCommand(`pause-motion-${motion.id}`, pausePlayback);
+  }
+
+  function resumeSelectedMotion(motion: MotionEntity) {
+    void runPlaybackCommand(`resume-motion-${motion.id}`, resumePlayback);
+  }
+
+  function stopSelectedMotion(motion: MotionEntity) {
+    preflightGeneration.current += 1;
+    preflightRequest.current?.abort();
+    preflightRequest.current = null;
+    setPreviewLoading(false);
+    void runPlaybackCommand(
+      `stop-motion-${motion.id}`,
+      stopPlayback,
+      { priority: true },
+    );
+  }
+
+  function changePlaybackRate(motion: MotionEntity, next: number) {
+    const state = playbackStatus?.state ?? 'IDLE';
+    if (!['IDLE', 'READY', 'PLAYING', 'PAUSED'].includes(state)) return;
+    const rate = closestPlaybackRate(next);
+    setPreflightError(null);
+    setPlaybackError(null);
+    setPlaybackPollError(null);
+    setPlaybackRateState(rate);
+    if (!playbackLocksLibrary(playbackStatus) || playbackStatus?.motion_id !== motion.id) return;
+    void runPlaybackCommand(
+      `rate-motion-${motion.id}`,
+      () => setPlaybackRate(rate),
+    );
+  }
+
+  function changePlaybackLoop(motion: MotionEntity, next: boolean) {
+    const state = playbackStatus?.state ?? 'IDLE';
+    if (!['IDLE', 'READY', 'PLAYING', 'PAUSED'].includes(state)) return;
+    setPreflightError(null);
+    setPlaybackError(null);
+    setPlaybackPollError(null);
+    setPlaybackLoopState(next);
+    if (!playbackLocksLibrary(playbackStatus) || playbackStatus?.motion_id !== motion.id) return;
+    void runPlaybackCommand(
+      `loop-motion-${motion.id}`,
+      () => setPlaybackLoop(next),
+    );
+  }
+
   async function viewEntity(kind: 'pose' | 'motion', id: string) {
+    preflightGeneration.current += 1;
+    preflightRequest.current?.abort();
+    setPreflight(null);
+    setTrajectoryPreview(null);
+    setPreviewLoading(false);
+    setPreflightError(null);
     detailRequest.current?.abort();
     const controller = new AbortController();
     detailRequest.current = controller;
@@ -416,7 +684,12 @@ export function LibraryPage() {
       if (kind === 'pose') {
         setDetail({ status: 'ready', kind, entity: entity as PoseEntity });
       } else {
-        setDetail({ status: 'ready', kind, entity: entity as MotionEntity });
+        const motion = entity as MotionEntity;
+        setDetail({ status: 'ready', kind, entity: motion });
+        if (!playbackLocksLibrary(playbackStatus) || playbackStatus?.motion_id !== motion.id) {
+          setPlaybackLoopState(motion.playback_defaults.loop);
+          setPlaybackRateState(closestPlaybackRate(motion.playback_defaults.speed_multiplier));
+        }
       }
     } catch (error) {
       if (generation !== detailGeneration.current || controller.signal.aborted) return;
@@ -430,22 +703,34 @@ export function LibraryPage() {
     detailGeneration.current += 1;
     detailRequest.current?.abort();
     detailRequest.current = null;
+    preflightGeneration.current += 1;
+    preflightRequest.current?.abort();
+    setPreflight(null);
+    setTrajectoryPreview(null);
+    setPreviewLoading(false);
+    setPreflightError(null);
     setDetail(null);
+  }
+
+  function dismissPlaybackError() {
+    setPreflightError(null);
+    setPlaybackError(null);
+    setPlaybackPollError(null);
   }
 
   return (
     <div className="page library-page">
       <PageIntro
         title="Library"
-        description="Capture immutable Pose snapshots and organize playable Motion records."
-        detail="All Goto commands remain Dry Run and pass through the reviewed motion safety gateway."
+        description="Capture immutable Pose snapshots, preflight compiled trajectories, and control Dry Run Motion playback."
+        detail="Goto and Motion playback pass through the reviewed safety gateway; this interface never enables hardware access."
       />
 
       <div className="library-stage-banner">
         <Archive aria-hidden="true" />
         <div>
-          <strong>Stage 4 · Versioned file library</strong>
-          <span>UUID identity · optimistic revisions · no client file paths</span>
+          <strong>Stage 5 · Compiled Dry Run playback</strong>
+          <span>Digest-bound trajectories · live status · hardware access disabled</span>
         </div>
       </div>
 
@@ -650,7 +935,28 @@ export function LibraryPage() {
                       </li>
                     ))}
                   </ol>
-                  <p className="stage-boundary-note">Detail is read-only in Stage 4. Timeline authoring remains gated to Stage 6.</p>
+                  <MotionPlaybackPanel
+                    actionKey={actionKey}
+                    disabledReason={playbackDisabledReason(detail.entity, runtime)}
+                    error={preflightError ?? playbackError ?? playbackPollError}
+                    loop={playbackLoop}
+                    motion={detail.entity}
+                    onDismissError={dismissPlaybackError}
+                    onLoopChange={(next) => changePlaybackLoop(detail.entity, next)}
+                    onPause={() => pauseSelectedMotion(detail.entity)}
+                    onPlay={() => playSelectedMotion(detail.entity)}
+                    onPreflight={() => runMotionPreflight(detail.entity)}
+                    onRateChange={(next) => changePlaybackRate(detail.entity, next)}
+                    onResume={() => resumeSelectedMotion(detail.entity)}
+                    onStop={() => stopSelectedMotion(detail.entity)}
+                    playback={playbackStatus}
+                    preflight={preflight}
+                    preview={trajectoryPreview}
+                    previewLoading={previewLoading}
+                    rate={playbackRate}
+                    stopDisabled={!online}
+                  />
+                  <p className="stage-boundary-note">Playback uses immutable embedded snapshots. Timeline authoring remains gated to Stage 6.</p>
                 </>
               ) : null}
             </section>
@@ -711,8 +1017,16 @@ export function LibraryPage() {
                         onDeleteConfirm={deleteSelectedMotion}
                         onDeleteRequest={(selected) => setConfirmation({ kind: 'delete-motion', id: selected.id })}
                         onDuplicate={duplicateSelectedMotion}
+                        onPlay={(selected) => void viewEntity('motion', selected.id)}
                         onTagSelect={selectTag}
                         onView={(selected) => void viewEntity('motion', selected.id)}
+                        playDisabledReason={playbackDisabledReason(motion, runtime)}
+                        playBusy={
+                          actionKey !== null ||
+                          !online ||
+                          (playbackActive && playbackStatus?.motion_id !== motion.id)
+                        }
+                        viewBusy={actionKey !== null || !online}
                       />
                     ))}
               </div>

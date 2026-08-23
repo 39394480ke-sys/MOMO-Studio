@@ -8,7 +8,16 @@ import {
   getBootstrapData,
   getPoses,
   normalizeCommandStatus,
+  normalizePlaybackStatus,
+  normalizeTrajectoryPreflight,
+  normalizeTrajectoryPreview,
+  pausePlayback,
+  playMotion,
   requestJson,
+  resumePlayback,
+  setPlaybackLoop,
+  setPlaybackRate,
+  stopPlayback,
 } from './client';
 
 afterEach(() => {
@@ -156,5 +165,143 @@ describe('API client errors', () => {
   it.each([0, 0.5, 1])('accepts bounded finite command progress %s', (progress) => {
     expect(normalizeCommandStatus({ command_id: 'command', state: 'RUNNING', progress }).progress)
       .toBe(progress);
+  });
+
+  it('uses the exact playback control paths and bounded request bodies', async () => {
+    const playbackResponse = {
+      session_id: 'session-id',
+      state: 'PLAYING',
+      motion_id: 'motion-id',
+      trajectory_digest: 'sha256:trajectory',
+      progress: 0,
+      elapsed_s: 0,
+      duration_s: 2,
+      current_keyframe_id: null,
+      current_segment_index: 0,
+      current_sample_index: 0,
+      loop: false,
+      rate: 1,
+      error: null,
+      updated_at: '2026-08-24T00:00:00Z',
+      hardware_accessed: false,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(playbackResponse),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await playMotion('motion/id', {
+      expected_revision: 7,
+      trajectory_digest: 'sha256:digest/value',
+      loop: true,
+      rate: 1.5,
+    });
+    await pausePlayback();
+    await resumePlayback();
+    await stopPlayback();
+    await setPlaybackRate(2);
+    await setPlaybackLoop(false);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/motions/motion%2Fid/play',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          expected_revision: 7,
+          trajectory_digest: 'sha256:digest/value',
+          loop: true,
+          rate: 1.5,
+        }),
+      }),
+    );
+    expect(fetchMock.mock.calls.slice(1).map(([path, init]) => [path, init?.method, init?.body])).toEqual([
+      ['/api/v1/playback/pause', 'POST', undefined],
+      ['/api/v1/playback/resume', 'POST', undefined],
+      ['/api/v1/playback/stop', 'POST', undefined],
+      ['/api/v1/playback/rate', 'PUT', JSON.stringify({ rate: 2 })],
+      ['/api/v1/playback/loop', 'PUT', JSON.stringify({ loop: false })],
+    ]);
+    expect(() => setPlaybackRate(0.24)).toThrow('between 0.25× and 2×');
+    expect(() => setPlaybackRate(2.01)).toThrow('between 0.25× and 2×');
+  });
+
+  it('normalizes a digest-bound trajectory preflight and fails closed on inconsistent output', () => {
+    const report = {
+      passed: true,
+      digest: 'sha256:trajectory',
+      motion_id: 'motion-id',
+      motion_revision: 4,
+      duration_s: 2.5,
+      sample_count: 51,
+      segment_count: 2,
+      sample_rate_hz: 20,
+      violations: [],
+      checks: [{ name: 'limits', passed: true, detail: 'All samples pass' }],
+    };
+    expect(normalizeTrajectoryPreflight(report)).toMatchObject(report);
+    expect(() => normalizeTrajectoryPreflight({ ...report, digest: null })).toThrow(
+      'missing its digest',
+    );
+    expect(() => normalizeTrajectoryPreflight({ ...report, passed: false })).toThrow(
+      'must not include a digest',
+    );
+  });
+
+  it('rejects malformed or hardware-touching playback status at the client boundary', () => {
+    const status = {
+      session_id: 'session-id',
+      state: 'PLAYING',
+      motion_id: 'motion-id',
+      trajectory_digest: 'sha256:trajectory',
+      progress: 0.42,
+      elapsed_s: 1,
+      duration_s: 2.5,
+      current_keyframe_id: 'keyframe-id',
+      current_segment_index: 0,
+      current_sample_index: 20,
+      loop: false,
+      rate: 1.5,
+      error: null,
+      updated_at: '2026-08-24T00:00:00Z',
+      hardware_accessed: false,
+    };
+    expect(normalizePlaybackStatus(status)).toMatchObject(status);
+    expect(() => normalizePlaybackStatus({ ...status, state: 'UNKNOWN' })).toThrow(
+      'invalid playback state',
+    );
+    expect(() => normalizePlaybackStatus({ ...status, progress: 1.01 })).toThrow(
+      'invalid playback progress',
+    );
+    expect(() => normalizePlaybackStatus({ ...status, hardware_accessed: true })).toThrow(
+      'invalid playback status',
+    );
+  });
+
+  it('normalizes signed joint/TCP preview samples and clean segment markers', () => {
+    const preview = normalizeTrajectoryPreview({
+      digest: 'sha256:trajectory',
+      motion_id: 'motion-id',
+      duration_s: 1,
+      sample_rate_hz: 20,
+      sample_count: 2,
+      segments: [{
+        segment_index: 0,
+        motion_mode: 'CARTESIAN_LINEAR',
+        start_time_s: 0,
+        end_time_s: 1,
+        sample_count: 2,
+        start_keyframe_id: 'start',
+        end_keyframe_id: 'end',
+      }],
+      joint_series: { j11: [{ time_s: 0, value: -42, unit: 'deg' }] },
+      tcp_path: [{ time_s: 0, x_mm: -10, y_mm: 20, z_mm: -30 }],
+      keyframe_markers: [{ keyframe_id: 'start', label: 'Start', time_s: 0, sample_index: 0 }],
+    });
+    expect(preview.joint_series.j11[0]?.value).toBe(-42);
+    expect(preview.tcp_path[0]).toMatchObject({ x_mm: -10, y_mm: 20, z_mm: -30 });
+    expect(preview.segments[0]?.motion_mode).toBe('CARTESIAN_LINEAR');
   });
 });

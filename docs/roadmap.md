@@ -68,12 +68,17 @@ safety-isolation gates pass. The independent audit passes P1=0/P2=0. Stage 4 is 
 and complete; the next Stage records the dedicated containing commit's exact SHA/remote
 state because a commit cannot embed its own SHA.
 
-## Stage 5 - Trajectory and playback (not started)
+## Stage 5 - Trajectory and playback (complete)
 
-Planned scope: deterministic Joint and Cartesian-linear compilation, sampled
-preflight/digest, bounded scheduling, pause/resume/stop/loop, one Active Playback, and
-Dry Run playback through the same gateway/executor ownership. Cartesian behavior remains
-provisional until physical kinematics acceptance.
+Stage 5 implements deterministic Joint, explicit-hold, and true TCP-space
+Cartesian-linear compilation; whole-plan checks and semantic digest; an immutable exact
+prepared-plan cache; bounded preview; monotonic absolute-deadline scheduling;
+pause/resume/Stop/rate/closed-loop control; one Active Playback; and Dry Run execution
+through the shared gateway and motion-slot ownership. The Library exposes structured
+preflight, responsive path charts, controls, status, and safe errors. Backend/frontend,
+lint/type/format/build/schema/lock/dependency, focused isolation, and desktop/mobile
+browser checks are green. Cartesian behavior remains provisional until physical
+kinematics acceptance.
 
 ## Stage 6 - Studio (not started)
 
@@ -104,7 +109,7 @@ Calibration, Kinematics, device, operator, and field-acceptance gate is satisfie
 
 ## Evidence still required
 
-- Stage 4 containing commit SHA/remote-state recording plus Stage 5-8 implementation,
+- Stage 5 containing commit SHA/remote-state recording plus Stage 6-8 implementation,
   verification, and one dedicated commit per Stage;
 - physically verified V1/V2 geometry, frames, joint limits, Homes, directions, Servo
   IDs, scales, raw bounds, modes, workspace, FK references, IK tolerances, and dynamics;
