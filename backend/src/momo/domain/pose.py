@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from math import hypot, isfinite
-from typing import Annotated, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -22,6 +22,9 @@ from momo.domain.enums import RobotVariant
 from momo.domain.immutable import deep_freeze_json, freeze_sequence
 from momo.domain.profiles import profile_for_validation
 from momo.domain.robot import SCHEMA_VERSION, JointState
+
+if TYPE_CHECKING:
+    from momo.domain.robot import RobotProfile
 
 FiniteCoordinate = Annotated[float, Field(allow_inf_nan=False)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -135,10 +138,27 @@ class PoseSnapshot(BaseModel):
     @model_validator(mode="after")
     def validate_joint_state_for_snapshot(self, info: ValidationInfo) -> Self:
         profile = profile_for_validation(self.robot_variant, info.context)
+        if profile is None:
+            try:
+                self.joint_state.validate_structure_for_variant(self.robot_variant)
+            except ValueError as error:
+                raise ValueError(f"snapshot joint state is invalid: {error}") from error
+            return self
         try:
             self.joint_state.validate_against(profile)
         except ValueError as error:
             raise ValueError(f"snapshot joint state is invalid: {error}") from error
+        return self
+
+    def validate_against(self, profile: RobotProfile) -> Self:
+        """Bind environment-dependent joint validation to an explicit profile."""
+
+        if profile.variant is not self.robot_variant:
+            raise ValueError(
+                f"profile {profile.variant.value} does not match snapshot variant "
+                f"{self.robot_variant.value}"
+            )
+        self.joint_state.validate_against(profile)
         return self
 
 

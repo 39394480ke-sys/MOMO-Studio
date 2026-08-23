@@ -4,3 +4,7 @@ control_mode: dry_run
 real_motion_enabled: false
 serial_port: ""
 active_robot_variant: V2
+hardware_access: disabled
+runtime_state_directory: data/runtime/robots
+profile_directory: robot_profiles
+calibration_directory: calibration/examples

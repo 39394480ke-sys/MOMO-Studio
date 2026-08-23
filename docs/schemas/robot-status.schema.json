@@ -1,0 +1,184 @@
+{
+  "$defs": {
+    "CalibrationStatus": {
+      "enum": [
+        "NOT_CONFIGURED",
+        "TEMPLATE_ONLY",
+        "VARIANT_MISMATCH",
+        "PROFILE_MISMATCH",
+        "JOINT_SET_MISMATCH",
+        "INCOMPLETE",
+        "VALID_FOR_DRY_RUN",
+        "READY_FOR_REAL"
+      ],
+      "title": "CalibrationStatus",
+      "type": "string"
+    },
+    "ControlMode": {
+      "description": "User-visible robot control modes.\n\nA fake adapter may be used by tests, but SIM is intentionally not a product mode.",
+      "enum": [
+        "DRY_RUN",
+        "REAL"
+      ],
+      "title": "ControlMode",
+      "type": "string"
+    },
+    "HardwareAccessPolicy": {
+      "description": "Capability gate for hardware adapters.\n\nStage 2 accepts only ``DISABLED``.  The other values remain part of the\ncontract so a later stage can add reviewed read-only/full adapters without\nchanging the domain vocabulary.",
+      "enum": [
+        "DISABLED",
+        "READ_ONLY",
+        "FULL"
+      ],
+      "title": "HardwareAccessPolicy",
+      "type": "string"
+    },
+    "ProfileVerificationStatus": {
+      "enum": [
+        "UNVERIFIED",
+        "VERIFIED_FOR_DRY_RUN",
+        "VERIFIED_FOR_REAL"
+      ],
+      "title": "ProfileVerificationStatus",
+      "type": "string"
+    },
+    "RobotConnectionState": {
+      "enum": [
+        "DISCONNECTED",
+        "CONNECTING",
+        "CONNECTED",
+        "DISCONNECTING",
+        "FAULTED"
+      ],
+      "title": "RobotConnectionState",
+      "type": "string"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Read-only status payload; no movement command fields are present.",
+  "properties": {
+    "calibration_status": {
+      "$ref": "#/$defs/CalibrationStatus"
+    },
+    "connected": {
+      "title": "Connected",
+      "type": "boolean"
+    },
+    "connection_state": {
+      "$ref": "#/$defs/RobotConnectionState"
+    },
+    "control_mode": {
+      "$ref": "#/$defs/ControlMode"
+    },
+    "hardware_access_policy": {
+      "$ref": "#/$defs/HardwareAccessPolicy"
+    },
+    "hardware_accessed": {
+      "const": false,
+      "default": false,
+      "title": "Hardware Accessed",
+      "type": "boolean"
+    },
+    "last_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Error"
+    },
+    "positions": {
+      "patternProperties": {
+        "^j[1-9][0-9]*$": {
+          "type": "number"
+        }
+      },
+      "title": "Positions",
+      "type": "object"
+    },
+    "profile_fingerprint": {
+      "title": "Profile Fingerprint",
+      "type": "string"
+    },
+    "profile_verification_status": {
+      "$ref": "#/$defs/ProfileVerificationStatus"
+    },
+    "raw_positions": {
+      "anyOf": [
+        {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Raw Positions"
+    },
+    "robot_id": {
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "stale": {
+      "default": false,
+      "title": "Stale",
+      "type": "boolean"
+    },
+    "state_sequence": {
+      "default": 0,
+      "minimum": 0,
+      "title": "State Sequence",
+      "type": "integer"
+    },
+    "units": {
+      "patternProperties": {
+        "^j[1-9][0-9]*$": {
+          "type": "string"
+        }
+      },
+      "title": "Units",
+      "type": "object"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "variant": {
+      "$ref": "#/$defs/RobotVariant"
+    }
+  },
+  "required": [
+    "robot_id",
+    "variant",
+    "control_mode",
+    "hardware_access_policy",
+    "connection_state",
+    "connected",
+    "profile_fingerprint",
+    "profile_verification_status",
+    "calibration_status",
+    "positions",
+    "units"
+  ],
+  "title": "RobotStatus",
+  "type": "object"
+}

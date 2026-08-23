@@ -1,13 +1,13 @@
-"""Stage 1 configuration loading with an enforced real-motion safety lock."""
+"""Stage 2 configuration loading with an enforced hardware-access safety gate."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import yaml
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -15,14 +15,14 @@ from pydantic_settings import (
 )
 
 from momo import __version__
-from momo.domain.enums import ControlMode, RobotVariant
+from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
 
 
 class Settings(BaseSettings):
     """Runtime settings.
 
     Environment variables use the ``MOMO_`` prefix and outrank YAML/init values.
-    Stage 1 deliberately makes ``real_motion_enabled=true`` a configuration error.
+    Stage 2 rejects both real motion and every non-disabled hardware access policy.
     """
 
     model_config = SettingsConfigDict(
@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     real_motion_enabled: bool = False
     serial_port: str = ""
     active_robot_variant: RobotVariant = RobotVariant.V2
+    hardware_access_policy: HardwareAccessPolicy = HardwareAccessPolicy.DISABLED
+    runtime_state_directory: str = "data/runtime/robots"
+    profile_directory: str = "robot_profiles"
+    calibration_directory: str = "calibration/examples"
 
     @classmethod
     def settings_customise_sources(
@@ -52,6 +56,15 @@ class Settings(BaseSettings):
         # Earlier sources have higher priority in pydantic-settings.
         return env_settings, init_settings, file_secret_settings
 
+    @model_validator(mode="before")
+    @classmethod
+    def accept_hardware_access_compatibility_key(cls, value: object) -> object:
+        if isinstance(value, dict) and "hardware_access_policy" not in value:
+            value = dict(value)
+            if "hardware_access" in value:
+                value["hardware_access_policy"] = value.pop("hardware_access")
+        return value
+
     @field_validator("control_mode", mode="before")
     @classmethod
     def normalize_control_mode(cls, value: object) -> object:
@@ -64,12 +77,35 @@ class Settings(BaseSettings):
     def normalize_variant(cls, value: object) -> object:
         return value.strip().upper() if isinstance(value, str) else value
 
+    @field_validator("hardware_access_policy", mode="before")
+    @classmethod
+    def normalize_hardware_access(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().replace("-", "_").replace(" ", "_").upper()
+        return value
+
     @field_validator("real_motion_enabled")
     @classmethod
-    def enforce_stage_one_safety_lock(cls, value: bool) -> bool:
+    def enforce_stage_two_safety_lock(cls, value: bool) -> bool:
         if value:
-            raise ValueError("real_motion_enabled is locked to false throughout Stage 1")
+            raise ValueError("real_motion_enabled is locked to false throughout Stage 2")
         return False
+
+    @model_validator(mode="after")
+    def enforce_stage_two_capability_gate(self) -> Self:
+        if self.control_mode is not ControlMode.DRY_RUN:
+            raise ValueError("Stage 2 requires control_mode=DRY_RUN")
+        if self.hardware_access_policy is not HardwareAccessPolicy.DISABLED:
+            raise ValueError(
+                "Stage 2 requires hardware_access=DISABLED; no hardware adapter is available"
+            )
+        return self
+
+    @property
+    def hardware_access(self) -> HardwareAccessPolicy:
+        """Backwards-compatible name used by Stage 2 internal callers."""
+
+        return self.hardware_access_policy
 
 
 def repository_root() -> Path:
@@ -98,7 +134,7 @@ def load_settings(
     """Load default YAML, then optional local YAML, then ``MOMO_*`` environment values.
 
     A missing YAML file is allowed for installed packages. The environment remains the
-    final authority except that the Stage 1 real-motion lock can never be overridden.
+    final authority except that the Stage 2 safety gates can never be overridden.
     """
 
     root = repository_root()

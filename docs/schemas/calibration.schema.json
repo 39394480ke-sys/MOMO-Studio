@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "CalibrationJoint": {
+      "additionalProperties": false,
+      "description": "One joint's hardware-local reference without joint-name assumptions.",
+      "properties": {
+        "direction": {
+          "title": "Direction",
+          "type": "integer"
+        },
+        "home_present_raw": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Home Present Raw"
+        },
+        "joint_id": {
+          "pattern": "^j[1-9][0-9]*$",
+          "title": "Joint Id",
+          "type": "string"
+        },
+        "operating_mode": {
+          "$ref": "#/$defs/CalibrationOperatingMode"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase"
+        },
+        "raw_bounds": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Bounds"
+        },
+        "servo_id": {
+          "minimum": 1,
+          "title": "Servo Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "joint_id",
+        "servo_id",
+        "operating_mode",
+        "direction"
+      ],
+      "title": "CalibrationJoint",
+      "type": "object"
+    },
+    "CalibrationOperatingMode": {
+      "enum": [
+        "MULTI_TURN",
+        "SINGLE_TURN"
+      ],
+      "title": "CalibrationOperatingMode",
+      "type": "string"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned calibration keyed to an exact variant and profile fingerprint.",
+  "properties": {
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "joints": {
+      "items": {
+        "$ref": "#/$defs/CalibrationJoint"
+      },
+      "minItems": 1,
+      "title": "Joints",
+      "type": "array"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    },
+    "profile_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Profile Fingerprint",
+      "type": "string"
+    },
+    "robot_variant": {
+      "$ref": "#/$defs/RobotVariant"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "template": {
+      "title": "Template",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "robot_variant",
+    "profile_fingerprint",
+    "template",
+    "joints"
+  ],
+  "title": "CalibrationDocument",
+  "type": "object"
+}

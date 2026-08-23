@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 from typing import Annotated, Final, Literal, Self
-from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -18,7 +17,13 @@ from pydantic import (
     model_validator,
 )
 
-from momo.domain.enums import DomainUnit, JointType, RobotVariant
+from momo.domain.enums import (
+    CalibrationOperatingMode,
+    DomainUnit,
+    JointType,
+    ProfileVerificationStatus,
+    RobotVariant,
+)
 from momo.domain.errors import JointStateValidationError
 from momo.domain.immutable import FrozenDict, freeze_mapping, freeze_sequence
 
@@ -56,7 +61,7 @@ VARIANT_PRODUCT_CONTRACTS: Final = FrozenDict(
 )
 
 
-class RobotId(RootModel[UUID]):
+class RobotId(RootModel[Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]]):
     """Stable identity for one robot instance without assuming a global arm."""
 
     model_config = ConfigDict(frozen=True)
@@ -74,6 +79,16 @@ class JointDefinition(BaseModel):
     maximum: FiniteNumber
     home: FiniteNumber
     hardware_mapping_placeholder: dict[str, HardwareMappingValue] | None = None
+    # Stage 2 mapping fields are explicit and unit-neutral.  They are optional so
+    # Stage 1 examples remain readable and backwards compatible.
+    servo_id: int | None = Field(default=None, ge=1)
+    motor_degrees_per_domain_unit: FiniteNumber | None = Field(default=None, gt=0)
+    raw_counts_per_motor_revolution: FiniteNumber = Field(default=4096.0, gt=0)
+    direction: Literal[-1, 1] = 1
+    operating_mode: CalibrationOperatingMode = CalibrationOperatingMode.MULTI_TURN
+    home_present_raw: int | None = None
+    raw_bounds: tuple[int, int] | None = None
+    raw_reachable: bool = False
 
     @field_validator("hardware_mapping_placeholder")
     @classmethod
@@ -93,6 +108,12 @@ class JointDefinition(BaseModel):
             raise ValueError(
                 f"{self.joint_type.value} joints must use {expected_unit.value} domain units"
             )
+        if self.raw_bounds is not None:
+            lower, upper = self.raw_bounds
+            if lower >= upper:
+                raise ValueError("raw_bounds lower bound must be less than upper bound")
+        if self.home_present_raw is not None and not isinstance(self.home_present_raw, int):
+            raise ValueError("home_present_raw must be an integer")
         return self
 
 
@@ -109,6 +130,13 @@ class RobotProfile(BaseModel):
     joint_definitions: Annotated[list[JointDefinition], Field(min_length=1)]
     urdf_reference: str | None
     tcp_link: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    template: bool = True
+    verification_status: ProfileVerificationStatus = ProfileVerificationStatus.VERIFIED_FOR_DRY_RUN
+    source: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = "momo-stage-2"
+    source_revision: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = (
+        "stage-2"
+    )
+    description: str = ""
 
     @field_validator("enabled_joints")
     @classmethod
@@ -141,7 +169,6 @@ class RobotProfile(BaseModel):
                 "joint_definitions must contain each enabled joint exactly once "
                 "and in the same order"
             )
-
         product_contract = VARIANT_PRODUCT_CONTRACTS[self.variant]
         if enabled != product_contract.enabled_joints:
             raise ValueError(
@@ -167,11 +194,30 @@ class RobotProfile(BaseModel):
                     f"{self.variant.value} {definition.joint_id} domain_unit must be "
                     f"{expected_unit.value}"
                 )
+        servo_ids = [definition.servo_id for definition in self.joint_definitions]
+        if any(servo_id is None for servo_id in servo_ids):
+            raise ValueError("every enabled joint must declare a servo_id")
+        servo_ids = [servo_id for servo_id in servo_ids if servo_id is not None]
+        if len(servo_ids) != len(set(servo_ids)):
+            raise ValueError("joint_definitions contains duplicate servo IDs")
+        if (
+            self.template
+            and self.verification_status is ProfileVerificationStatus.VERIFIED_FOR_REAL
+        ):
+            raise ValueError("template profiles cannot be verified for real hardware")
         return self
 
     @property
     def definitions_by_id(self) -> dict[str, JointDefinition]:
         return {definition.joint_id: definition for definition in self.joint_definitions}
+
+    @property
+    def fingerprint(self) -> str:
+        """Stable SHA-256 identity for motion and safety-relevant profile fields."""
+
+        from momo.domain.profile_fingerprint import profile_fingerprint
+
+        return profile_fingerprint(self)
 
 
 class JointState(BaseModel):
@@ -244,6 +290,26 @@ class JointState(BaseModel):
                     f"{joint_id} position {position} {definition.domain_unit.value} is outside "
                     f"[{definition.minimum}, {definition.maximum}]"
                 )
+        return self
+
+    def validate_structure_for_variant(self, variant: RobotVariant) -> Self:
+        """Validate only the persisted shape when no runtime Profile is supplied.
+
+        Range and unit checks remain an application/profile concern.  This method
+        checks variant membership and finiteness without resolving a Profile.
+        """
+
+        expected = set(VARIANT_PRODUCT_CONTRACTS[variant].enabled_joints)
+        actual = set(self.positions)
+        missing = sorted(expected - actual)
+        unknown = sorted(actual - expected)
+        if missing:
+            raise JointStateValidationError(f"missing enabled joints: {missing}")
+        if unknown:
+            raise JointStateValidationError(f"unknown joints: {unknown}")
+        for joint_id, value in self.positions.items():
+            if not isfinite(value):
+                raise JointStateValidationError(f"{joint_id} position must be finite")
         return self
 
     @classmethod

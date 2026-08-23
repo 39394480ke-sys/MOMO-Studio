@@ -36,7 +36,12 @@ data/*
 !data/examples/**
 
 # Hardware-local state must never be committed
-calibration/
+calibration/*
+!calibration/examples/
+!calibration/examples/**
+calibration/local/
+config/local/
+robot_profiles/local/
 *.calibration.yaml
 *.calibration.json
 serial.local.yaml

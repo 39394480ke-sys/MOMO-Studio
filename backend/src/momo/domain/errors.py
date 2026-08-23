@@ -11,3 +11,59 @@ class JointStateValidationError(DomainValidationError):
 
 class ProfileResolutionError(DomainValidationError):
     """An explicit entity-validation profile is missing, malformed, or mismatched."""
+
+
+class RobotApplicationError(RuntimeError):
+    """Safe, structured application failure exposed by the HTTP boundary."""
+
+    code = "INTERNAL_ERROR"
+    status_code = 500
+
+    def __init__(self, message: str, *, details: object | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = details
+
+
+class RobotAlreadyConnectedError(RobotApplicationError):
+    code = "ROBOT_ALREADY_CONNECTED"
+    status_code = 409
+
+
+class RobotNotConnectedError(RobotApplicationError):
+    code = "ROBOT_NOT_CONNECTED"
+    status_code = 409
+
+
+class RobotBusyError(RobotApplicationError):
+    code = "ROBOT_BUSY"
+    status_code = 409
+
+
+class VariantSwitchWhileConnectedError(RobotApplicationError):
+    code = "VARIANT_SWITCH_WHILE_CONNECTED"
+    status_code = 409
+
+
+class ProfileInvalidError(RobotApplicationError):
+    code = "PROFILE_INVALID"
+    status_code = 422
+
+
+class CalibrationInvalidError(RobotApplicationError):
+    code = "CALIBRATION_INVALID"
+    status_code = 422
+
+
+class HardwareAccessDisabledError(RobotApplicationError):
+    code = "HARDWARE_ACCESS_DISABLED"
+    status_code = 403
+
+
+class RuntimeStateInvalidError(RobotApplicationError):
+    code = "RUNTIME_STATE_INVALID"
+    status_code = 422
+
+
+class HardwareMappingError(DomainValidationError):
+    """A logical/raw conversion cannot be proven valid from explicit inputs."""

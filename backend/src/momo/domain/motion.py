@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -21,6 +21,9 @@ from momo.domain.immutable import freeze_sequence
 from momo.domain.pose import Name, PoseSnapshot, _require_aware, utc_now
 from momo.domain.profiles import profile_for_validation
 from momo.domain.robot import SCHEMA_VERSION
+
+if TYPE_CHECKING:
+    from momo.domain.robot import RobotProfile
 
 FiniteNonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 FinitePositive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
@@ -140,7 +143,25 @@ class Motion(BaseModel):
                     f"match Motion variant {self.robot_variant.value}"
                 )
             try:
-                snapshot.joint_state.validate_against(profile)
+                if profile is not None:
+                    snapshot.joint_state.validate_against(profile)
+                else:
+                    snapshot.joint_state.validate_structure_for_variant(self.robot_variant)
+            except ValueError as error:
+                raise ValueError(f"keyframe {index} joint state is invalid: {error}") from error
+        return self
+
+    def validate_against(self, profile: RobotProfile) -> Self:
+        """Apply runtime profile limits without introducing constructor globals."""
+
+        if profile.variant is not self.robot_variant:
+            raise ValueError(
+                f"profile {profile.variant.value} does not match Motion variant "
+                f"{self.robot_variant.value}"
+            )
+        for index, keyframe in enumerate(self.keyframes):
+            try:
+                keyframe.pose_snapshot.validate_against(profile)
             except ValueError as error:
                 raise ValueError(f"keyframe {index} joint state is invalid: {error}") from error
         return self

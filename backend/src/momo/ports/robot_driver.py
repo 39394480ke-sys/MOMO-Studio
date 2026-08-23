@@ -1,4 +1,4 @@
-"""Hardware-facing robot driver boundary; no implementation exists in Stage 1."""
+"""Lifecycle-only robot driver boundary; Stage 2 exposes no movement methods."""
 
 from typing import Protocol, runtime_checkable
 

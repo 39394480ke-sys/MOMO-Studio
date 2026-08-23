@@ -122,7 +122,8 @@ def test_motion_validates_joint_states_against_variant_profile() -> None:
                         },
                     },
                 ],
-            }
+            },
+            context={"robot_profile": canonical_robot_profile(RobotVariant.V2)},
         )
 
 

@@ -4,11 +4,16 @@ display_name: MOMO V2 Example
 has_linear_rail: true
 enabled_joints: [j10, j11, j12, j13, j14, j15]
 joint_definitions:
-  - {joint_id: j10, joint_type: PRISMATIC, domain_unit: mm, minimum: 0.0, maximum: 1000.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
-  - {joint_id: j11, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
-  - {joint_id: j12, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
-  - {joint_id: j13, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
-  - {joint_id: j14, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
-  - {joint_id: j15, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
+  - {joint_id: j10, joint_type: PRISMATIC, domain_unit: mm, minimum: 0.0, maximum: 500.0, home: 0.0, servo_id: 10, motor_degrees_per_domain_unit: 28.8, raw_counts_per_motor_revolution: 4096.0, direction: 1, operating_mode: MULTI_TURN, home_present_raw: 0, raw_bounds: [-30719, 30719], raw_reachable: true}
+  - {joint_id: j11, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, servo_id: 11, motor_degrees_per_domain_unit: 5.0, raw_counts_per_motor_revolution: 4096.0, direction: 1, operating_mode: MULTI_TURN, home_present_raw: 0, raw_bounds: [-30719, 30719], raw_reachable: true}
+  - {joint_id: j12, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, servo_id: 12, motor_degrees_per_domain_unit: 28.0, raw_counts_per_motor_revolution: 4096.0, direction: -1, operating_mode: MULTI_TURN, home_present_raw: 0, raw_bounds: [-30719, 30719], raw_reachable: true}
+  - {joint_id: j13, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, servo_id: 13, motor_degrees_per_domain_unit: 14.0, raw_counts_per_motor_revolution: 4096.0, direction: 1, operating_mode: MULTI_TURN, home_present_raw: 0, raw_bounds: [-30719, 30719], raw_reachable: true}
+  - {joint_id: j14, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, servo_id: 14, motor_degrees_per_domain_unit: 1.0, raw_counts_per_motor_revolution: 4096.0, direction: 1, operating_mode: MULTI_TURN, home_present_raw: 0, raw_bounds: [-30719, 30719], raw_reachable: true}
+  - {joint_id: j15, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, servo_id: 15, motor_degrees_per_domain_unit: 1.0, raw_counts_per_motor_revolution: 4096.0, direction: 1, operating_mode: MULTI_TURN, home_present_raw: 0, raw_bounds: [-30719, 30719], raw_reachable: true}
 urdf_reference: null
 tcp_link: tool0
+template: true
+verification_status: VERIFIED_FOR_DRY_RUN
+source: legacy-characterization-rewritten-for-stage-2
+source_revision: ff8bbda0c2222cb57951c7913f7f12f5777b98fa
+description: J10 uses synthetic millimetre limits; no value is verified for real hardware.

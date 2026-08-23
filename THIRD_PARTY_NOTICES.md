@@ -1,15 +1,15 @@
 # Third-party notices and provenance ledger
 
-This file is a provenance ledger, not a software license. MOMO Studio has not selected a repository license in Stage 1. Nothing here grants rights beyond the applicable upstream license.
+This file is a provenance ledger, not a software license. MOMO Studio has not selected a repository license. Nothing here grants rights beyond the applicable upstream license.
 
-## MOMO Studio Stage 1 dependencies
+## MOMO Studio dependencies
 
 MOMO Studio resolves its development/runtime packages through the manifests and lockfiles in this repository. They are not vendored here. Before distribution, generate and review a version-pinned dependency/license report from those lockfiles and include every required license and attribution notice.
 
 | Ecosystem | Packages presently declared or used | Stage 1 use | Provenance action before distribution |
 |---|---|---|---|
 | Python | Hatchling, FastAPI, Pydantic, pydantic-settings, PyYAML, Uvicorn; development tools include httpx, pytest, Ruff, mypy and types-PyYAML | Build backend, API shell, configuration, domain validation/schema generation and quality checks | Use the exact resolved versions in `backend/uv.lock`; collect each distribution's license metadata and bundled license text. |
-| JavaScript/TypeScript | React, React DOM, React Router, Vite; development tools include TypeScript, Vitest, Testing Library, ESLint and related plugins | Web application shell, routing, tests, lint/type/build tooling | Use the exact resolved versions in the frontend lockfile; collect package license metadata and required notices. |
+| JavaScript/TypeScript | React, React DOM, React Router, and Lucide React (ISC); Vite plus TypeScript, Vitest, Testing Library, ESLint and related development tools | Web application, routing, interface icons, tests, lint/type/build tooling | Use the exact resolved versions in the frontend lockfile; collect package license metadata and required notices. |
 
 Package names are identifiers for attribution and dependency review; they do not imply endorsement.
 

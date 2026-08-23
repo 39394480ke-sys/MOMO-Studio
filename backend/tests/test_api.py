@@ -1,4 +1,4 @@
-"""Read-only Stage 1 API contract tests (requirements 17, 18, and 20)."""
+"""Stage 2 API surface and hardware isolation contract tests."""
 
 import asyncio
 from collections.abc import Iterable, Iterator
@@ -52,7 +52,9 @@ def test_health_api_is_dry_run_and_real_motion_is_disabled() -> None:
         "status": "ok",
         "product": "MOMO Studio",
         "version": "0.1.0",
+        "stage": 2,
         "control_mode": "DRY_RUN",
+        "hardware_access_policy": "DISABLED",
         "real_motion_enabled": False,
     }
 
@@ -68,26 +70,31 @@ def test_meta_and_product_scope_apis() -> None:
     scope_response = get(app, "/api/v1/meta/product-scope")
     assert scope_response.status_code == 200
     scope = scope_response.json()
-    assert scope["stage"] == 1
+    assert scope["stage"] == 2
     assert scope["release"] == "first_version"
     assert "single active MOMO V1 or V2 robot" in scope["included_in_first_version"]
     assert "photo, video recording, or media management" in scope["excluded_from_first_version"]
 
 
-def test_stage_one_exposes_no_motion_or_hardware_command_api() -> None:
+def test_stage_two_exposes_lifecycle_but_no_motion_or_hardware_command_api() -> None:
     app = create_app(Settings(control_mode=ControlMode.DRY_RUN, real_motion_enabled=False))
     api_paths = {path: frozenset(methods) for path, methods in app.openapi()["paths"].items()}
     assert api_paths == {
+        "/api/v1/calibration/status": frozenset({"get"}),
         "/api/v1/health": frozenset({"get"}),
         "/api/v1/meta": frozenset({"get"}),
         "/api/v1/meta/product-scope": frozenset({"get"}),
+        "/api/v1/robot": frozenset({"get"}),
+        "/api/v1/robot/connect": frozenset({"post"}),
+        "/api/v1/robot/diagnostics": frozenset({"get"}),
+        "/api/v1/robot/disconnect": frozenset({"post"}),
+        "/api/v1/robot/profile": frozenset({"get"}),
+        "/api/v1/robot/stop": frozenset({"post"}),
+        "/api/v1/robot/variant": frozenset({"put"}),
     }
 
     route_tree = list(iter_route_tree(app.routes))
     assert not any(isinstance(route, (Mount, WebSocketRoute)) for route in route_tree)
     custom_http_routes = [route for route in route_tree if isinstance(route, APIRoute)]
-    assert {(route.path, frozenset(route.methods or set())) for route in custom_http_routes} == {
-        ("/health", frozenset({"GET"})),
-        ("/meta", frozenset({"GET"})),
-        ("/meta/product-scope", frozenset({"GET"})),
-    }
+    paths = {route.path.lower() for route in custom_http_routes}
+    assert not any(token in path for path in paths for token in ("jog", "move", "home", "motion"))

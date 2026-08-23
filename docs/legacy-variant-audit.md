@@ -5,6 +5,7 @@
 - Legacy repository: `https://github.com/39394480ke-sys/MOMO_RobotARM.git`
 - Branch: `V2`
 - Audited commit: `ff8bbda0c2222cb57951c7913f7f12f5777b98fa`
+- Stage 2 audit update: 2026-08-24
 - All evidence references below are relative to that immutable commit.
 - Inspection was static and read only. No Legacy Python code or dependency was run. No serial device, calibration operation, actuator command, camera or real robot was accessed.
 - Local/runtime calibration contents were excluded. Only tracked example-file structure and Git-index presence were inspected; no calibration number was transcribed.
@@ -18,12 +19,23 @@ The product contract is not inferred from Legacy file names, array lengths, URDF
 | V1 | `false` | `j11`, `j12`, `j13`, `j14`, `j15` | Five enabled revolute joints, each with an explicit angular unit such as `deg`; J10 is not enabled. |
 | V2 | `true` | `j10`, `j11`, `j12`, `j13`, `j14`, `j15` | J10 is prismatic with an explicit linear unit such as `mm`; J11-J15 are revolute with explicit angular units such as `deg`. |
 
-Consequences fixed in Stage 1:
+Consequences established in Stage 1 and enforced by the Stage 2 runtime:
 
 - Variant names describe physical product models, not software versions.
 - `RobotProfile.enabled_joints` is authoritative. No domain/API/storage code may assume `j10-j15`, six joints, or all-angle units.
-- Stage 1 profile values are safe examples, not production calibration. Legacy limits, scales, homes and hardware mappings remain unverified.
-- UI boundaries use mm/deg; a later kinematics adapter uses m/rad. Conversion must be explicit and tested at that boundary.
+- Stage 2 Profile values are synthetic Dry Run characterization examples, not production Calibration. Legacy limits, scales, Homes and hardware mappings remain unverified.
+- UI/domain boundaries use mm/deg; a later kinematics adapter uses m/rad. Conversion must be explicit and tested at that boundary.
+
+## Stage 2 enforcement outcome
+
+| Contract | Stage 2 implementation | Real-hardware status |
+|---|---|---|
+| V1 membership | `v1.example.yaml` and `RobotProfile` require exactly J11-J15 with no rail. Runtime status, Calibration comparison, and UI all consume that ordered set. | Product shape enforced; physical IDs, signs, limits, Home, mapping and kinematics remain unverified. |
+| V2 membership and units | `v2.example.yaml` requires J10-J15; J10 is `PRISMATIC`/`mm`, J11-J15 are `REVOLUTE`/`deg`. | Product shape enforced; rail stroke/mapping and physical joint data remain unverified. |
+| Profile identity | A deterministic SHA-256 Profile Fingerprint covers ordered joint identity, types/units, Servo mapping, modes, directions, logical limits/Home, and raw mapping/bounds. | A matching fingerprint means configuration compatibility, not physical acceptance. |
+| Calibration examples | New synthetic, `template: true` documents use the exact new variant joint set, omit gripper, bind to the corresponding new Profile Fingerprint, and pass explicit Servo/mode/raw-bound mapping comparison. They were not produced by cropping Legacy templates. | Always blocked from Real readiness. No Legacy local Calibration was read or migrated. |
+| Runtime state | Restore requires exact variant, Profile Fingerprint, joint set and units; rejected state is quarantined and falls back to Profile Home. | Dry Run only; it contains no device-local raw/multi-turn state and never reconnects hardware. |
+| Driver boundary | The only adapter is an in-memory Dry Run driver; no six-joint V1 fallback, scan, read, write, torque, serial, or Feetech path exists. | Real driver and hardware conformance are deferred. |
 
 ## Evidence matrix
 
@@ -36,15 +48,15 @@ Consequences fixed in Stage 1:
 | `配置/robot_v2.yaml:1-33` | N/A | Declares V2 and contains J10-J15; target frame is `Link_7`; J12/J13 are marked raw-reachable. | Joint set matches; typing/ranges incomplete | Re-enter only verified facts into a typed profile. The generic `[-360, 360]` J10 range must not become a linear-mm production limit. |
 | `机器人配置_profile_loader.py:12-39,69-113` | Global `JOINT_NAMES` is J10-J15 and validation requires every kinematics scale, hardware scale and limit map to contain that complete set for either variant. | Same forced set. | V1 contradicts; V2 set matches | Replace with validation against each profile's explicit `enabled_joints` and per-joint definitions. |
 | `机器人配置_profile_loader.py:148-165` | `enabled_joints` is optional; absent values fall back to `joint_order` or the six-joint global. | Same. | Unsafe default for V1 | Require `enabled_joints`; no implicit six-joint fallback. |
-| `配置/测试脚本_test/test_robot_profiles.py:41-67,425-434` | Legacy profile tests deliberately encode V1 as J10-J15 and expect six-joint V1 action/kinematics behavior. | Encodes V2 as J10-J15. | V1 test oracle contradicts product contract | Do not port these assertions. Replace them with Stage 1 contract tests: V1 J11-J15 only, V2 J10-J15. |
+| `配置/测试脚本_test/test_robot_profiles.py:41-67,425-434` | Legacy profile tests deliberately encode V1 as J10-J15 and expect six-joint V1 action/kinematics behavior. | Encodes V2 as J10-J15. | V1 test oracle contradicts product contract | Do not port these assertions. Stage 2 replaces them with Profile/repository/runtime tests: V1 J11-J15 only, V2 J10-J15. |
 | `控制桥接_common.py:21-22,69-80` | Global order/multi-turn sets contain J10-J15; aliases map older five-axis names onto J11-J15. | Same globals happen to match V2 membership. | V1 contradicts; global design invalid | Remove global joint-set authority. Alias handling, if retained, belongs only in an explicit Legacy importer. |
 | `URDF运动学仿真/urdf/v1/soarmoce_urdf.urdf:101-141` | Contains prismatic J10 followed by revolute J11-J15 and terminates at `Link_6`. | N/A | Contradicts V1 rail-less contract | Do not copy or reference it as the production V1 model. Obtain/build/verify a true no-rail V1 URDF and TCP mapping later. |
 | `URDF运动学仿真/urdf/v2/soarmoce_urdf.urdf:101-141` | N/A | Contains prismatic J10 followed by revolute J11-J15 and terminates at `Link_7`. | Structurally matches | Still requires provenance/license clearance and physical FK/axis/limit verification before reuse. |
 | `URDF运动学仿真/运动学模型_kinematics_model.py:53-71,211-249` | SDK joint list is globally fixed at six; units correctly distinguish J10 mm from J11-J15 deg, but a V1 selection still receives the six-joint SDK list. | Six-joint/unit shape matches V2. | V1 contradicts; useful unit evidence | Make the adapter consume `RobotProfile.enabled_joints` and definitions. Keep conversion functions explicit; never use array position as joint identity. |
 | `URDF运动学仿真/正运动学_fk.py:12-18,39-44` and `逆运动学_ik.py:12-20,73-80` | CLI requires exactly six values regardless of selected profile. | Six inputs match V2 membership. | V1 contradicts | New FK/IK port accepts a joint-ID map validated against the active profile. |
-| `真实舵机控制/真实配置.yaml:19-121` | No canonical V1 instance is defined here. | Canonical real config declares V2, `dof: 6`, J10-J15 and all six as multi-turn. J10's annotation calls its UI/Web unit mm. | V2 membership/units match, values unverified | Treat as Legacy implementation evidence only. No port, calibration or protocol value is copied during Stage 1. |
-| `真实舵机控制/标定/v1.example.json:2-10,18-58` | `_meta.robot_variant` is V1, yet the top-level template contains J10-J15 and a gripper entry. | N/A | Contradicts V1; gripper retired | Do not silently drop J10 or copy values. A later importer must quarantine this shape or require an explicit, audited conversion. Create a new V1 template from the new profile only after hardware verification. |
-| `真实舵机控制/标定/v2.example.json:2-10,18-58` | N/A | `_meta.robot_variant` is V2 and the template contains J10-J15 plus gripper. | Main joint set matches; gripper retired | Import structure only after schema/provenance review; omit no field silently. Production calibration remains local and fingerprinted. |
+| `真实舵机控制/真实配置.yaml:19-121` | No canonical V1 instance is defined here. | Canonical real config declares V2, `dof: 6`, J10-J15 and all six as multi-turn. J10's annotation calls its UI/Web unit mm. | V2 membership/units match, values unverified | Treat as characterization evidence only. Stage 2 mapping examples are synthetic and unverified; no protocol setting or local Calibration becomes product authority. |
+| `真实舵机控制/标定/v1.example.json:2-10,18-58` | `_meta.robot_variant` is V1, yet the top-level template contains J10-J15 and a gripper entry. | N/A | Contradicts V1; gripper retired | Do not silently drop J10 or copy values. A future Legacy importer must quarantine this shape or require an explicit audited conversion. Stage 2 instead creates a new synthetic V1 template from the new exact Profile; it is not Real-valid. |
+| `真实舵机控制/标定/v2.example.json:2-10,18-58` | N/A | `_meta.robot_variant` is V2 and the template contains J10-J15 plus gripper. | Main joint set matches; gripper retired | Do not copy or silently strip this file. Stage 2 creates a new synthetic exact-set template with no gripper. Production Calibration remains local, non-template, exact-Profile matched, and future work. |
 | `真实舵机控制/标定说明.md:8-17,29-50` | Says real calibration is local and variant must match, but its V2 discussion refers to retaining a prior V1 J10 calibration at `:38`, reinforcing a historical rail-equipped V1 concept. | Requires V2 J10 and exact calibration variant match. | Historical V1 contradiction; safety rule useful | Preserve exact-variant/template rejection; do not infer today's V1 mechanics from historical calibration prose. |
 | `动作录制与回放增强/动作库/V1演示.json:2-13` | Current example declares V1 and J11-J15. | N/A | Matches | Eligible only as an importer fixture after removing values/raw/gripper; not production sample data. |
 | `动作录制与回放增强/动作库/v2 演示.json:2-14` | N/A | Declares V2 and J10-J15. | Matches membership | Same: use structural fixtures only after explicit conversion; never copy recorded hardware snapshots blindly. |
@@ -81,11 +93,11 @@ No Legacy file is edited to create the appearance of consistency. A later V1 ada
 
 ### VA-03 — The V1 URDF is not compatible with the new V1 contract
 
-The V1 URDF contains a prismatic J10. Simply hiding J10 in the UI would leave a different kinematic chain and frame topology. MOMO Studio therefore records only an `urdf_reference` placeholder in Stage 1; a real no-rail model, axes and TCP must be obtained or built and verified later.
+The V1 URDF contains a prismatic J10. Simply hiding J10 in the UI would leave a different kinematic chain and frame topology. MOMO Studio therefore keeps `urdf_reference: null` in the Stage 2 V1 example; a real no-rail model, axes and TCP must be obtained or built and verified in a later Stage.
 
 ### VA-04 — V1 calibration examples contain a J10 entry
 
-The V1 example is marked as a template and includes J10-J15. Values were not read into this audit. Do not crop it to J11-J15 and call the result valid: calibration is physical-device state, and silent cropping would destroy provenance. A future conversion must either reject/quarantine it or require an operator-reviewed mapping and produce a new calibration fingerprint.
+The Legacy V1 example is marked as a template and includes J10-J15. Values were not read into this audit. Stage 2 did not crop it: the new repository contains a separately authored synthetic V1 document with exactly J11-J15, no gripper, `template: true`, and the new Profile Fingerprint. It supports shape/diagnostic tests only. A future Legacy conversion must reject/quarantine the old shape or require an operator-reviewed mapping and visible report.
 
 ### VA-05 — Fixed six-joint code can silently fabricate V1 data
 
@@ -114,45 +126,50 @@ Legacy documentation and `.gitignore` say local calibration/backups must not be 
 
 ### VA-09 — Asset licensing is not established
 
-The Legacy notice calls SOARM MOCE URDF/STL third-party and says licensing/attribution must be verified. The audited root contains no `LICENSE` or `COPYING` file, and bundled YuNet/MediaPipe model files have no source/license record in the notice. No such asset is present in MOMO Studio Stage 1.
+The Legacy notice calls SOARM MOCE URDF/STL third-party and says licensing/attribution must be verified. The audited root contains no `LICENSE` or `COPYING` file, and bundled YuNet/MediaPipe model files have no source/license record in the notice. No such asset is present in MOMO Studio Stage 2.
 
 ## Explicit conversion rules
 
-| Legacy input | Stage 1 classification | Later conversion rule |
+| Legacy input | Stage 2 classification | Later conversion rule |
 |---|---|---|
 | V1 + exact J11-J15 canonical IDs | Structurally compatible | Validate units, finiteness, ranges and provenance against an explicit V1 profile; convert to typed joint map. |
 | V1 + five known semantic aliases | Legacy-compatible only | Map aliases to J11-J15 in a dedicated importer and emit a conversion report; never persist aliases in domain data. |
 | V1 + J10 present | Quarantine | Reject by default. Do not silently crop, reinterpret as V2 or change the declared variant. Requires an operator-reviewed source/hardware decision. |
 | V2 + exact J10-J15 | Structurally compatible | Validate J10 as linear mm at UI/domain boundary, J11-J15 as angular deg, then profile/range/calibration compatibility. |
 | Any variant with missing/unknown/duplicate joints | Invalid | Reject; no zero fill or unknown-field ignore. |
-| Calibration template | Non-production | Templates never authorize real motion. Production calibration remains local, exact-variant, device/profile matched and fingerprinted. |
+| Calibration template | Non-production | Templates never authorize real motion. Stage 2 examples are newly authored synthetic documents bound to the new Profile Fingerprint. Production Calibration remains local, exact-variant, device/Profile matched, non-template, and separately accepted. |
 | Action with gripper | First-version field retired | Report the unsupported field; do not add a gripper domain module. No silent loss in an automated migration. |
 | Action containing raw/multi-turn snapshot | Safety-sensitive | Import only into a typed optional hardware snapshot after hardware schema and replay-safety review; never treat raw as logical joint state. |
 | URDF/STL or vision model binary | Blocked on provenance | Do not copy until original source, license, attribution and redistribution/modification rights are recorded. |
 
 ## What is resolved and what remains open
 
-| Topic | Stage 1 status | Later evidence required |
+| Topic | Stage 2 status | Later evidence required |
 |---|---|---|
-| Product joint membership | Resolved: V1 J11-J15; V2 J10-J15 | Driver and adapter conformance tests. |
-| Rail capability | Resolved: V1 false; V2 true | Physical V2 stroke/home/range verification. |
-| Joint identity representation | Resolved: joint-ID maps validated by `enabled_joints` | Import fixtures for every supported Legacy shape. |
-| Joint type/unit | Resolved semantically: V2 J10 prismatic/mm; revolute joints deg at UI/domain boundary | Exact per-joint limits, signs, scales and homes. |
+| Product joint membership | Enforced by Profile, Calibration compatibility, Dry Run runtime, API status, and UI: V1 J11-J15; V2 J10-J15 | Real adapter conformance tests and physical inventory. |
+| Rail capability | Enforced: V1 false; V2 true | Physical V2 stroke/Home/range verification. |
+| Joint identity representation | Enforced: exact joint-ID maps validated by `enabled_joints`; no global six-joint default | Import fixtures for every supported Legacy shape. |
+| Joint type/unit | Enforced semantically: V2 J10 prismatic/mm; revolute joints deg at UI/domain boundary | Exact physical limits, signs, scales and Homes. |
+| Profile identity | Deterministic safety-field SHA-256 implemented and required by Calibration/runtime compatibility | Physical Profile acceptance and change-control procedure. |
+| Calibration model/status | Versioned model, synthetic exact-set templates, read-only repository, explicit mapping compatibility, and `BLOCKED_BY_STAGE_POLICY` diagnostics implemented | Production capture/write workflow, device identity, on-site verification, and Real acceptance. |
+| Logical/raw mapping | Unit-neutral pure functions characterized with synthetic Profile/Calibration data | Golden coverage completion plus physical scale/sign/Home/raw-bound verification. |
+| Dry Run lifecycle/runtime | One active robot, serialized lifecycle, disconnected-only switching, atomic restore/quarantine implemented | Stage 3 command safety; Real lifecycle is a separate later gate. |
 | V1 URDF and TCP | Unresolved; Legacy V1 asset conflicts | Verified no-rail V1 model, link chain, axes and TCP reference. |
 | V2 URDF and TCP | Candidate only | Provenance/license plus physical FK reference poses and IK residual tests. |
-| Calibration migration | Unresolved and intentionally deferred | Versioned calibration schema, profile/device fingerprint, local-only storage and hardware-approved validation. |
 | Legacy motion migration | Unresolved and intentionally deferred | Versioned importer, snapshot semantics, unit/range checks, multi-turn replay policy and golden tests. |
 | Third-party assets | Blocked | Original source/license/attribution/redistribution records. |
 
-## Required regression tests for future stages
+## Stage 2 regressions and future gates
 
-- V1 profile accepts exactly J11-J15 and rejects J10.
-- V2 profile accepts exactly J10-J15; J10 is prismatic/mm and the other joints are revolute/deg.
-- Every joint state rejects missing, unknown, duplicate and non-finite values using the selected profile.
-- V1 driver discovery/read/write receives only J11-J15; it never scans J10.
-- V2 J10 conversion is mm to m only at the kinematics boundary and round-trips within tolerance.
+- Stage 2 regression tests must keep V1 exactly J11-J15 and V2 exactly J10-J15, including J10 prismatic/mm typing.
+- Profile Fingerprints must remain deterministic, ignore display-only metadata, and change for motion/safety field edits.
+- Calibration template, variant mismatch, Profile mismatch, joint-set mismatch, incomplete multi-turn data, duplicate Servo IDs, and round trips must remain covered without real data.
+- Logical/raw characterization must cover Home zero, direction, mm/deg, round trips, bounds, dynamic intersections, unknown joints, non-finite inputs, zero scale, and Home near raw limits.
+- Runtime tests must cover atomic round trips, exact joint/unit/Profile/variant restore, corruption quarantine, sequence monotonicity, lifecycle concurrency, and fault recovery.
+- Hardware-isolation/API tests must prove no serial/Feetech access and no Real, motion, Jog, Home, Calibration-write, or raw-servo path.
+- A future V1 real driver receives only J11-J15 and must never scan J10.
+- A future V2 kinematics adapter converts J10 mm to m only at its named boundary and round-trips within tolerance.
 - A V1+J10 Legacy payload is rejected or quarantined, never silently cropped.
 - Alias conversion is confined to the Legacy importer and produces canonical J11-J15 output plus an audit report.
-- Calibration template, missing variant, variant mismatch and fingerprint mismatch all deny real motion.
 - Motion import preserves immutable embedded snapshots and rejects incompatible variant/profile/joint sets.
 - Lost, invalid, stale or repeated vision frames inhibit further motion immediately and transition the follow workflow to a safe hold/stop.

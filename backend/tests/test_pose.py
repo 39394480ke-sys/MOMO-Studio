@@ -66,4 +66,14 @@ def test_snapshot_rejects_a_position_outside_its_profile_range() -> None:
     data = make_snapshot(RobotVariant.V2).model_dump(mode="python")
     data["joint_state"]["positions"]["j10"] = 1001.0
     with pytest.raises(ValidationError, match=r"snapshot joint state.*outside"):
-        PoseSnapshot.model_validate(data)
+        PoseSnapshot.model_validate(
+            data,
+            context={"robot_profile": canonical_robot_profile(RobotVariant.V2)},
+        )
+
+
+def test_snapshot_range_validation_requires_an_explicit_profile() -> None:
+    data = make_snapshot(RobotVariant.V2).model_dump(mode="python")
+    data["joint_state"]["positions"]["j10"] = 1001.0
+    snapshot = PoseSnapshot.model_validate(data)
+    assert snapshot.joint_state.positions["j10"] == 1001.0

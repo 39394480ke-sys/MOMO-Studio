@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "id": "00000000-0000-0000-0000-000000000002",
+  "robot_variant": "V2",
+  "profile_fingerprint": "64bebb74fcf3b1331fafb0f63bc181a9fad0c02a03a26aafc49335c87a6afee5",
+  "template": true,
+  "generated_at": "2026-08-24T00:00:00Z",
+  "notes": "Synthetic example only; contains no real calibration values.",
+  "joints": [
+    {"joint_id": "j10", "servo_id": 10, "operating_mode": "MULTI_TURN", "direction": 1, "home_present_raw": 0, "phase": 0, "raw_bounds": [-30719, 30719]},
+    {"joint_id": "j11", "servo_id": 11, "operating_mode": "MULTI_TURN", "direction": 1, "home_present_raw": 0, "phase": 0, "raw_bounds": [-30719, 30719]},
+    {"joint_id": "j12", "servo_id": 12, "operating_mode": "MULTI_TURN", "direction": 1, "home_present_raw": 0, "phase": 0, "raw_bounds": [-30719, 30719]},
+    {"joint_id": "j13", "servo_id": 13, "operating_mode": "MULTI_TURN", "direction": 1, "home_present_raw": 0, "phase": 0, "raw_bounds": [-30719, 30719]},
+    {"joint_id": "j14", "servo_id": 14, "operating_mode": "MULTI_TURN", "direction": 1, "home_present_raw": 0, "phase": 0, "raw_bounds": [-30719, 30719]},
+    {"joint_id": "j15", "servo_id": 15, "operating_mode": "MULTI_TURN", "direction": 1, "home_present_raw": 0, "phase": 0, "raw_bounds": [-30719, 30719]}
+  ]
+}

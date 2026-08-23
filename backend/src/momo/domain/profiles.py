@@ -7,8 +7,15 @@ motion validation, API routes, or future adapters.
 
 from collections.abc import Mapping
 
-from momo.domain.enums import DomainUnit, JointType, RobotVariant
+from momo.domain.enums import (
+    CalibrationOperatingMode,
+    DomainUnit,
+    JointType,
+    ProfileVerificationStatus,
+    RobotVariant,
+)
 from momo.domain.errors import ProfileResolutionError
+from momo.domain.profile_fingerprint import profile_fingerprint
 from momo.domain.robot import (
     VARIANT_PRODUCT_CONTRACTS,
     HardwareMappingValue,
@@ -21,7 +28,7 @@ def _mapping_placeholder() -> dict[str, HardwareMappingValue]:
     return {"status": "unverified-stage-1-placeholder"}
 
 
-def _revolute(joint_id: str) -> JointDefinition:
+def _revolute(joint_id: str, servo_id: int) -> JointDefinition:
     return JointDefinition(
         joint_id=joint_id,
         joint_type=JointType.REVOLUTE,
@@ -30,10 +37,16 @@ def _revolute(joint_id: str) -> JointDefinition:
         maximum=180.0,
         home=0.0,
         hardware_mapping_placeholder=_mapping_placeholder(),
+        servo_id=servo_id,
+        motor_degrees_per_domain_unit=1.0,
+        raw_counts_per_motor_revolution=4096.0,
+        operating_mode=CalibrationOperatingMode.MULTI_TURN,
+        raw_bounds=(-30719, 30719),
+        raw_reachable=False,
     )
 
 
-def _prismatic(joint_id: str) -> JointDefinition:
+def _prismatic(joint_id: str, servo_id: int) -> JointDefinition:
     return JointDefinition(
         joint_id=joint_id,
         joint_type=JointType.PRISMATIC,
@@ -42,6 +55,14 @@ def _prismatic(joint_id: str) -> JointDefinition:
         maximum=1000.0,
         home=0.0,
         hardware_mapping_placeholder=_mapping_placeholder(),
+        servo_id=servo_id,
+        # This is a synthetic characterization value for Dry Run only.  It is
+        # deliberately not presented as a real hardware calibration.
+        motor_degrees_per_domain_unit=28.8,
+        raw_counts_per_motor_revolution=4096.0,
+        operating_mode=CalibrationOperatingMode.MULTI_TURN,
+        raw_bounds=(-30719, 30719),
+        raw_reachable=False,
     )
 
 
@@ -55,8 +76,10 @@ def canonical_robot_profile(variant: RobotVariant) -> RobotProfile:
     contract = VARIANT_PRODUCT_CONTRACTS[variant]
     joints = list(contract.enabled_joints)
     definitions = [
-        _prismatic(joint_id) if joint_id == contract.linear_rail_joint else _revolute(joint_id)
-        for joint_id in joints
+        _prismatic(joint_id, index + 1)
+        if joint_id == contract.linear_rail_joint
+        else _revolute(joint_id, index + 1)
+        for index, joint_id in enumerate(joints)
     ]
     return RobotProfile(
         variant=variant,
@@ -66,17 +89,22 @@ def canonical_robot_profile(variant: RobotVariant) -> RobotProfile:
         joint_definitions=definitions,
         urdf_reference=None,
         tcp_link="tool0",
+        template=True,
+        verification_status=ProfileVerificationStatus.VERIFIED_FOR_DRY_RUN,
+        source="momo-stage-2-example",
+        source_revision="961d5d522ddc6205a3feb480630eb6bbc1ac652e",
+        description="Synthetic Stage 2 profile; not verified for real hardware.",
     )
 
 
 def profile_for_validation(
     variant: RobotVariant,
     context: object = None,
-) -> RobotProfile:
-    """Resolve a supplied validation profile, falling back to the product profile."""
+) -> RobotProfile | None:
+    """Resolve only an explicitly supplied profile; never consult a global default."""
 
     if not isinstance(context, Mapping):
-        return canonical_robot_profile(variant)
+        return None
 
     has_direct = "robot_profile" in context
     has_registry = "robot_profiles" in context
@@ -100,7 +128,7 @@ def profile_for_validation(
             )
         profile = candidate
     else:
-        return canonical_robot_profile(variant)
+        return None
 
     if profile.variant is not variant:
         raise ProfileResolutionError(
@@ -108,3 +136,6 @@ def profile_for_validation(
             f"{variant.value}"
         )
     return profile
+
+
+__all__ = ["canonical_robot_profile", "profile_fingerprint", "profile_for_validation"]

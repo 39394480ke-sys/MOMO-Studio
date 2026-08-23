@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "momo-studio-backend"
 version = "0.1.0"
-description = "Stage 1 backend foundation for MOMO Studio"
+description = "Stage 2 Dry Run robot core and safety foundation for MOMO Studio"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",

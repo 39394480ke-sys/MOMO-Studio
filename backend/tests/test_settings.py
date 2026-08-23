@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from momo.domain.enums import ControlMode, RobotVariant
+from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
 from momo.settings import Settings, load_settings
 
 
@@ -22,6 +22,7 @@ def test_defaults_are_always_dry_run_when_config_is_absent(
     assert settings.control_mode is ControlMode.DRY_RUN
     assert settings.real_motion_enabled is False
     assert settings.active_robot_variant is RobotVariant.V2
+    assert settings.hardware_access_policy is HardwareAccessPolicy.DISABLED
 
 
 def test_environment_overrides_yaml_without_using_current_working_directory(
@@ -43,7 +44,7 @@ def test_environment_overrides_yaml_without_using_current_working_directory(
     assert settings.serial_port == "/dev/example-not-opened"
 
 
-def test_stage_one_rejects_every_attempt_to_enable_real_motion(
+def test_stage_two_rejects_every_attempt_to_enable_real_motion(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -60,3 +61,38 @@ def test_stage_one_rejects_every_attempt_to_enable_real_motion(
             default_config_path=tmp_path / "missing.yaml",
             local_config_path=tmp_path / "missing-local.yaml",
         )
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [HardwareAccessPolicy.READ_ONLY, HardwareAccessPolicy.FULL],
+)
+def test_stage_two_rejects_non_disabled_hardware_policy(policy: HardwareAccessPolicy) -> None:
+    with pytest.raises(ValidationError, match="hardware_access=DISABLED"):
+        Settings(hardware_access_policy=policy)
+
+
+def test_yaml_and_environment_cannot_override_hardware_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "unsafe.yaml"
+    config.write_text("hardware_access: read_only\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="hardware_access=DISABLED"):
+        load_settings(
+            default_config_path=config,
+            local_config_path=tmp_path / "missing-local.yaml",
+        )
+
+    config.write_text("hardware_access: disabled\n", encoding="utf-8")
+    monkeypatch.setenv("MOMO_HARDWARE_ACCESS_POLICY", "full")
+    with pytest.raises(ValidationError, match="hardware_access=DISABLED"):
+        load_settings(
+            default_config_path=config,
+            local_config_path=tmp_path / "missing-local.yaml",
+        )
+
+
+def test_stage_two_rejects_real_control_mode() -> None:
+    with pytest.raises(ValidationError, match="control_mode=DRY_RUN"):
+        Settings(control_mode=ControlMode.REAL)

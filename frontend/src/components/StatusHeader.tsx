@@ -1,10 +1,12 @@
 import { useRuntimeStatus } from './runtimeStatusContext';
 
 export function StatusHeader() {
-  const { backend, controlMode } = useRuntimeStatus();
+  const { backend, controlMode, robot, stale } = useRuntimeStatus();
   const backendLabel =
     backend === 'connected'
-      ? 'Backend connected'
+      ? stale
+        ? 'Backend stale'
+        : 'Backend connected'
       : 'Backend unavailable';
 
   return (
@@ -16,6 +18,10 @@ export function StatusHeader() {
       <div className="status-item status-item--mode">
         <span className="status-dot" aria-hidden="true" />
         <span>{controlMode}</span>
+      </div>
+      <div className="status-item status-item--robot">
+        <span className="status-dot" aria-hidden="true" />
+        <span>{robot ? `${robot.robot_id} · ${robot.variant}` : 'Active robot pending'}</span>
       </div>
       <div className="status-item status-item--locked">
         <span className="status-dot" aria-hidden="true" />

@@ -1,5 +1,13 @@
 {
   "$defs": {
+    "CalibrationOperatingMode": {
+      "enum": [
+        "MULTI_TURN",
+        "SINGLE_TURN"
+      ],
+      "title": "CalibrationOperatingMode",
+      "type": "string"
+    },
     "DomainUnit": {
       "description": "Canonical persisted units at the domain/UI boundary.",
       "enum": [
@@ -13,6 +21,15 @@
       "additionalProperties": false,
       "description": "One joint's canonical domain limits and eventual hardware mapping slot.",
       "properties": {
+        "direction": {
+          "default": 1,
+          "enum": [
+            -1,
+            1
+          ],
+          "title": "Direction",
+          "type": "integer"
+        },
         "domain_unit": {
           "$ref": "#/$defs/DomainUnit"
         },
@@ -51,6 +68,18 @@
           "title": "Home",
           "type": "number"
         },
+        "home_present_raw": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Home Present Raw"
+        },
         "joint_id": {
           "pattern": "^j[1-9][0-9]*$",
           "title": "Joint Id",
@@ -66,6 +95,69 @@
         "minimum": {
           "title": "Minimum",
           "type": "number"
+        },
+        "motor_degrees_per_domain_unit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Motor Degrees Per Domain Unit"
+        },
+        "operating_mode": {
+          "$ref": "#/$defs/CalibrationOperatingMode",
+          "default": "MULTI_TURN"
+        },
+        "raw_bounds": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Bounds"
+        },
+        "raw_counts_per_motor_revolution": {
+          "default": 4096.0,
+          "exclusiveMinimum": 0,
+          "title": "Raw Counts Per Motor Revolution",
+          "type": "number"
+        },
+        "raw_reachable": {
+          "default": false,
+          "title": "Raw Reachable",
+          "type": "boolean"
+        },
+        "servo_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Servo Id"
         }
       },
       "required": [
@@ -87,6 +179,15 @@
       "title": "JointType",
       "type": "string"
     },
+    "ProfileVerificationStatus": {
+      "enum": [
+        "UNVERIFIED",
+        "VERIFIED_FOR_DRY_RUN",
+        "VERIFIED_FOR_REAL"
+      ],
+      "title": "ProfileVerificationStatus",
+      "type": "string"
+    },
     "RobotVariant": {
       "description": "A product variant, not a software version.",
       "enum": [
@@ -100,6 +201,11 @@
   "additionalProperties": false,
   "description": "Versioned product profile with an explicit, ordered joint set.",
   "properties": {
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
     "display_name": {
       "minLength": 1,
       "title": "Display Name",
@@ -132,10 +238,27 @@
       "title": "Schema Version",
       "type": "string"
     },
+    "source": {
+      "default": "momo-stage-2",
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "source_revision": {
+      "default": "stage-2",
+      "minLength": 1,
+      "title": "Source Revision",
+      "type": "string"
+    },
     "tcp_link": {
       "minLength": 1,
       "title": "Tcp Link",
       "type": "string"
+    },
+    "template": {
+      "default": true,
+      "title": "Template",
+      "type": "boolean"
     },
     "urdf_reference": {
       "anyOf": [
@@ -150,6 +273,10 @@
     },
     "variant": {
       "$ref": "#/$defs/RobotVariant"
+    },
+    "verification_status": {
+      "$ref": "#/$defs/ProfileVerificationStatus",
+      "default": "VERIFIED_FOR_DRY_RUN"
     }
   },
   "required": [

@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "RobotConnectionState": {
+      "enum": [
+        "DISCONNECTED",
+        "CONNECTING",
+        "CONNECTED",
+        "DISCONNECTING",
+        "FAULTED"
+      ],
+      "title": "RobotConnectionState",
+      "type": "string"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "connection_state": {
+      "$ref": "#/$defs/RobotConnectionState",
+      "default": "DISCONNECTED"
+    },
+    "positions": {
+      "patternProperties": {
+        "^j[1-9][0-9]*$": {
+          "type": "number"
+        }
+      },
+      "title": "Positions",
+      "type": "object"
+    },
+    "profile_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Profile Fingerprint",
+      "type": "string"
+    },
+    "robot_id": {
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "state_sequence": {
+      "default": 0,
+      "minimum": 0,
+      "title": "State Sequence",
+      "type": "integer"
+    },
+    "units": {
+      "patternProperties": {
+        "^j[1-9][0-9]*$": {
+          "type": "string"
+        }
+      },
+      "title": "Units",
+      "type": "object"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "variant": {
+      "$ref": "#/$defs/RobotVariant"
+    }
+  },
+  "required": [
+    "robot_id",
+    "variant",
+    "profile_fingerprint",
+    "positions",
+    "units"
+  ],
+  "title": "RuntimeState",
+  "type": "object"
+}

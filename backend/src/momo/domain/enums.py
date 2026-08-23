@@ -20,6 +20,61 @@ class ControlMode(StrEnum):
     REAL = "REAL"
 
 
+class HardwareAccessPolicy(StrEnum):
+    """Capability gate for hardware adapters.
+
+    Stage 2 accepts only ``DISABLED``.  The other values remain part of the
+    contract so a later stage can add reviewed read-only/full adapters without
+    changing the domain vocabulary.
+    """
+
+    DISABLED = "DISABLED"
+    READ_ONLY = "READ_ONLY"
+    FULL = "FULL"
+
+
+class ProfileVerificationStatus(StrEnum):
+    UNVERIFIED = "UNVERIFIED"
+    VERIFIED_FOR_DRY_RUN = "VERIFIED_FOR_DRY_RUN"
+    VERIFIED_FOR_REAL = "VERIFIED_FOR_REAL"
+
+
+class RobotConnectionState(StrEnum):
+    DISCONNECTED = "DISCONNECTED"
+    CONNECTING = "CONNECTING"
+    CONNECTED = "CONNECTED"
+    DISCONNECTING = "DISCONNECTING"
+    FAULTED = "FAULTED"
+
+
+class CalibrationOperatingMode(StrEnum):
+    MULTI_TURN = "MULTI_TURN"
+    SINGLE_TURN = "SINGLE_TURN"
+
+
+class CalibrationStatus(StrEnum):
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    TEMPLATE_ONLY = "TEMPLATE_ONLY"
+    VARIANT_MISMATCH = "VARIANT_MISMATCH"
+    PROFILE_MISMATCH = "PROFILE_MISMATCH"
+    JOINT_SET_MISMATCH = "JOINT_SET_MISMATCH"
+    INCOMPLETE = "INCOMPLETE"
+    VALID_FOR_DRY_RUN = "VALID_FOR_DRY_RUN"
+    READY_FOR_REAL = "READY_FOR_REAL"
+
+
+class RealReadiness(StrEnum):
+    BLOCKED_BY_STAGE_POLICY = "BLOCKED_BY_STAGE_POLICY"
+    READY = "READY"
+
+
+class StopResult(StrEnum):
+    STOPPED = "STOPPED"
+    NOT_CONNECTED = "NOT_CONNECTED"
+    FAILED = "FAILED"
+    SAFETY_STATE_UNCERTAIN = "SAFETY_STATE_UNCERTAIN"
+
+
 class JointType(StrEnum):
     REVOLUTE = "REVOLUTE"
     PRISMATIC = "PRISMATIC"

@@ -4,20 +4,29 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from momo.api.dependencies import get_settings
+from momo.api.dependencies import get_robot_service, get_settings
 from momo.api.schemas import MetaResponse, ProductScopeResponse
+from momo.application.services.robot_service import RobotApplicationService
+from momo.domain.enums import ControlMode, HardwareAccessPolicy
 from momo.settings import Settings
 
 router = APIRouter(prefix="/meta", tags=["meta"])
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
+RobotServiceDependency = Annotated[RobotApplicationService, Depends(get_robot_service)]
 
 
 @router.get("", response_model=MetaResponse)
-def metadata(settings: SettingsDependency) -> MetaResponse:
+async def metadata(
+    settings: SettingsDependency,
+    robot_service: RobotServiceDependency,
+) -> MetaResponse:
+    status = await robot_service.get_status()
     return MetaResponse(
         product=settings.product_name,
         version=settings.version,
-        active_robot_variant=settings.active_robot_variant,
+        active_robot_variant=status.variant,
+        active_control_mode=ControlMode.DRY_RUN,
+        hardware_access_policy=HardwareAccessPolicy.DISABLED,
         real_motion_enabled=False,
     )
 
@@ -26,12 +35,12 @@ def metadata(settings: SettingsDependency) -> MetaResponse:
 def product_scope(settings: SettingsDependency) -> ProductScopeResponse:
     return ProductScopeResponse(
         product=settings.product_name,
-        stage_1_available=[
-            "health and product metadata",
-            "versioned domain and port contracts",
-            "robot profile, pose, and motion JSON schemas",
-            "five-page frontend shell",
-            "dry-run-only safety foundation",
+        stage_2_available=[
+            "single Active Robot Dry Run lifecycle",
+            "V1 and V2 profile diagnostics",
+            "calibration compatibility diagnostics",
+            "atomic Dry Run runtime state",
+            "read-only joint state",
         ],
         included_in_first_version=[
             "single active MOMO V1 or V2 robot",

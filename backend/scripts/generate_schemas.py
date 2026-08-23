@@ -8,14 +8,19 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from momo.domain.calibration import CalibrationDocument
 from momo.domain.motion import Motion
 from momo.domain.pose import Pose
 from momo.domain.robot import RobotProfile
+from momo.domain.runtime import RobotStatus, RuntimeState
 
 SCHEMAS: dict[str, type[BaseModel]] = {
+    "calibration.schema.json": CalibrationDocument,
     "motion.schema.json": Motion,
     "pose.schema.json": Pose,
     "robot-profile.schema.json": RobotProfile,
+    "robot-status.schema.json": RobotStatus,
+    "runtime-state.schema.json": RuntimeState,
 }
 
 
