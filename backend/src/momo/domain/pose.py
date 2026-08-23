@@ -26,7 +26,7 @@ from momo.domain.robot import SCHEMA_VERSION, JointState
 if TYPE_CHECKING:
     from momo.domain.robot import RobotProfile
 
-FiniteCoordinate = Annotated[float, Field(allow_inf_nan=False)]
+FiniteCoordinate = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 

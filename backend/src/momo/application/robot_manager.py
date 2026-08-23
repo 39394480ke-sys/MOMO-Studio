@@ -19,6 +19,7 @@ class RobotRuntime:
     positions: dict[str, float]
     units: dict[str, str]
     updated_at: datetime
+    observed_monotonic: float
     state_sequence: int = 0
     last_error: str | None = None
 

@@ -5,8 +5,8 @@ export function VisionPage() {
     <div className="page">
       <PageIntro
         title="Vision"
-        description="The subject-following workspace is not available in Stage 2."
-        detail="Provider and safety boundaries will be established before live target feedback is introduced."
+        description="Safe vision following is scheduled for Stage 7."
+        detail="Provider, tracking, and operator-safety boundaries must exist before live target feedback is introduced."
       />
     </div>
   );

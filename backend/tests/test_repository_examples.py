@@ -41,6 +41,33 @@ def test_committed_json_schemas_match_reproducible_generator(tmp_path: Path) -> 
     generated = generate_schemas(tmp_path)
     committed_directory = repository_root() / "docs" / "schemas"
     assert generated
+    generated_names = {path.name for path in generated}
+    committed_names = {path.name for path in committed_directory.glob("*.json")}
+    assert committed_names == generated_names
     for generated_path in generated:
         committed_path = committed_directory / generated_path.name
         assert generated_path.read_bytes() == committed_path.read_bytes()
+
+
+def test_kinematics_schema_generation_is_deterministic(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first_paths = generate_schemas(first)
+    second_paths = generate_schemas(second)
+    assert [path.name for path in first_paths] == [path.name for path in second_paths]
+    assert [path.read_bytes() for path in first_paths] == [
+        path.read_bytes() for path in second_paths
+    ]
+
+    schema = json.loads((first / "kinematics-model.schema.json").read_text(encoding="utf-8"))
+    assert schema["title"] == "KinematicsModel"
+    assert {
+        "schema_version",
+        "variant",
+        "verification_status",
+        "base_frame",
+        "tcp_frame",
+        "joints",
+        "kinematics_fingerprint",
+    } <= set(schema["properties"])
+    assert "kinematics_fingerprint" in schema["required"]

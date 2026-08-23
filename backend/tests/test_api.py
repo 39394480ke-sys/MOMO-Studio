@@ -1,4 +1,4 @@
-"""Stage 2 API surface and hardware isolation contract tests."""
+"""Stage 3 API surface and hardware isolation contract tests."""
 
 import asyncio
 from collections.abc import Iterable, Iterator
@@ -52,7 +52,7 @@ def test_health_api_is_dry_run_and_real_motion_is_disabled() -> None:
         "status": "ok",
         "product": "MOMO Studio",
         "version": "0.1.0",
-        "stage": 2,
+        "stage": 3,
         "control_mode": "DRY_RUN",
         "hardware_access_policy": "DISABLED",
         "real_motion_enabled": False,
@@ -70,31 +70,47 @@ def test_meta_and_product_scope_apis() -> None:
     scope_response = get(app, "/api/v1/meta/product-scope")
     assert scope_response.status_code == 200
     scope = scope_response.json()
-    assert scope["stage"] == 2
+    assert scope["stage"] == 3
+    assert "mesh-free FK and IK" in scope["stage_3_available"]
     assert scope["release"] == "first_version"
     assert "single active MOMO V1 or V2 robot" in scope["included_in_first_version"]
     assert "photo, video recording, or media management" in scope["excluded_from_first_version"]
 
 
-def test_stage_two_exposes_lifecycle_but_no_motion_or_hardware_command_api() -> None:
+def test_stage_three_exposes_reviewed_motion_api_and_read_only_websocket() -> None:
     app = create_app(Settings(control_mode=ControlMode.DRY_RUN, real_motion_enabled=False))
     api_paths = {path: frozenset(methods) for path, methods in app.openapi()["paths"].items()}
     assert api_paths == {
         "/api/v1/calibration/status": frozenset({"get"}),
         "/api/v1/health": frozenset({"get"}),
+        "/api/v1/kinematics/ik": frozenset({"post"}),
         "/api/v1/meta": frozenset({"get"}),
         "/api/v1/meta/product-scope": frozenset({"get"}),
+        "/api/v1/motion/cartesian-jog": frozenset({"post"}),
+        "/api/v1/motion/commands/{command_id}": frozenset({"get"}),
+        "/api/v1/motion/home": frozenset({"post"}),
+        "/api/v1/motion/jog-step": frozenset({"post"}),
+        "/api/v1/motion/jog/start": frozenset({"post"}),
+        "/api/v1/motion/jog/{session_id}/heartbeat": frozenset({"post"}),
+        "/api/v1/motion/jog/{session_id}/stop": frozenset({"post"}),
+        "/api/v1/motion/joints": frozenset({"post"}),
+        "/api/v1/motion/pose": frozenset({"post"}),
+        "/api/v1/motion/stop": frozenset({"post"}),
         "/api/v1/robot": frozenset({"get"}),
         "/api/v1/robot/connect": frozenset({"post"}),
         "/api/v1/robot/diagnostics": frozenset({"get"}),
         "/api/v1/robot/disconnect": frozenset({"post"}),
+        "/api/v1/robot/fk": frozenset({"get"}),
         "/api/v1/robot/profile": frozenset({"get"}),
         "/api/v1/robot/stop": frozenset({"post"}),
         "/api/v1/robot/variant": frozenset({"put"}),
     }
 
     route_tree = list(iter_route_tree(app.routes))
-    assert not any(isinstance(route, (Mount, WebSocketRoute)) for route in route_tree)
+    websocket_routes = [route for route in route_tree if isinstance(route, WebSocketRoute)]
+    assert len(websocket_routes) == 1
+    assert websocket_routes[0].path == "/ws/robot"
+    assert not any(isinstance(route, Mount) for route in route_tree)
     custom_http_routes = [route for route in route_tree if isinstance(route, APIRoute)]
     paths = {route.path.lower() for route in custom_http_routes}
-    assert not any(token in path for path in paths for token in ("jog", "move", "home", "motion"))
+    assert not any(token in path for path in paths for token in ("raw-servo", "serial", "camera"))

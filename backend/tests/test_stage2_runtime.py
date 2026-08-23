@@ -13,6 +13,7 @@ from momo.adapters.hardware.dry_run_robot_driver import DryRunRobotDriver
 from momo.adapters.storage.file_calibration_repository import FileCalibrationRepository
 from momo.adapters.storage.profile_repository import FileProfileRepository
 from momo.adapters.storage.runtime_state_repository import FileRuntimeStateRepository
+from momo.adapters.time.system_clock import SystemClock
 from momo.application.services.calibration_service import CalibrationService
 from momo.application.services.profile_service import ProfileService
 from momo.application.services.robot_service import DriverFactory, RobotApplicationService
@@ -49,6 +50,7 @@ def make_service(
         CalibrationService(FileCalibrationRepository(root / "calibration" / "examples")),
         FileRuntimeStateRepository(runtime_directory),
         driver_factory=driver_factory,
+        clock=SystemClock(),
     )
 
 
@@ -108,6 +110,25 @@ def test_variant_switch_requires_disconnected_and_replaces_joint_set(tmp_path: P
         with pytest.raises(VariantSwitchWhileConnectedError):
             await service.switch_variant(RobotVariant.V2)
         assert (await service.get_status()).variant is RobotVariant.V1
+
+    asyncio.run(scenario())
+
+
+def test_disconnect_then_immediate_variant_switch_persists_latest_variant(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+
+    async def scenario() -> None:
+        await service.connect()
+        await service.drain_runtime_persistence()
+        await service.disconnect()
+        switched = await service.switch_variant(RobotVariant.V1)
+        await service.drain_runtime_persistence()
+
+        persisted = service.runtime_repository.load("primary")
+        assert persisted is not None
+        assert persisted.variant is RobotVariant.V1
+        assert persisted.state_sequence == switched.state_sequence
+        assert set(persisted.positions) == {"j11", "j12", "j13", "j14", "j15"}
 
     asyncio.run(scenario())
 
@@ -220,6 +241,7 @@ def test_incompatible_runtime_state_is_quarantined_and_home_is_used(
         assert diagnostics["quarantined_runtime_file"] is not None
 
         await service.stop()
+        await service.drain_runtime_persistence()
         recovered = await service.diagnostics()
         assert recovered["runtime_state_valid"] is True
 

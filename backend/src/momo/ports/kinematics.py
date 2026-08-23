@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from math import degrees, isfinite, radians
 from typing import Protocol, runtime_checkable
 
-from momo.domain.enums import DomainUnit
+from momo.domain.enums import CartesianFrame, DomainUnit
 from momo.domain.errors import JointStateValidationError
+from momo.domain.immutable import freeze_mapping
+from momo.domain.kinematics.model import KinematicsModel
 from momo.domain.pose import QuaternionXYZW, TcpPose, Vector3
 from momo.domain.robot import JointState, RobotProfile
 
@@ -18,6 +20,9 @@ class KinematicsJointState:
 
     positions_si: dict[str, float]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "positions_si", freeze_mapping(self.positions_si))
+
 
 @dataclass(frozen=True, slots=True)
 class KinematicsTcpPose:
@@ -26,6 +31,18 @@ class KinematicsTcpPose:
     frame: str
     position_m: tuple[float, float, float]
     orientation_quaternion_xyzw: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class KinematicsInverseResult:
+    success: bool
+    solution: KinematicsJointState | None
+    best_solution: KinematicsJointState | None
+    iterations: int
+    position_error_m: float
+    orientation_error_rad: float | None
+    termination_reason: str
+    warnings: tuple[str, ...] = ()
 
 
 def to_kinematics_joint_state(
@@ -77,7 +94,10 @@ def from_kinematics_joint_state(
         )
         for joint_id in profile.enabled_joints
     }
-    return JointState(positions=positions).validate_against(profile)
+    return JointState(
+        positions=positions,
+        units={joint_id: definitions[joint_id].domain_unit for joint_id in profile.enabled_joints},
+    ).validate_against(profile)
 
 
 def to_kinematics_tcp_pose(pose: TcpPose) -> KinematicsTcpPose:
@@ -115,13 +135,26 @@ class Kinematics(Protocol):
 
     async def forward(
         self,
-        profile: RobotProfile,
+        model: KinematicsModel,
         joints: KinematicsJointState,
     ) -> KinematicsTcpPose: ...
 
     async def inverse(
         self,
-        profile: RobotProfile,
+        model: KinematicsModel,
         target: KinematicsTcpPose,
         seed: KinematicsJointState | None = None,
-    ) -> KinematicsJointState: ...
+        *,
+        position_only: bool = False,
+        maximum_iterations: int = 200,
+        position_tolerance_m: float = 0.001,
+        orientation_tolerance_rad: float = 0.02,
+    ) -> KinematicsInverseResult: ...
+
+    def compose_delta(
+        self,
+        current: KinematicsTcpPose,
+        delta_position_m: tuple[float, float, float],
+        delta_rpy_rad: tuple[float, float, float],
+        frame: CartesianFrame,
+    ) -> KinematicsTcpPose: ...

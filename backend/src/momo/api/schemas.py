@@ -16,7 +16,7 @@ class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     product: str
     version: str
-    stage: Literal[2] = 2
+    stage: Literal[3] = 3
     control_mode: Literal[ControlMode.DRY_RUN] = ControlMode.DRY_RUN
     hardware_access_policy: Literal[HardwareAccessPolicy.DISABLED] = HardwareAccessPolicy.DISABLED
     real_motion_enabled: Literal[False] = False
@@ -28,7 +28,7 @@ class MetaResponse(BaseModel):
     product: str
     version: str
     api_version: Literal["v1"] = "v1"
-    stage: Literal[2] = 2
+    stage: Literal[3] = 3
     active_robot_variant: RobotVariant
     supported_robot_variants: list[RobotVariant] = Field(
         default_factory=lambda: [RobotVariant.V1, RobotVariant.V2]
@@ -46,8 +46,8 @@ class ProductScopeResponse(BaseModel):
 
     product: str
     release: Literal["first_version"] = "first_version"
-    stage: Literal[2] = 2
-    stage_2_available: list[str]
+    stage: Literal[3] = 3
+    stage_3_available: list[str]
     included_in_first_version: list[str]
     excluded_from_first_version: list[str]
 
@@ -92,8 +92,10 @@ class DiagnosticsResponse(BaseModel):
     quarantined_runtime_file: str | None
     backend_version: str
     legacy_source_commit: str
-    stage_policy: Literal["STAGE_2_DRY_RUN_ONLY"]
+    stage_policy: Literal["STAGE_3_DRY_RUN_ONLY"]
     active_profile_fingerprint: str
+    robot_state_freshness_limit_s: float
+    runtime_persistence_error: str | None
     hardware_accessed: Literal[False] = False
 
 

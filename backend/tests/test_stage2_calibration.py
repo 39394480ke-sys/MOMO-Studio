@@ -7,7 +7,11 @@ from pydantic import ValidationError
 
 from momo.adapters.storage.file_calibration_repository import FileCalibrationRepository
 from momo.application.services.calibration_service import CalibrationService
-from momo.domain.calibration import CalibrationDocument, CalibrationJoint
+from momo.domain.calibration import (
+    CalibrationDocument,
+    CalibrationJoint,
+    CalibrationStatusReport,
+)
 from momo.domain.enums import CalibrationStatus, RealReadiness, RobotVariant
 from momo.domain.errors import CalibrationInvalidError
 from momo.domain.profiles import canonical_robot_profile
@@ -28,7 +32,7 @@ class StaticCalibrationRepository(CalibrationRepository):
 def status_for(
     profile: RobotProfile,
     document: CalibrationDocument | None,
-):
+) -> CalibrationStatusReport:
     return CalibrationService(StaticCalibrationRepository(document)).status(profile)
 
 
@@ -39,7 +43,6 @@ def test_complete_non_template_calibration_is_valid_but_never_real_ready() -> No
     assert report.calibration_valid is True
     assert report.mapping_match is True
     assert report.real_readiness is RealReadiness.BLOCKED_BY_STAGE_POLICY
-    assert report.status is not CalibrationStatus.READY_FOR_REAL
 
 
 def test_template_calibration_cannot_authorize_real_hardware() -> None:

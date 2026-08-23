@@ -5,10 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "momo-studio-backend"
 version = "0.1.0"
-description = "Stage 2 Dry Run robot core and safety foundation for MOMO Studio"
+description = "Stage 3 Dry Run kinematics and safe motion control for MOMO Studio"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
+  "numpy>=2.1,<3",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "PyYAML>=6,<7",

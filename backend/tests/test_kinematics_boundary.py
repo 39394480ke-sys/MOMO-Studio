@@ -30,7 +30,11 @@ def test_joint_boundary_converts_deg_mm_to_rad_m_and_back() -> None:
     adapter_state = to_kinematics_joint_state(state, profile)
     assert adapter_state.positions_si["j10"] == pytest.approx(0.5)
     assert adapter_state.positions_si["j11"] == pytest.approx(pi)
-    assert from_kinematics_joint_state(adapter_state, profile) == state
+    round_trip = from_kinematics_joint_state(adapter_state, profile)
+    assert round_trip.positions == state.positions
+    assert round_trip.units == {
+        definition.joint_id: definition.domain_unit for definition in profile.joint_definitions
+    }
 
 
 def test_inverse_joint_boundary_rejects_missing_and_unknown_keys() -> None:

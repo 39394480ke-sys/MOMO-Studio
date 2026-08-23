@@ -24,14 +24,16 @@ def test_robot_profile_collections_and_mapping_are_immutable() -> None:
 
 def test_pose_and_motion_edits_require_a_new_validated_revision() -> None:
     pose = Pose(name="Frozen pose", snapshot=make_snapshot())
+    pose_name_field = "name"
     with pytest.raises(ValidationError, match="Instance is frozen"):
-        pose.name = "Changed without a revision"
+        setattr(pose, pose_name_field, "Changed without a revision")
     with pytest.raises(TypeError, match="immutable"):
         pose.tags.append("unvalidated")
 
     motion = make_motion()
+    variant_field = "robot_variant"
     with pytest.raises(ValidationError, match="Instance is frozen"):
-        motion.robot_variant = RobotVariant.V1
+        setattr(motion, variant_field, RobotVariant.V1)
     with pytest.raises(TypeError, match="immutable"):
         motion.keyframes.pop()
     with pytest.raises(TypeError, match="immutable"):

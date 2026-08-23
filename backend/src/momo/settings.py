@@ -1,4 +1,4 @@
-"""Stage 2 configuration loading with an enforced hardware-access safety gate."""
+"""Stage 3 configuration loading with an enforced hardware-access safety gate."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Self
 
 import yaml
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     """Runtime settings.
 
     Environment variables use the ``MOMO_`` prefix and outrank YAML/init values.
-    Stage 2 rejects both real motion and every non-disabled hardware access policy.
+    Stage 3 rejects both real motion and every non-disabled hardware access policy.
     """
 
     model_config = SettingsConfigDict(
@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     runtime_state_directory: str = "data/runtime/robots"
     profile_directory: str = "robot_profiles"
     calibration_directory: str = "calibration/examples"
+    kinematics_model_directory: str = "kinematics_models"
+    motion_update_hz: float = Field(default=25.0, ge=20, le=100)
+    jog_lease_ttl_ms: int = Field(default=400, ge=250, le=500)
+    robot_state_freshness_limit_s: float = Field(default=5.0, gt=0, le=60)
 
     @classmethod
     def settings_customise_sources(
@@ -86,24 +90,24 @@ class Settings(BaseSettings):
 
     @field_validator("real_motion_enabled")
     @classmethod
-    def enforce_stage_two_safety_lock(cls, value: bool) -> bool:
+    def enforce_stage_three_safety_lock(cls, value: bool) -> bool:
         if value:
-            raise ValueError("real_motion_enabled is locked to false throughout Stage 2")
+            raise ValueError("real_motion_enabled is locked to false throughout Stage 3")
         return False
 
     @model_validator(mode="after")
-    def enforce_stage_two_capability_gate(self) -> Self:
+    def enforce_stage_three_capability_gate(self) -> Self:
         if self.control_mode is not ControlMode.DRY_RUN:
-            raise ValueError("Stage 2 requires control_mode=DRY_RUN")
+            raise ValueError("Stage 3 requires control_mode=DRY_RUN")
         if self.hardware_access_policy is not HardwareAccessPolicy.DISABLED:
             raise ValueError(
-                "Stage 2 requires hardware_access=DISABLED; no hardware adapter is available"
+                "Stage 3 requires hardware_access=DISABLED; no hardware adapter is available"
             )
         return self
 
     @property
     def hardware_access(self) -> HardwareAccessPolicy:
-        """Backwards-compatible name used by Stage 2 internal callers."""
+        """Backwards-compatible name used by internal callers."""
 
         return self.hardware_access_policy
 
@@ -134,12 +138,14 @@ def load_settings(
     """Load default YAML, then optional local YAML, then ``MOMO_*`` environment values.
 
     A missing YAML file is allowed for installed packages. The environment remains the
-    final authority except that the Stage 2 safety gates can never be overridden.
+    final authority except that the Stage 3 safety gates can never be overridden.
     """
 
     root = repository_root()
     default_path = default_config_path or root / "config" / "default.yaml"
-    local_path = local_config_path or root / "config" / "local.yaml"
     values = _read_yaml(default_path)
-    values.update(_read_yaml(local_path))
+    # Ignored/local configuration is capability-bearing and must never be inspected
+    # implicitly. A caller must provide the exact path deliberately.
+    if local_config_path is not None:
+        values.update(_read_yaml(local_config_path))
     return Settings.model_validate(values)

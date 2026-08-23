@@ -1,74 +1,178 @@
 # Architecture
 
-## Context
+## Context and current Stage
 
-MOMO Studio is web-first and local-first. React supplies one operator UI that can run in a browser now and may be wrapped by Tauri later. FastAPI owns transport concerns and delegates robot lifecycle work to application services. Domain code expresses product and safety invariants without importing the web framework or a hardware SDK.
+MOMO Studio is web-first and local-first. React supplies one operator UI that can run
+in a browser now and may be wrapped by Tauri later. FastAPI owns transport concerns and
+delegates use cases to application services. Domain code expresses product, kinematics,
+and safety invariants without importing the web framework or a hardware SDK.
 
-Stage 2 adds a single-active-robot Dry Run core. It does not add motion, kinematics, real hardware, Fleet, or background device workers.
+Stage 2 established one Active Robot, Profile/Calibration diagnostics, an in-memory Dry
+Run driver, and atomic runtime state. Stage 3 is complete and adds only Dry Run
+kinematics and control. Real hardware, Pose/Motion persistence, trajectory playback,
+Studio authoring, and Vision remain outside the Stage 3 boundary.
 
 ```text
-React frontend (1 Hz REST polling)
-  -> FastAPI routes and response schemas
-      -> RobotApplicationService (one async command lock)
-          -> RobotManager -> primary RobotRuntime
-          -> ProfileService -> ProfileRepository -> reviewed YAML examples
-          -> CalibrationService -> CalibrationRepository -> read-only JSON examples
-          -> RuntimeStateRepository -> untracked atomic JSON
-          -> RobotDriver port -> in-memory DryRunRobotDriver
+React Control workspace
+  -> versioned REST commands and REST status fallback
+  -> bounded read-only RobotStatus WebSocket
+      -> FastAPI routes and transport schemas
+          -> Robot lifecycle / Kinematics / Motion application services
+              -> MotionSafetyGateway (the only motion admission point)
+                  -> preflight and prepared Dry Run work
+                      -> DryRunMotionExecutor
+                          -> primary RobotRuntime + atomic runtime-state repository
+              -> Kinematics port
+                  -> mesh-free serial-chain adapter
+                      -> provisional V1/V2 model documents
 ```
 
-Dependencies point toward domain and port contracts. The composition root builds the repositories and application services and explicitly injects a driver factory that constructs only `DryRunRobotDriver`; `RobotApplicationService` has no implicit concrete-driver fallback. API routes receive that application service through FastAPI dependencies and never import a raw servo driver. There is no Feetech adapter, serial dependency, hardware scan path, or module-level robot singleton.
+Dependencies point inward toward domain and port contracts. API routes do not import a
+driver, executor implementation, serial package, or Legacy controller. The composition
+root explicitly injects the Dry Run implementations. There is no module-global robot,
+`arm_a` product assumption, Fleet surface, serial adapter, device scan, camera source,
+or raw-control transport.
 
-## Stage 2 runtime
+## Active Robot and lifecycle
 
-`create_app()` loads typed settings and builds a fresh service graph for that app instance. Construction may read reviewed Profile/Calibration examples and the configured untracked Dry Run runtime file; it does not connect, scan, home, calibrate, import a servo SDK, open a serial port, or start a thread. A saved runtime state is restored only when its robot ID, variant, Profile Fingerprint, exact joint set, units, finite values, and logical limits match. The in-memory runtime always starts `DISCONNECTED`, even if the persisted diagnostic record says it was previously connected.
-
-The manager owns exactly one runtime:
+The application owns one identity-aware runtime:
 
 ```text
 robot_id = primary
 active variant = configured V1 or V2
-driver = DryRunRobotDriver
+control mode = DRY_RUN
+hardware access = DISABLED
+driver/executor = in-memory Dry Run implementations
 ```
 
-This identity-aware boundary is extensible without exposing Fleet behavior. Variant changes replace the `primary` runtime and driver only while disconnected; they never connect automatically. Connect, disconnect, Stop, status reads, diagnostics, and variant changes share one `asyncio.Lock`, so lifecycle commands cannot overlap.
+Construction may load reviewed Profile, example Calibration, provisional kinematics,
+and compatible untracked Dry Run runtime data. It does not connect, scan, Home,
+calibrate, import a Servo SDK, open a serial port, open a camera, or start an unbounded
+worker. A persisted connection marker never reconnects after restart.
 
-The Dry Run driver stores only a validated joint-value map in memory. Connect exposes the restored or Profile Home state, disconnect is idempotent, and Stop is idempotent without changing position. It offers no position-writing method. `hardware_accessed` is always `false`, and `raw_positions` is always `null` in Stage 2 status.
+Lifecycle transitions, variant changes, motion admission, and Stop share explicit
+coordination. Only one motion command or Jog lease may own execution at a time. A
+variant change remains disconnected-only and replaces the runtime, Profile, and
+kinematics context without auto-connecting.
 
-## HTTP surface
+## Kinematics boundary
 
-Stage 2 exposes:
+`kinematics_models/v1.provisional.yaml` and `v2.provisional.yaml` describe ordered,
+mesh-free serial chains. Each model records schema version, variant, provenance,
+verification status, base/TCP frames, and per-joint type, axis, origin transform, and SI
+limits. A deterministic fingerprint covers compatibility-relevant geometry and excludes
+presentation prose.
 
-- `GET /api/v1/health`
-- `GET /api/v1/meta`
-- `GET /api/v1/meta/product-scope`
-- `GET /api/v1/robot`
-- `GET /api/v1/robot/profile`
-- `GET /api/v1/robot/diagnostics`
-- `POST /api/v1/robot/connect`
-- `POST /api/v1/robot/disconnect`
-- `POST /api/v1/robot/stop`
-- `PUT /api/v1/robot/variant`
-- `GET /api/v1/calibration/status`
+- V1 is exactly `j11`-`j15` and has no J10.
+- V2 is exactly `j10`-`j15`; J10 is prismatic.
+- Both models are `PROVISIONAL_DRY_RUN`.
+- No model, FK result, or successful IK result authorizes Real Cartesian motion.
 
-Connect accepts no body, query string, or mode selector, so a client cannot request Real behavior. API failures use the structured `code`, `message`, `details`, and optional `request_id` envelope; tracebacks are not returned. There are no FK, IK, Jog, Move, Home, Pose, Motion, playback, calibration-write, arbitrary-file, raw-servo, or code-execution endpoints.
+UI/domain joint values remain keyed maps in `mm` and `deg`; canonical TCP positions are
+in `mm` with normalized XYZW quaternions. Named port helpers are the only conversion
+boundary to adapter `m` and `rad`. Conversion never branches on the spelling `j10`, and
+dictionary order never defines chain order.
+
+The kinematics adapter performs deterministic serial-chain FK and bounded numerical IK.
+IK reports success, best solution, iterations, position/orientation residuals,
+termination reason, warnings, and the exact kinematics fingerprint. Position-only and
+full-pose solves are distinct requests. Base increments compose in the base frame; Tool
+increments rotate translation and orientation through the current TCP frame.
+
+## Unified motion path
+
+Every movement source—Joint Move, Joint Jog, Home, Cartesian Jog, Move Pose, and all
+later Goto/Playback/Studio/Vision sources—must submit an immutable command to the same
+`MotionSafetyGateway`:
+
+```text
+command DTO
+  -> source and idempotency ownership
+  -> active robot / connected / DRY_RUN policy
+  -> expected state sequence and monotonic observation freshness
+  -> Profile and Kinematics fingerprints
+  -> exact enabled-joint and explicit-unit validation
+  -> finite/logical/provisional dynamic limits
+  -> compatible-Calibration raw-derived limits, or explicit Dry Run logical-only fallback
+  -> workspace, FK, IK residual and reachability checks
+  -> conflict and cancellation checks
+  -> prepared Dry Run execution
+```
+
+Routes cannot construct executor work directly. The gateway returns structured preflight
+evidence or a typed rejection. Long operations return `202 Accepted` with a `command_id`;
+command status exposes progress, outcome, cancellation, and a safe error code.
+
+Freshness uses the monotonic age of the last successful high-level Dry Run driver
+observation. UTC `updated_at` is display/persistence data only. A stale state gets one
+bounded high-level observation attempt; failure or timeout remains stale.
+
+The `DryRunMotionExecutor` uses an injected monotonic clock, absolute deadlines, a fixed
+bounded update rate, and a cancellation signal. It interpolates single moves instead of
+teleporting state, advances `state_sequence` monotonically, persists compatible runtime
+state, and faults closed on executor errors. It performs no raw mapping or hardware I/O.
+
+Stop has priority over ordinary admission: cancellation is set before the Dry Run stop
+operation is requested. Later Real Stop semantics must use a separately verified result
+contract and cannot inherit a physical-safety claim from Dry Run behavior.
+
+## Continuous Jog deadman
+
+Continuous Jog is a renewable backend lease, not a frontend-only pointer gesture:
+
+```text
+start -> jog_session_id and expiry
+heartbeat -> bounded lease renewal
+stop -> immediate cancellation
+expiry -> backend cancellation even after network loss
+```
+
+The lease duration is short and bounded. Pointer release/cancel, window blur,
+visibility loss, route teardown, and component unmount request Stop; server expiry is the
+fail-safe if none arrives. Duplicate Stop is idempotent. A Jog lease cannot coexist with
+another active motion command.
+
+## HTTP and WebSocket surface
+
+Stage 2 lifecycle and diagnostic routes remain. Stage 3 adds FK,
+IK/reachability, joint move/jog, renewable Jog sessions, Cartesian Jog, Move Pose, Home,
+motion Stop, command status, and a robot-status WebSocket. Generated enumeration and
+route-isolation tests passed; the exact final inventory is recorded in the Stage report.
+
+The WebSocket is read-only. Its payload carries RobotStatus (including its safe last-error
+summary), TCP pose/FK, the latest command status/progress/error, state sequence, and
+top-level `hardware_accessed=false`; it has no separate fault-list field. The current
+implementation has a fixed 10 Hz source cap, no application queue, and a one-second
+timeout around each client send. A slow client can therefore block only its own handler,
+which exits on timeout or disconnect. It never accepts raw values or motion commands,
+and REST remains the status fallback. Dedicated rate, slow-client, terminal-delivery,
+disconnect, and REST-fallback tests pass. A 1.5-second watchdog (15 missed 10 Hz frames)
+clears a silent socket snapshot, closes the stale socket, and enters bounded
+REST/reconnect behavior; only a valid complete frame resets the watchdog.
 
 ## Frontend data flow
 
-`RuntimeStatusProvider` fetches health, metadata, robot status, Profile, Calibration status, and diagnostics together, then polls once per second. It verifies the returned Stage 2 policy (`DRY_RUN`, hardware access `DISABLED`, real motion false, hardware not accessed) before accepting the payload. Network failure retains the last robot payload as stale data, marks the backend unavailable, and stops polling when the provider unmounts.
+The Control workspace consumes backend state rather than computing or fabricating robot
+state locally. It presents variant-specific Joint controls, TCP and
+Cartesian controls, Base/Tool selection, explicit step/speed/duration parameters, IK and
+preflight results, command progress, and an always-visible Stop.
 
-Control presents lifecycle commands and read-only joint state. Settings presents V1/V2 selection, Profile provenance/fingerprint, Calibration variant/Profile/joint/mapping compatibility, and safe diagnostics. Studio, Library, and Vision remain unavailable. No page contains a motion control or Real-mode switch.
+V1 never renders J10. V2 renders J10 in `mm`; arm joints use `deg`. Motion controls are
+disabled while disconnected, offline, stale, busy, or faulted. Home requires explicit
+confirmation. The UI states that software Stop is not a physical emergency stop and
+offers no Real selector. REST polling/fetch remains available when the read-only
+WebSocket is unavailable.
 
-## Configuration
+Frontend component tests and desktop/mobile/breakpoint browser acceptance pass. The
+checked widths have no horizontal overflow and the final browser console is empty.
 
-Configuration precedence is:
+## Configuration and persistence
 
-1. typed safe defaults;
-2. repository `config/default.yaml`;
-3. optional uncommitted `config/local.yaml`;
-4. environment variables prefixed `MOMO_`.
-
-Stage 2 requires all three gates:
+Safe default loading uses typed defaults, tracked `config/default.yaml`, then `MOMO_*`
+environment values. It does **not** probe or read ignored `config/local.yaml`. A caller
+may opt in to one specific local file only by explicitly passing `local_config_path` to
+the settings loader; that explicit file is then merged before environment overrides.
+Throughout Stage 3:
 
 ```text
 control_mode: DRY_RUN
@@ -76,29 +180,29 @@ real_motion_enabled: false
 hardware_access_policy: DISABLED
 ```
 
-`ControlMode` and `HardwareAccessPolicy` are separate contracts. `REAL`, `READ_ONLY`, and `FULL` remain vocabulary for a later reviewed Stage, but selecting any of them now fails settings validation before an adapter can be created. `serial_port` is an inert compatibility field and is never opened. Repository-relative paths resolve from the source checkout, not the process working directory.
+Selecting `REAL`, `READ_ONLY`, `FULL`, or real motion fails before any adapter is built.
+The serial-port field remains inert. Kinematics models are reviewed repository inputs,
+not local hardware configuration.
 
-## Persistence boundaries
-
-Profiles are loaded only from the fixed `v1.example.yaml` and `v2.example.yaml` names under the configured Profile directory. Calibration diagnostics are loaded only from the fixed example filenames under the configured Calibration directory; Stage 2 provides no calibration writes.
-
-Dry Run runtime state is stored as schema-versioned JSON at `data/runtime/robots/primary.json` by default. Writes use a temporary sibling, flush and `fsync`, then `os.replace`. Robot IDs are filename-constrained and resolved paths must remain inside the configured directory. Invalid, incompatible, or corrupt state is quarantined and the runtime falls back to Profile Home. Runtime files remain untracked and contain no serial port, secret, or real calibration.
-
-Pose and Motion repositories remain Stage 1 contracts only. Future persistent entities use UUID filenames rather than display names. Their schemas cannot change without compatibility analysis, round-trip tests, regenerated JSON Schema, and a Stage decision.
-
-## Unit and safety boundaries
-
-Product/UI joint values use explicit `mm` or `deg` units. Mapping helpers operate on the Profile's declared scale and the Calibration document's direction/Home; they never infer units from `joint_id`. A future kinematics adapter will convert at named boundaries to `m` and `rad`.
-
-Stage 2 mapping and reachability functions are pure calculations and are not reachable from an HTTP motion command. Real motion remains blocked until a later Stage supplies verified non-template Profiles and Calibration, a real adapter, operator intent, and one reviewed application safety entry point.
+Dry Run runtime state remains schema-versioned, path-confined, ignored operational data
+written with a same-directory temporary file, flush, `fsync`, and replace. Restore
+requires robot identity, variant, Profile fingerprint, exact joint/unit set, finite
+values, and logical limits; Stage 3 must additionally reject motion against mismatched
+kinematics fingerprints and stale state sequences. Pose and Motion repositories remain
+future adapters.
 
 ## Repository structure
 
-- `backend/src/momo/api` - app factory, dependencies, route composition, API schemas, and error translation.
-- `backend/src/momo/application` - the single-active manager and lifecycle/Profile/Calibration services.
-- `backend/src/momo/domain` - immutable models, fingerprints, runtime contracts, mapping, validation, and errors.
-- `backend/src/momo/ports` - typed protocols for drivers and repositories.
-- `backend/src/momo/adapters/hardware` - only the in-memory Dry Run driver in Stage 2.
-- `backend/src/momo/adapters/storage` - Profile, read-only Calibration, and atomic runtime-state adapters.
-- `frontend/src/api` - transport client and response types.
-- `frontend/src/app`, `layouts`, `components`, `pages` - composition, shared runtime state, chrome, and routes.
+- `backend/src/momo/domain/kinematics` — model/fingerprint and FK/IK result contracts.
+- `backend/src/momo/ports/kinematics.py` — SI adapter protocol and named unit boundaries.
+- `backend/src/momo/adapters/kinematics` — mesh-free FK/IK implementation.
+- `backend/src/momo/application/services` — lifecycle, kinematics, gateway, executor
+  coordination, command status, and Jog lease use cases.
+- `backend/src/momo/api` — versioned REST/read-only WebSocket transport only.
+- `backend/src/momo/adapters/hardware` — Dry Run adapter only in Stage 3.
+- `backend/src/momo/adapters/storage` — Profile, example Calibration, and runtime state.
+- `kinematics_models` — V1/V2 provisional mesh-free documents.
+- `frontend/src` — typed transport, shared runtime state, responsive pages/components.
+
+Stage 3 design decisions are recorded in ADR 0009 and ADR 0010. Completion evidence,
+tests, browser verification, and known limitations are tracked in the Stage 3 report.

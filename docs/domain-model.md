@@ -2,9 +2,15 @@
 
 ## Robot identity, mode, and access
 
-`RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases. `ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 2 permits only `DRY_RUN` plus `DISABLED`; the other enum members reserve vocabulary and grant no current capability.
+`RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases.
+`ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability
+gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 3 continues to permit only
+`DRY_RUN` plus `DISABLED`; the other enum members reserve vocabulary and grant no
+current capability.
 
-`RobotId` is a validated stable identifier. The Stage 2 composition root creates one `primary` robot in a `RobotManager`; it does not expose a global robot value, `arm_a`, Fleet, or coordination semantics.
+`RobotId` is a validated stable identifier. The composition root creates one `primary`
+robot in a `RobotManager`; it does not expose a global robot value, `arm_a`, Fleet, or
+coordination semantics.
 
 ## Robot Profile
 
@@ -37,6 +43,57 @@ Display name, description, template/verification/provenance fields, timestamps, 
 
 The fingerprint is stored by Calibration and Dry Run runtime documents. It identifies an exact motion/safety Profile contract; it is not proof that the data was physically verified.
 
+## Kinematics model and fingerprint
+
+`KinematicsModel` is a schema-versioned, immutable, mesh-free serial chain. It contains
+the hardware variant, provenance, verification status, base and TCP frame names, ordered
+joints, presentation metadata, and a declared `kinematics_fingerprint`. Each
+`KinematicJoint` declares:
+
+- `joint_id` and explicit `REVOLUTE` or `PRISMATIC` type;
+- a finite normalized axis;
+- a finite origin translation in metres;
+- a finite normalized origin quaternion in XYZW order;
+- ordered minimum and maximum values in SI units.
+
+The model validates exact product membership and order. V1 is exactly `j11`-`j15`; V2
+is exactly `j10`-`j15`, with only J10 prismatic. Unknown, duplicate, missing, reordered,
+zero-axis, zero-quaternion, non-finite, wrong-type, or wrong-variant data fails closed.
+
+`kinematics_fingerprint` is SHA-256 over deterministic compact JSON containing schema
+version, variant, frames, and the complete ordered joint geometry/type/limits. Display
+name, description, and source prose do not affect it; any geometry, joint identity,
+frame, type, axis, origin, or limit change does. On model validation the declared
+`kinematics_fingerprint` must equal the recomputed canonical digest; a missing or
+mismatched value rejects model loading.
+
+The two initial documents are `PROVISIONAL_DRY_RUN`. This status permits deterministic
+Dry Run FK/IK and UI behavior but is an explicit blocker for Real Cartesian motion,
+Cartesian playback, and Real vision follow. A fingerprint proves exact software-model
+identity, not physical correctness.
+
+## Kinematics boundary and results
+
+Product/domain joint values stay in `deg` and `mm`. `KinematicsJointState` carries only
+adapter values: radians for revolute joints and metres for prismatic joints. Conversion
+uses the active Profile's declared type/unit through named `to_kinematics_*` and
+`from_kinematics_*` functions. It never special-cases a joint name. Canonical TCP output
+uses millimetres and a normalized XYZW quaternion; the adapter boundary uses metres and
+the same quaternion ordering.
+
+`ForwardKinematicsResult` binds the TCP pose to robot identity, variant, state sequence,
+Profile fingerprint, Kinematics fingerprint, and `hardware_accessed=false`.
+`InverseKinematicsResult` distinguishes a converged solution from the best bounded
+candidate and reports iterations, position error in millimetres, optional orientation
+error in degrees, termination reason, warnings, and Kinematics fingerprint. An
+unreachable or over-residual best candidate is diagnostic evidence, not a movement
+target.
+
+Base and Tool Cartesian increments are separate typed intents. Base translation and
+rotation compose in the base frame. Tool translation is rotated by the current TCP
+orientation and Tool rotation composes in the TCP frame; it must never be interpreted as
+a Base delta.
+
 ## Calibration
 
 `CalibrationDocument` is immutable and contains `schema_version`, UUID `id`, `robot_variant`, the exact `profile_fingerprint`, `template`, timezone-aware `generated_at`, notes, and a non-empty joint list. Joint and Servo IDs must be unique.
@@ -54,7 +111,11 @@ Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE
 - `VALID_FOR_DRY_RUN`
 - `READY_FOR_REAL`
 
-Stage 2 never returns effective Real readiness: `real_readiness` remains `BLOCKED_BY_STAGE_POLICY`. A complete matching template can be structurally valid for diagnostics, but it cannot authorize hardware. Mapping mismatch is classified as `INCOMPLETE` and makes `calibration_valid=false`. The repository is read-only and loads only reviewed example filenames; no calibration-write use case or API exists.
+Stage 3 still never returns effective Real readiness: `real_readiness` remains
+`BLOCKED_BY_STAGE_POLICY`. A complete matching template can be structurally valid for
+diagnostics, but it cannot authorize hardware. Mapping mismatch is classified as
+`INCOMPLETE` and makes `calibration_valid=false`. The repository is read-only and loads
+only reviewed example filenames; no calibration-write use case or API exists.
 
 ## Logical and raw mapping
 
@@ -72,7 +133,9 @@ goal_raw = calibration_home_present_raw + relative_raw
 
 `logical_to_goal_raw`, `goal_raw_to_logical`, `validate_goal_raw`, and `effective_logical_limits_from_raw_bounds` are pure functions. Profile and Calibration raw bounds are intersected; the resulting raw range is converted in both directions and intersected with logical Profile limits. Inputs must be finite, scale/counts positive, direction valid, operating mode matching, Home configured, and the joint known. The rounding tolerance is derived from one half of a raw count in that joint's declared scale.
 
-These functions are characterization and future safety foundations only. Stage 2 has no API or application operation that supplies a target or emits raw commands.
+These functions remain characterization and preflight inputs only. Stage 3 Dry Run
+commands never emit raw values and no API exposes raw mapping. A later reviewed Real
+gateway may use raw-derived reachable limits, but no Stage 3 executor can write them.
 
 ## Runtime state and status
 
@@ -85,7 +148,16 @@ These functions are characterization and future safety foundations only. Stage 2
 
 The file repository constrains robot IDs and paths, writes atomically, and quarantines corrupt or rejected files. Restore additionally validates the active variant/fingerprint, exact joint and unit mappings, finite values, and logical limits. A failed startup restore uses Profile Home with sequence zero; a variant switch still advances from the current runtime sequence. A valid restore carries positions and sequence forward but never restores an active connection.
 
-`RobotStatus` is the read-only API projection: identity, variant, mode/policy, connection state, connected flag, Profile identity/verification, Calibration status, positions, units, optional raw positions, last error, timestamp, sequence, stale marker, and `hardware_accessed=false`. Stage 2 always returns `raw_positions=null`.
+`RobotStatus` is the read-only API projection: identity, variant, mode/policy, connection
+state, connected flag, Profile identity/verification, Calibration status, positions,
+units, optional raw positions, last error, timestamp, sequence, stale marker, and
+`hardware_accessed=false`. Stage 3 continues to return `raw_positions=null`; command and
+TCP status may extend the transport projection without changing the persisted runtime
+schema.
+
+The stale marker is computed from monotonic time since the last successful high-level
+Dry Run driver observation. UTC `updated_at` remains display and persistence data; it is
+not the freshness clock, so wall-clock rollback cannot revive failed or timed-out state.
 
 Connection states are `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `DISCONNECTING`, and `FAULTED`. One command lock serializes all lifecycle operations. The normal transitions are:
 
@@ -94,7 +166,44 @@ DISCONNECTED -> CONNECTING -> CONNECTED
 CONNECTED/FAULTED -> DISCONNECTING -> DISCONNECTED
 ```
 
-Duplicate Connect is rejected without creating another driver. Disconnect while already disconnected returns the stable state. Stop returns `STOPPED` when connected and `NOT_CONNECTED` when disconnected; it does not alter positions. Driver failures enter `FAULTED`, record a safe error summary, and never expose a traceback. `state_sequence` increases monotonically for state changes and Stop events within the runtime lifecycle.
+Duplicate Connect is rejected without creating another driver. Disconnect while already
+disconnected returns the stable state. Stop returns `STOPPED` when connected and
+`NOT_CONNECTED` when disconnected. During Stage 3 motion it first cancels the active
+prepared command or Jog lease, then leaves the runtime at its last completed Dry Run
+sample. Driver/executor failures enter `FAULTED`, record a safe error summary, and never
+expose a traceback. `state_sequence` increases monotonically for lifecycle changes,
+accepted execution samples, and Stop events.
+
+## Motion command, preflight, and command status
+
+Stage 3 defines one command vocabulary for Joint Move, Joint Jog, Home, Cartesian Jog,
+and Move Pose, with later sources reserved for Goto, Playback, Studio, and Vision. An
+immutable command carries a unique command ID, source, robot identity, expected state
+sequence, Profile and Kinematics fingerprints, explicit unit-bearing target or delta,
+timing intent, and idempotency identity. Clients cannot select a concrete executor or
+driver.
+
+`MotionPreflight` is the typed evidence produced only by the Motion Safety Gateway. It
+records policy/identity/freshness/fingerprint checks; exact joint and unit membership;
+finite, logical, provisional dynamic and workspace checks; conditional raw-derived
+checks; FK/IK evidence; conflict/idempotency/cancellation status; and safe warnings. If
+no Calibration is configured, the raw-derived check records an explicit Dry Run-only
+`not_applicable` result and logical Profile limits remain authoritative. A configured
+but incompatible Calibration rejects admission. Neither path authorizes Real motion. A
+rejected preflight never becomes executor work.
+
+Command status has exactly five states: `ACCEPTED`, `RUNNING`, `COMPLETED`, `CANCELLED`,
+and `FAULTED`. It exposes bounded progress plus a safe error summary. Only one command
+may be active. Repeating the same idempotent request returns the established command;
+reusing an idempotency identity for different intent is rejected.
+
+## Jog lease
+
+A continuous Jog session is a short-lived backend `JogLease`, identified by an opaque
+session ID and owned by one active robot/command source. Heartbeat extends the bounded
+expiry; explicit Stop, command conflict, disconnect, fault, backend shutdown, or expiry
+cancels it. Duplicate Stop is stable and idempotent. Browser pointer release is a normal
+stop signal, not the safety guarantee—network loss is covered by backend expiry.
 
 ## State, Pose, and Motion contracts
 
@@ -102,7 +211,11 @@ Duplicate Connect is rejected without creating another driver. Disconnect while 
 
 `TcpPose` contains a frame, `position_mm`, and canonical normalized `xyzw` quaternion. `PoseSnapshot` is the complete immutable-by-value capture of variant, keyed joint state, TCP, optional hardware safety snapshot, optional Calibration fingerprint provenance, and capture time. `Pose` adds UUID identity, display metadata, timestamps, revision, and schema version.
 
-A `MotionKeyframe` embeds a complete `PoseSnapshot`; optional `source_pose_id` is provenance only. `Motion` owns those copies, so editing or deleting a source Pose cannot alter playback data. Motion transitions and playback defaults remain structural Stage 1 contracts. Stage 2 exposes no Pose/Motion repository adapter, CRUD, trajectory, playback, or motion endpoint.
+A `MotionKeyframe` embeds a complete `PoseSnapshot`; optional `source_pose_id` is
+provenance only. `Motion` owns those copies, so editing or deleting a source Pose cannot
+alter playback data. Motion transitions and playback defaults remain structural Stage 1
+contracts. Stage 3 Move Pose accepts an explicit transient TCP target; it does not add a
+Pose/Motion repository, CRUD, trajectory compiler, Library, or playback workflow.
 
 Nested lists/maps are frozen using JSON-serializable immutable containers. JSON round trips preserve meaning and do not expose `mappingproxy` or another non-serializable type.
 

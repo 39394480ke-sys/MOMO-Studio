@@ -14,6 +14,8 @@ import {
   type RuntimeStatus,
 } from './runtimeStatusContext';
 
+const BOOTSTRAP_TIMEOUT_MS = 900;
+
 function isSafeBootstrap(data: BootstrapResponse): boolean {
   return (
     data.health.status === 'ok' &&
@@ -32,6 +34,14 @@ function isSafeBootstrap(data: BootstrapResponse): boolean {
 export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>(SAFE_RUNTIME_STATUS);
   const mounted = useRef(true);
+  const actionInFlight = useRef(false);
+  const bootstrapGeneration = useRef(0);
+  const bootstrapInFlight = useRef<{
+    controller: AbortController;
+    generation: number;
+    promise: Promise<void>;
+    timeoutId: number | null;
+  } | null>(null);
 
   const applyBootstrap = useCallback((data: BootstrapResponse) => {
     if (!isSafeBootstrap(data)) {
@@ -40,7 +50,7 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
     setRuntimeStatus((current) => ({
       ...current,
       backend: 'connected',
-      stale: false,
+      stale: data.robot.stale !== false,
       error: null,
       meta: data.meta,
       robot: data.robot,
@@ -50,19 +60,85 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await getBootstrapData();
-      if (mounted.current) applyBootstrap(data);
-    } catch (error) {
-      if (!mounted.current) return;
+  const invalidateBootstrap = useCallback(() => {
+    bootstrapGeneration.current += 1;
+    const activeRequest = bootstrapInFlight.current;
+    bootstrapInFlight.current = null;
+    if (activeRequest?.timeoutId !== null && activeRequest?.timeoutId !== undefined) {
+      window.clearTimeout(activeRequest.timeoutId);
+    }
+    activeRequest?.controller.abort();
+  }, []);
+
+  const refresh = useCallback((): Promise<void> => {
+    if (!mounted.current || actionInFlight.current) return Promise.resolve();
+
+    const currentRequest = bootstrapInFlight.current;
+    if (currentRequest) return currentRequest.promise;
+
+    const controller = new AbortController();
+    const generation = bootstrapGeneration.current;
+    let timeoutId: number | null = null;
+    const promise = (async () => {
+      try {
+        const data = await getBootstrapData(controller.signal);
+        if (
+          mounted.current &&
+          !controller.signal.aborted &&
+          generation === bootstrapGeneration.current
+        ) {
+          applyBootstrap(data);
+        }
+      } catch (error) {
+        if (
+          !mounted.current ||
+          controller.signal.aborted ||
+          generation !== bootstrapGeneration.current
+        ) {
+          return;
+        }
+        setRuntimeStatus((current) => ({
+          ...current,
+          backend: 'unavailable',
+          stale: current.robot !== null,
+          error: error instanceof Error ? error.message : 'Backend unavailable',
+        }));
+      } finally {
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
+        const activeRequest = bootstrapInFlight.current;
+        if (
+          activeRequest?.controller === controller &&
+          activeRequest.generation === generation
+        ) {
+          bootstrapInFlight.current = null;
+        }
+      }
+    })();
+
+    const request = { controller, generation, promise, timeoutId: null as number | null };
+    bootstrapInFlight.current = request;
+    timeoutId = window.setTimeout(() => {
+      const activeRequest = bootstrapInFlight.current;
+      if (
+        activeRequest !== request ||
+        !mounted.current ||
+        actionInFlight.current ||
+        generation !== bootstrapGeneration.current
+      ) {
+        return;
+      }
+      request.timeoutId = null;
+      timeoutId = null;
+      controller.abort();
       setRuntimeStatus((current) => ({
         ...current,
         backend: 'unavailable',
         stale: current.robot !== null,
-        error: error instanceof Error ? error.message : 'Backend unavailable',
+        error: `Backend refresh timed out after ${BOOTSTRAP_TIMEOUT_MS} ms`,
       }));
-    }
+    }, BOOTSTRAP_TIMEOUT_MS);
+    request.timeoutId = timeoutId;
+    return promise;
   }, [applyBootstrap]);
 
   useEffect(() => {
@@ -71,15 +147,19 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
     const timer = window.setInterval(() => void refresh(), 1000);
     return () => {
       mounted.current = false;
+      invalidateBootstrap();
+      bootstrapInFlight.current = null;
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [invalidateBootstrap, refresh]);
 
   const runAction = useCallback(
     async (
       action: NonNullable<RuntimeStatus['pendingAction']>,
       operation: () => Promise<{ status: RobotStatus }>,
     ) => {
+      actionInFlight.current = true;
+      invalidateBootstrap();
       setRuntimeStatus((current) => ({ ...current, pendingAction: action, error: null }));
       try {
         const response = await operation();
@@ -89,7 +169,7 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
           return {
             ...current,
             backend: 'connected',
-            stale: false,
+            stale: response.status.stale !== false,
             robot: response.status,
             meta: current.meta
               ? { ...current.meta, active_robot_variant: response.status.variant }
@@ -101,6 +181,7 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
             error: null,
           };
         });
+        actionInFlight.current = false;
         if (action === 'switch') {
           void refresh();
         }
@@ -111,9 +192,11 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
           pendingAction: null,
           error: error instanceof Error ? error.message : 'Backend command failed',
         }));
+      } finally {
+        actionInFlight.current = false;
       }
     },
-    [refresh],
+    [invalidateBootstrap, refresh],
   );
 
   const value: RuntimeStatus = {

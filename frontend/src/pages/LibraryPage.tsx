@@ -5,8 +5,8 @@ export function LibraryPage() {
     <div className="page">
       <PageIntro
         title="Library"
-        description="The reusable motion library is not available in Stage 2."
-        detail="Safe, versioned pose and motion storage will arrive after the robot core."
+        description="Pose and Motion Library is scheduled for Stage 4."
+        detail="That stage adds safe, versioned pose and motion storage; Stage 3 remains direct control only."
       />
     </div>
   );

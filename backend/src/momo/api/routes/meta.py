@@ -35,12 +35,14 @@ async def metadata(
 def product_scope(settings: SettingsDependency) -> ProductScopeResponse:
     return ProductScopeResponse(
         product=settings.product_name,
-        stage_2_available=[
+        stage_3_available=[
             "single Active Robot Dry Run lifecycle",
             "V1 and V2 profile diagnostics",
             "calibration compatibility diagnostics",
             "atomic Dry Run runtime state",
-            "read-only joint state",
+            "mesh-free FK and IK",
+            "unified safe Dry Run motion and jog leases",
+            "read-only rate-limited robot state WebSocket",
         ],
         included_in_first_version=[
             "single active MOMO V1 or V2 robot",

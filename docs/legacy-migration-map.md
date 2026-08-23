@@ -5,12 +5,13 @@
 - Legacy repository: `https://github.com/39394480ke-sys/MOMO_RobotARM.git`
 - Reference branch: `V2`
 - Audited commit: `ff8bbda0c2222cb57951c7913f7f12f5777b98fa`
-- Static audit begun: 2026-08-23; Stage 2 characterization updated: 2026-08-24
+- Static audit begun: 2026-08-23; Stage 2 and completed Stage 3 characterization
+  updated: 2026-08-24
 - All Legacy paths and observations refer to that immutable commit.
 - The Legacy checkout is read-only. No Legacy program or hardware dependency was run, and no serial discovery, Servo operation, Calibration operation, motion command, or camera access was performed.
 - Local/untracked Calibration, serial configuration, runtime files, backups, logs, secrets, and media are excluded. The contents of the tracked backup artifact noted below were deliberately not read.
 
-Dispositions used by the Stage 2 audit are decisions, not permission to run or copy code:
+Dispositions used by the audits are decisions, not permission to run or copy code:
 
 - `ADAPT`: retain a characterized rule or contract but express it through the new domain/application/ports/adapters boundaries.
 - `ADAPT_AS_PROVENANCE_ONLY`: record selected evidence/source revision without treating the Legacy data as a product or hardware authority.
@@ -55,11 +56,44 @@ The detailed mapping/safety behavior matrix and its intentional changes are reco
 | Stop remains reachable without fabricating physical success | `StopResponse` result contract | Dry Run returns `STOPPED` or `NOT_CONNECTED`; all responses state no hardware access. |
 | Runtime history never reconnects a device | Runtime restore policy | Positions/sequence may restore; in-memory connection always starts disconnected. |
 
+## Stage 3 kinematics and control decisions
+
+Stage 3 re-opened only the pinned tracked kinematics/control evidence needed for its
+approved Dry Run scope. The detailed evidence and numeric transcription are in
+`kinematics-model-audit.md` and `legacy-kinematics-characterization.md`. No Legacy
+program, simulator, mesh, driver, serial dependency, local Calibration, runtime file, or
+untracked file was opened or executed.
+
+| Legacy path/area | Observed contract/risk | Disposition | Stage 3 result / contract | Remaining gate |
+|---|---|---|---|---|
+| `URDF运动学仿真/` V1 URDF | Contains a prismatic J10 and six movable joints, contradicting the rail-less V1 product contract; mesh/asset provenance is unresolved. | `REWRITE_WITH_CHARACTERIZATION` | A mesh-free provisional V1 serial chain contains exactly J11-J15. The zero-position base-to-arm transform is folded into the rail-less chain rather than retaining a phantom degree of freedom. No URDF/STL is copied into runtime. | Independently measure V1 geometry, frames, signs, zeros, limits, TCP, FK references, and IK tolerance before any Real capability. |
+| `URDF运动学仿真/` V2 URDF | Provides candidate J10-J15 axes/origins, but J10 units/limits are mixed elsewhere and physical authority/provenance is incomplete. | `REWRITE_WITH_CHARACTERIZATION` | A mesh-free provisional V2 chain records J10 as prismatic and uses explicit SI geometry. It is fingerprinted and `PROVISIONAL_DRY_RUN`. | Verify rail stroke/axis/origin, all link geometry, frames/TCP, limits and physical reference poses. |
+| Legacy PyBullet FK/IK modules | Fixed six-value order, URDF/mesh coupling, PyBullet process state, J10 name-based conversion, and configurable approximate IK acceptance. | `REWRITE` | Deterministic serial-chain FK and bounded numerical DLS IK are independent of meshes and GUI state. Results report best solution, residuals, iterations and termination reason; approximation is not silently accepted. | Stage 3 characterization, command, and browser evidence passed; physical accuracy remains unverified. |
+| `Web控制台/backend/controller_bridge.py` and `service.py` | Large facade combines lifecycle, kinematics, storage, motion, diagnostics and driver dispatch; routes can become coupled to concrete behavior. | `RETIRE_AS_ARCHITECTURE` | Kinematics, gateway, executor, Jog lease and transport are separate contracts/services. Every motion route enters the Motion Safety Gateway. | Route-isolation and dependency-direction tests pass; later sources must preserve this boundary. |
+| `真实舵机控制/连续关节流_continuous_joint_stream.py` | Contains useful regular-update/cancellation intent but mutable worker state, sleep-driven timing, hardware coupling and no product Jog ownership/lease contract. | `REWRITE_WITH_CHARACTERIZATION` | Dry Run execution uses injected monotonic time and absolute deadlines. Hold Jog is owned by a renewable backend lease; expiry, Stop, disconnect, fault or network loss ends it. | Fake Clock/no-drift, TTL, cancellation, conflict and duplicate-Stop tests pass; Real execution remains deferred. |
+| `真实舵机控制/安全检查_safety_checker.py` | Central limit intent is useful, but fixed dictionaries and hardware-oriented values are not complete command authorization. | `ADAPT` | Gateway preflight combines explicit Profile/Kinematics identity, exact joints/units, finite/logical/provisional dynamic/workspace checks, FK/IK, freshness, idempotency, conflict and cancellation. Raw-derived limits apply only with an exactly compatible Calibration; absence records a Dry Run logical-only fallback, while incompatibility rejects. | Provisional values remain Dry Run only; Real requires new verified evidence and Stage 8 gates. |
+| Legacy Base/Tool Cartesian behavior | Base delta is applied in Base; Tool translation follows current TCP orientation and Tool rotation composes locally. | `REWRITE_WITH_CHARACTERIZATION` | Retained as separate pure composition rules using normalized XYZW quaternions and explicit mm/deg↔m/rad boundaries. | Deterministic unit/composition tests pass; no physical validation claim. |
+| Legacy WebSocket/status loops | Per-client delivery lacks a product-level maximum rate and bounded queue contract. | `REWRITE` | Stage 3 is read-only status/progress/fault delivery with a fixed 10 Hz cap, no application queue, a one-second send timeout, disconnect cleanup, a silent-socket watchdog, and REST fallback. It cannot receive motion or raw control. | Slow-client/rate/terminal/disconnect/watchdog tests and live browser fallback/recovery evidence pass. |
+| Legacy V1/V2 Profiles | V1 may fabricate J10; V2 J10 appears in angle-shaped ranges; joint-name branching obscures units. | Prior Stage 2 `REWRITE`; Stage 3 `ADAPT_AS_PROVENANCE_ONLY` | Kinematics membership is validated against explicit Profile `enabled_joints`; port helpers convert from declared type/unit rather than joint spelling. | Physical Profile and Kinematics must be independently cross-verified. |
+
+### Stage 3 contracts derived from characterization
+
+| Contract | New authority | Enforcement target |
+|---|---|---|
+| V1 has no kinematic rail | Product variant contract plus V1 provisional model | Exact ordered model/profile validation; J10 input rejects. |
+| V2 J10 is prismatic | V2 Profile/model type and named unit boundary | Domain mm, adapter m; no angle/name heuristic. |
+| Geometry identity is explicit | Deterministic Kinematics fingerprint | Command/FK/IK/preflight compatibility checks. |
+| Provisional is not Real verified | `KinematicsVerificationStatus.PROVISIONAL_DRY_RUN` | Real Cartesian, Cartesian playback and Real Vision remain blocked. |
+| Approximate IK is not reachability | Typed IK residuals and termination reason | Gateway dispatches only a successful within-tolerance result. |
+| All motion has one owner | Motion Safety Gateway and command coordinator | One Active Motion/Jog; conflict/idempotency/Stop are observable. |
+| Hold Jog needs a backend deadman | Renewable Jog lease | TTL expiry stops even when the browser loses the network. |
+| Status streaming is not a control path | Read-only bounded WebSocket | No motion/raw request schema; REST remains fallback. |
+
 ## Deferred Legacy areas
 
 | Legacy area | Disposition | Reason and gate |
 |---|---|---|
-| `URDF运动学仿真/` | `DEFER_TO_STAGE_3` | Both Legacy models contain J10, so the V1 model contradicts the product. V2 remains a candidate only after source/license, axes, link/TCP, unit, reference FK, and IK residual verification. No URDF/STL was copied. |
+| Physical/asset reuse from `URDF运动学仿真/` | Stage 3 software behavior `REWRITE_WITH_CHARACTERIZATION`; physical/asset authority remains `DEFER` | Mesh-free provisional chains are sufficient only for Dry Run. URDF/STL redistribution and physical V1/V2 correctness remain blocked on provenance, measurement and field acceptance. |
 | `动作录制与回放增强/` | `DEFER` | Stage 1 defined immutable embedded Pose Snapshot/Motion contracts, but Stage 2 adds no CRUD, trajectory, timeline, or playback. A future importer must use UUID identity, exact variant/joint/unit checks, explicit alias reports, and no silent gripper/raw loss. |
 | `Web控制台/backend/service.py` | `RETIRE_AS_ARCHITECTURE` | More than one product area and multiple side effects are combined. Future capabilities become bounded application services with isolated construction and tests. |
 | `Web控制台/backend/action_composer.py` | `DEFER` | Motion authoring is outside Stage 2. Future composition must embed full snapshots rather than dereference mutable source Pose files. |

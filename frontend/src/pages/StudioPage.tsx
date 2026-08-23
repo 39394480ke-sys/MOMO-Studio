@@ -5,8 +5,8 @@ export function StudioPage() {
     <div className="page">
       <PageIntro
         title="Studio"
-        description="The sequence workspace is not available in Stage 2."
-        detail="This foundation will support safe pose and keyframe authoring in a later stage."
+        description="The timeline sequence workspace is scheduled for Stage 6."
+        detail="Stage 3 provides direct control only; later stages add reusable motions, playback, and timeline authoring."
       />
     </div>
   );

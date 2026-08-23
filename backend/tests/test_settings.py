@@ -44,7 +44,20 @@ def test_environment_overrides_yaml_without_using_current_working_directory(
     assert settings.serial_port == "/dev/example-not-opened"
 
 
-def test_stage_two_rejects_every_attempt_to_enable_real_motion(
+def test_ignored_local_config_is_read_only_when_explicitly_requested(tmp_path: Path) -> None:
+    default = tmp_path / "default.yaml"
+    local = tmp_path / "local.yaml"
+    default.write_text("active_robot_variant: V1\n", encoding="utf-8")
+    local.write_text("active_robot_variant: V2\n", encoding="utf-8")
+
+    implicit = load_settings(default_config_path=default)
+    explicit = load_settings(default_config_path=default, local_config_path=local)
+
+    assert implicit.active_robot_variant is RobotVariant.V1
+    assert explicit.active_robot_variant is RobotVariant.V2
+
+
+def test_stage_three_rejects_every_attempt_to_enable_real_motion(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -52,8 +65,9 @@ def test_stage_two_rejects_every_attempt_to_enable_real_motion(
         Settings(real_motion_enabled=True)
 
     settings = Settings()
+    real_motion_field = "real_motion_enabled"
     with pytest.raises(ValidationError, match="Instance is frozen"):
-        settings.real_motion_enabled = True
+        setattr(settings, real_motion_field, True)
 
     monkeypatch.setenv("MOMO_REAL_MOTION_ENABLED", "true")
     with pytest.raises(ValidationError, match="locked to false"):
@@ -67,7 +81,7 @@ def test_stage_two_rejects_every_attempt_to_enable_real_motion(
     "policy",
     [HardwareAccessPolicy.READ_ONLY, HardwareAccessPolicy.FULL],
 )
-def test_stage_two_rejects_non_disabled_hardware_policy(policy: HardwareAccessPolicy) -> None:
+def test_stage_three_rejects_non_disabled_hardware_policy(policy: HardwareAccessPolicy) -> None:
     with pytest.raises(ValidationError, match="hardware_access=DISABLED"):
         Settings(hardware_access_policy=policy)
 
@@ -93,6 +107,12 @@ def test_yaml_and_environment_cannot_override_hardware_gate(
         )
 
 
-def test_stage_two_rejects_real_control_mode() -> None:
+def test_stage_three_rejects_real_control_mode() -> None:
     with pytest.raises(ValidationError, match="control_mode=DRY_RUN"):
         Settings(control_mode=ControlMode.REAL)
+
+
+@pytest.mark.parametrize("update_hz", [0.1, 19.999, 100.001])
+def test_motion_update_rate_has_reviewed_interpolation_bounds(update_hz: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(motion_update_hz=update_hz)

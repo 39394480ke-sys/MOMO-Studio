@@ -197,7 +197,7 @@ export function SettingsPage() {
           </div>
           <div>
             <dt>Policy</dt>
-            <dd>{diagnostics?.stage_policy ?? 'STAGE_2_DRY_RUN_ONLY'}</dd>
+            <dd>{diagnostics?.stage_policy ?? 'STAGE_3_DRY_RUN_ONLY'}</dd>
           </div>
         </dl>
       </section>

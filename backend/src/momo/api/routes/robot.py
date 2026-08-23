@@ -1,22 +1,24 @@
-"""Stage 2 Dry Run lifecycle and read-only robot diagnostics."""
+"""Stage 3 Dry Run lifecycle and read-only robot diagnostics."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
-from momo.api.dependencies import get_robot_service
+from momo.api.dependencies import get_motion_service, get_robot_service
 from momo.api.schemas import (
     DiagnosticsResponse,
     ProfileResponse,
     RobotCommandResponse,
     VariantSwitchRequest,
 )
+from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.errors import ProfileInvalidError
 from momo.domain.runtime import RobotStatus, StopResponse
 
 router = APIRouter(prefix="/robot", tags=["robot"])
 RobotServiceDependency = Annotated[RobotApplicationService, Depends(get_robot_service)]
+MotionServiceDependency = Annotated[MotionApplicationService, Depends(get_motion_service)]
 
 
 @router.get("", response_model=RobotStatus)
@@ -40,17 +42,17 @@ async def connect_robot(
     service: RobotServiceDependency,
 ) -> RobotCommandResponse:
     if request.query_params or await request.body():
-        raise ProfileInvalidError("Stage 2 Connect accepts no mode, body, or query parameters")
+        raise ProfileInvalidError("Stage 3 Connect accepts no mode, body, or query parameters")
     return RobotCommandResponse(status=await service.connect(), hardware_accessed=False)
 
 
 @router.post("/disconnect", response_model=RobotCommandResponse)
-async def disconnect_robot(service: RobotServiceDependency) -> RobotCommandResponse:
+async def disconnect_robot(service: MotionServiceDependency) -> RobotCommandResponse:
     return RobotCommandResponse(status=await service.disconnect(), hardware_accessed=False)
 
 
 @router.post("/stop", response_model=StopResponse)
-async def stop_robot(service: RobotServiceDependency) -> StopResponse:
+async def stop_robot(service: MotionServiceDependency) -> StopResponse:
     return await service.stop()
 
 

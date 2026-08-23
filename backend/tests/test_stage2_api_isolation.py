@@ -198,8 +198,18 @@ def test_unexpected_backend_errors_do_not_leak_tracebacks(tmp_path: Path) -> Non
     assert "Traceback" not in response.text
 
 
-def test_backend_source_has_no_serial_or_feetech_imports() -> None:
-    forbidden_roots = {"serial", "serial_asyncio", "feetech", "scservo_sdk", "sts"}
+def test_backend_source_has_no_serial_feetech_or_camera_imports() -> None:
+    forbidden_roots = {
+        "cv2",
+        "feetech",
+        "picamera",
+        "picamera2",
+        "pyrealsense2",
+        "scservo_sdk",
+        "serial",
+        "serial_asyncio",
+        "sts",
+    }
     source_root = repository_root() / "backend" / "src" / "momo"
     observed: set[str] = set()
     for path in source_root.rglob("*.py"):
@@ -212,12 +222,32 @@ def test_backend_source_has_no_serial_or_feetech_imports() -> None:
     assert observed.isdisjoint(forbidden_roots)
 
 
+def test_application_layer_never_imports_concrete_adapters() -> None:
+    application_root = repository_root() / "backend" / "src" / "momo" / "application"
+    violations: list[str] = []
+    for path in application_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports = [node.module]
+            else:
+                continue
+            if any(name.startswith("momo.adapters") for name in imports):
+                violations.append(str(path.relative_to(application_root)))
+    assert violations == []
+
+
 def test_fresh_api_startup_succeeds_with_hardware_imports_blocked(tmp_path: Path) -> None:
     script = """
 import sys
 class HardwareImportBlocker:
     def find_spec(self, fullname, path=None, target=None):
-        forbidden = {'serial', 'serial_asyncio', 'feetech', 'scservo_sdk', 'sts'}
+        forbidden = {
+            'cv2', 'serial', 'serial_asyncio', 'feetech', 'picamera',
+            'picamera2', 'pyrealsense2', 'scservo_sdk', 'sts'
+        }
         if fullname.split('.', 1)[0] in forbidden:
             raise RuntimeError(f'forbidden hardware import: {fullname}')
         return None
@@ -226,8 +256,10 @@ from momo.api.app import create_app
 from momo.settings import Settings
 app = create_app(Settings(runtime_state_directory=sys.argv[1]))
 paths = app.openapi()['paths']
+assert '/api/v1/motion/joints' in paths
+assert '/api/v1/kinematics/ik' in paths
 assert all(
-    'motion' not in path and 'jog' not in path and 'home' not in path
+    'raw-servo' not in path and 'serial' not in path and 'camera' not in path
     for path in paths
 )
 print('hardware-isolated-startup-ok')

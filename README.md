@@ -6,9 +6,27 @@ This repository is the new web-first system. The legacy [`MOMO_RobotARM`](https:
 
 ## Current status
 
-Stage 2 adds an explicit V1/V2 Profile repository, Profile Fingerprints, Calibration compatibility diagnostics, a single Active Robot, an in-memory Dry Run driver, serialized Connect/Disconnect/Stop lifecycle commands, atomic runtime-state persistence, read-only robot APIs, and backend-backed Control and Settings pages.
+Stage 3 is complete on top of the completed Stage 2 robot core. It adds
+mesh-free V1/V2 kinematics models, deterministic FK/IK, Base/Tool Cartesian composition,
+one Motion Safety Gateway, cancellable interpolated Dry Run execution, a renewable Jog
+deadman lease, a bounded read-only robot-status WebSocket, and the complete responsive
+Control workspace. The final evidence is 226 passing backend tests and 54 passing
+frontend tests, green lint/type/format/build/schema/lock/audit checks, desktop/mobile and
+breakpoint browser acceptance, an empty final browser console, and focused
+hardware/camera isolation. See the
+[Stage 3 report](docs/stage-reports/stage-03-kinematics-and-control.md).
 
-The product mode remains `DRY_RUN`, `hardware_access` is locked to `DISABLED`, and `real_motion_enabled` is locked to false. There is no motion, Jog, Home, kinematics, serial, servo, or calibration-write endpoint. Running Stage 2 cannot move a real robot.
+Both kinematics models are `PROVISIONAL_DRY_RUN`. V1 is rail-less and contains exactly
+`j11`-`j15`; V2 contains `j10`-`j15`, with prismatic J10 converted between UI/domain
+millimetres and adapter metres only at a named boundary. Provisional geometry, limits,
+workspace, velocity, and acceleration values are software characterization inputs, not
+physical authority.
+
+The product remains locked to `DRY_RUN`, hardware access remains `DISABLED`, and
+`real_motion_enabled` remains false. Stage 3 imports or instantiates no serial or Feetech
+adapter, reads no real Calibration, opens no camera, and commands no physical hardware.
+Every movement source passes through the same reviewed application gateway; there is no
+raw-servo or direct-driver API.
 
 ## Develop locally
 
@@ -42,8 +60,9 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
 ## Repository map
 
 - `backend/` — FastAPI factory, application services, domain models, ports/adapters, schema generator, tests.
-- `frontend/` — React/Vite application, REST polling, lifecycle controls, diagnostics, and tests.
-- `config/default.yaml` — safe repository defaults; Stage 2 rejects real mode or non-disabled hardware policy from every settings source.
+- `frontend/` — React/Vite application, REST fallback, lifecycle/motion controls, diagnostics, and tests.
+- `kinematics_models/` — mesh-free, fingerprinted V1/V2 provisional Dry Run serial chains.
+- `config/default.yaml` — safe repository defaults; Real mode and non-disabled hardware access remain rejected.
 - `robot_profiles/` — fingerprinted product-contract examples, never device-ready profiles.
 - `calibration/examples/` — synthetic template calibrations, never real-device calibration.
 - `data/examples/` — reviewed schema examples; runtime data is ignored.
@@ -55,10 +74,15 @@ Included later: connection, Dry Run/Real modes, joint and Cartesian control, FK/
 
 Explicitly excluded: PyQt or another standalone GUI, AI/voice/natural-language control, gesture control, cinematic director/subject-lock directing, photography or video recording, grippers, teach mode, PyBullet product windows, community features, Camera Hub media management, and multi-arm product workflows.
 
-See [product scope](docs/product-scope.md), [architecture](docs/architecture.md), [safety](docs/safety.md), and the [Stage 2 report](docs/stage-reports/stage-02-robot-core.md).
+See [product scope](docs/product-scope.md), [architecture](docs/architecture.md),
+[safety](docs/safety.md), the [Stage 2 report](docs/stage-reports/stage-02-robot-core.md),
+and the complete [Stage 3 report](docs/stage-reports/stage-03-kinematics-and-control.md).
 
 ## Later stages
 
-Stage 3 may add only its separately reviewed scope, such as kinematics and movement commands routed through one safety entry point. Real hardware, motion playback, Studio/Library workflows, and Vision remain later work. Every capability requires its own scoped migration, tests, safety review, and Stage report.
+Stage 4 begins after the dedicated green Stage 3 commit. Pose/Motion Library,
+trajectory/playback, Studio, Vision, and the Real hardware boundary remain later Stage
+work. Every later motion source must reuse the Stage 3 Motion Safety Gateway rather than
+introducing a route-to-driver shortcut. Real hardware remains field-acceptance gated.
 
 No open-source license has been selected. See `THIRD_PARTY_NOTICES.md` for provenance tracking; license selection remains a project decision.

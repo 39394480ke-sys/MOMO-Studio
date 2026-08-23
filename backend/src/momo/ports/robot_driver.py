@@ -1,4 +1,4 @@
-"""Lifecycle-only robot driver boundary; Stage 2 exposes no movement methods."""
+"""Minimal robot driver boundary used only by application services."""
 
 from typing import Protocol, runtime_checkable
 
@@ -26,5 +26,7 @@ class RobotDriver(Protocol):
     async def is_connected(self) -> bool: ...
 
     async def read_joint_state(self) -> JointState: ...
+
+    async def move_to_joint_state(self, state: JointState) -> None: ...
 
     async def stop(self) -> None: ...

@@ -39,7 +39,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
-      <footer className="stage-footer">Stage 2&nbsp; · &nbsp;Robot Core</footer>
+      <footer className="stage-footer">Stage 3&nbsp; · &nbsp;Direct Control</footer>
     </div>
   );
 }

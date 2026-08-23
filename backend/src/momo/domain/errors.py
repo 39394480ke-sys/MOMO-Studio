@@ -65,5 +65,35 @@ class RuntimeStateInvalidError(RobotApplicationError):
     status_code = 422
 
 
+class MotionPreflightError(RobotApplicationError):
+    code = "MOTION_PREFLIGHT_REJECTED"
+    status_code = 422
+
+
+class MotionConflictError(RobotApplicationError):
+    code = "MOTION_CONFLICT"
+    status_code = 409
+
+
+class MotionCommandNotFoundError(RobotApplicationError):
+    code = "MOTION_COMMAND_NOT_FOUND"
+    status_code = 404
+
+
+class IdempotencyConflictError(RobotApplicationError):
+    code = "IDEMPOTENCY_CONFLICT"
+    status_code = 409
+
+
+class JogSessionNotFoundError(RobotApplicationError):
+    code = "JOG_SESSION_NOT_FOUND"
+    status_code = 404
+
+
+class JogLeaseExpiredError(RobotApplicationError):
+    code = "JOG_LEASE_EXPIRED"
+    status_code = 409
+
+
 class HardwareMappingError(DomainValidationError):
     """A logical/raw conversion cannot be proven valid from explicit inputs."""
