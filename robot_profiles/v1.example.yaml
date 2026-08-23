@@ -1,0 +1,13 @@
+schema_version: 1.0.0
+variant: V1
+display_name: MOMO V1 Example
+has_linear_rail: false
+enabled_joints: [j11, j12, j13, j14, j15]
+joint_definitions:
+  - {joint_id: j11, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
+  - {joint_id: j12, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
+  - {joint_id: j13, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
+  - {joint_id: j14, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
+  - {joint_id: j15, joint_type: REVOLUTE, domain_unit: deg, minimum: -180.0, maximum: 180.0, home: 0.0, hardware_mapping_placeholder: {status: unverified}}
+urdf_reference: null
+tcp_link: tool0

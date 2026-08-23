@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "momo-studio-backend"
+version = "0.1.0"
+description = "Stage 1 backend foundation for MOMO Studio"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "PyYAML>=6,<7",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.14,<2",
+  "pytest>=8.3,<9",
+  "ruff>=0.9,<1",
+  "types-PyYAML>=6.0.12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/momo"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+files = ["src", "tests", "scripts"]
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true

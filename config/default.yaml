@@ -1,0 +1,6 @@
+product_name: MOMO Studio
+version: 0.1.0
+control_mode: dry_run
+real_motion_enabled: false
+serial_port: ""
+active_robot_variant: V2

@@ -1,0 +1,250 @@
+{
+  "$defs": {
+    "DomainUnit": {
+      "description": "Canonical persisted units at the domain/UI boundary.",
+      "enum": [
+        "deg",
+        "mm"
+      ],
+      "title": "DomainUnit",
+      "type": "string"
+    },
+    "JointState": {
+      "additionalProperties": false,
+      "description": "Joint positions keyed by semantic joint ID, never by anonymous index.\n\nPositions are stored in each joint definition's ``domain_unit``. ``units`` may be\nsupplied at an external boundary for an explicit unit check; when omitted, values\nare already asserted to be in the profile's canonical domain units.",
+      "properties": {
+        "positions": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "type": "number"
+            }
+          },
+          "title": "Positions",
+          "type": "object"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^j[1-9][0-9]*$": {
+                  "$ref": "#/$defs/DomainUnit"
+                }
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "positions"
+      ],
+      "title": "JointState",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "PoseSnapshot": {
+      "additionalProperties": false,
+      "description": "An embedded, reproducible capture independent of named Pose files.",
+      "properties": {
+        "calibration_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Calibration Fingerprint"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "hardware_snapshot": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hardware Snapshot"
+        },
+        "joint_state": {
+          "$ref": "#/$defs/JointState"
+        },
+        "robot_variant": {
+          "$ref": "#/$defs/RobotVariant"
+        },
+        "tcp_pose": {
+          "$ref": "#/$defs/TcpPose"
+        }
+      },
+      "required": [
+        "robot_variant",
+        "joint_state",
+        "tcp_pose"
+      ],
+      "title": "PoseSnapshot",
+      "type": "object"
+    },
+    "QuaternionXYZW": {
+      "additionalProperties": false,
+      "description": "Finite, non-zero quaternion normalized into canonical storage form.",
+      "properties": {
+        "w": {
+          "title": "W",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z",
+        "w"
+      ],
+      "title": "QuaternionXYZW",
+      "type": "object"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    },
+    "TcpPose": {
+      "additionalProperties": false,
+      "description": "Canonical TCP pose: millimetres and a normalized XYZW quaternion.",
+      "properties": {
+        "frame": {
+          "default": "base",
+          "minLength": 1,
+          "title": "Frame",
+          "type": "string"
+        },
+        "orientation_quaternion_xyzw": {
+          "$ref": "#/$defs/QuaternionXYZW"
+        },
+        "position_mm": {
+          "$ref": "#/$defs/Vector3"
+        }
+      },
+      "required": [
+        "position_mm",
+        "orientation_quaternion_xyzw"
+      ],
+      "title": "TcpPose",
+      "type": "object"
+    },
+    "Vector3": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "title": "Vector3",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A named, versioned entity whose UUID—not its mutable name—is its identity.",
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "revision": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/PoseSnapshot"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "snapshot"
+  ],
+  "title": "Pose",
+  "type": "object"
+}

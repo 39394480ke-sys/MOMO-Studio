@@ -1,0 +1,66 @@
+# Third-party notices and provenance ledger
+
+This file is a provenance ledger, not a software license. MOMO Studio has not selected a repository license in Stage 1. Nothing here grants rights beyond the applicable upstream license.
+
+## MOMO Studio Stage 1 dependencies
+
+MOMO Studio resolves its development/runtime packages through the manifests and lockfiles in this repository. They are not vendored here. Before distribution, generate and review a version-pinned dependency/license report from those lockfiles and include every required license and attribution notice.
+
+| Ecosystem | Packages presently declared or used | Stage 1 use | Provenance action before distribution |
+|---|---|---|---|
+| Python | Hatchling, FastAPI, Pydantic, pydantic-settings, PyYAML, Uvicorn; development tools include httpx, pytest, Ruff, mypy and types-PyYAML | Build backend, API shell, configuration, domain validation/schema generation and quality checks | Use the exact resolved versions in `backend/uv.lock`; collect each distribution's license metadata and bundled license text. |
+| JavaScript/TypeScript | React, React DOM, React Router, Vite; development tools include TypeScript, Vitest, Testing Library, ESLint and related plugins | Web application shell, routing, tests, lint/type/build tooling | Use the exact resolved versions in the frontend lockfile; collect package license metadata and required notices. |
+
+Package names are identifiers for attribution and dependency review; they do not imply endorsement.
+
+## Project-generated design reference
+
+`docs/design/stage-01-shell-concept.png` was generated specifically for this repository on 2026-08-23 with OpenAI's built-in image-generation tool from a MOMO Studio Stage 1 UI brief. It used no Legacy image, robot asset, logo, screenshot or other third-party reference input. The file is design evidence only and is not rendered by the product.
+
+## Read-only Legacy source
+
+MOMO Studio Stage 1 audited the following repository as a read-only Legacy Source:
+
+- Source: `https://github.com/39394480ke-sys/MOMO_RobotARM.git`
+- Branch: `V2`
+- Commit: `ff8bbda0c2222cb57951c7913f7f12f5777b98fa`
+
+No Legacy source file, recorded motion, calibration value, runtime data, model weight, URDF, mesh or other binary asset was copied into MOMO Studio during Stage 1. The audit produced only independently written migration/provenance documentation.
+
+The audited Legacy root has no `LICENSE` or `COPYING` file. Its own `THIRD_PARTY_NOTICES.md` identifies some third-party material but does not grant a license for the repository as a whole. Therefore no Legacy code or asset may be copied, modified or redistributed until its copyright holder, original source and applicable license are established.
+
+## Legacy third-party candidates not included in MOMO Studio
+
+| Candidate in Legacy commit | Legacy evidence | Inclusion status | Required action |
+|---|---|---|---|
+| SOARM MOCE-derived hardware conventions and compatibility facts, including joint naming, servo-ID/multi-turn conventions, selected scales and calibration-field concepts | Legacy `THIRD_PARTY_NOTICES.md:5-15` identifies these as third-party-related material. | Not copied; facts were used only to identify items requiring verification. | Trace each fact to an original source and determine whether it is an uncopyrightable fact, licensed documentation, or implementation detail. Record author, URL/version and license before reuse. Independently verify safety-critical values against the actual hardware. |
+| V1/V2 `soarmoce_urdf.urdf` files and versioned STL meshes | Legacy `THIRD_PARTY_NOTICES.md:11-15` and `URDF运动学仿真/README_URDF运动学仿真.md:14-41` state that the URDF/STL files are third-party and their license/attribution/redistribution terms still require review. | Not included. MOMO Studio Stage 1 stores reference placeholders only. | Identify the original model release, copyright holder and exact license; confirm modification and redistribution rights; preserve required attribution. Independently verify model geometry, axes, limits and TCP. V1 is additionally blocked because the Legacy V1 URDF contains a rail contrary to the product contract. |
+| `face_detection_yunet_2023mar.onnx` | Legacy vision code calls it an OpenCV YuNet model (`视觉识别与跟随/vision/人脸检测_face_detector.py:1,20-22`), but the Legacy notice contains no source or license entry. | Not included. | Identify the exact upstream model/version, model-card or repository, training/data/license terms, checksum and attribution requirements before adding any weight. |
+| `gesture_recognizer.task` | Legacy code uses it with optional MediaPipe gesture recognition (`视觉识别与跟随/vision/手势识别_gesture_detector.py:20-23,76-100`), but the Legacy notice contains no source or license entry. | Not included; gesture recognition is retired from the first MOMO Studio product version. | Do not migrate. If scope changes in a later approved product decision, restart provenance/license/model-data review from the original upstream source. |
+
+## Data deliberately excluded
+
+The following are not third-party dependencies and must not be treated as reusable source assets:
+
+- serial-port or device-specific local overrides;
+- real calibration and calibration backups;
+- raw present-position or multi-turn runtime state tied to a physical device;
+- logs, `.env` files, secrets, API keys or machine-local paths;
+- user poses, recorded motions, photos, videos or camera captures;
+- Legacy runtime/community content.
+
+The audited Legacy Git index contains a calibration backup artifact despite ignore rules. Its contents were not inspected and it was not copied. Future migration tooling must exclude such paths by default.
+
+## Contribution and release rule
+
+For every future third-party code or asset addition, update this ledger in the same change with:
+
+1. exact artifact/file names and checksums where applicable;
+2. original project, author/copyright holder and canonical source URL;
+3. exact version, tag or commit;
+4. license name/version and a copy or required link/text;
+5. required attribution, notice, modification and redistribution conditions;
+6. whether the artifact is modified and how;
+7. a safety/technical verification record for hardware, robot-model or ML assets.
+
+Unverified provenance is a release blocker, not permission to label an asset as MOMO Studio-original.

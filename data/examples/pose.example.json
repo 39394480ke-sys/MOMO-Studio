@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "id": "10000000-0000-4000-8000-000000000001",
+  "name": "Stage 1 example pose",
+  "description": "Schema example only; not captured from or safe for real hardware.",
+  "tags": ["example"],
+  "snapshot": {
+    "robot_variant": "V2",
+    "joint_state": {
+      "positions": {
+        "j10": 100.0,
+        "j11": 0.0,
+        "j12": 20.0,
+        "j13": -15.0,
+        "j14": 0.0,
+        "j15": 10.0
+      }
+    },
+    "tcp_pose": {
+      "frame": "base",
+      "position_mm": {"x": 320.0, "y": 0.0, "z": 240.0},
+      "orientation_quaternion_xyzw": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
+    },
+    "hardware_snapshot": null,
+    "calibration_fingerprint": null,
+    "captured_at": "2026-08-23T12:00:00Z"
+  },
+  "created_at": "2026-08-23T12:00:00Z",
+  "updated_at": "2026-08-23T12:00:00Z",
+  "revision": 1
+}

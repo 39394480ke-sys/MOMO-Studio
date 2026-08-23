@@ -1,0 +1,166 @@
+{
+  "$defs": {
+    "DomainUnit": {
+      "description": "Canonical persisted units at the domain/UI boundary.",
+      "enum": [
+        "deg",
+        "mm"
+      ],
+      "title": "DomainUnit",
+      "type": "string"
+    },
+    "JointDefinition": {
+      "additionalProperties": false,
+      "description": "One joint's canonical domain limits and eventual hardware mapping slot.",
+      "properties": {
+        "domain_unit": {
+          "$ref": "#/$defs/DomainUnit"
+        },
+        "hardware_mapping_placeholder": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hardware Mapping Placeholder"
+        },
+        "home": {
+          "title": "Home",
+          "type": "number"
+        },
+        "joint_id": {
+          "pattern": "^j[1-9][0-9]*$",
+          "title": "Joint Id",
+          "type": "string"
+        },
+        "joint_type": {
+          "$ref": "#/$defs/JointType"
+        },
+        "maximum": {
+          "title": "Maximum",
+          "type": "number"
+        },
+        "minimum": {
+          "title": "Minimum",
+          "type": "number"
+        }
+      },
+      "required": [
+        "joint_id",
+        "joint_type",
+        "domain_unit",
+        "minimum",
+        "maximum",
+        "home"
+      ],
+      "title": "JointDefinition",
+      "type": "object"
+    },
+    "JointType": {
+      "enum": [
+        "REVOLUTE",
+        "PRISMATIC"
+      ],
+      "title": "JointType",
+      "type": "string"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned product profile with an explicit, ordered joint set.",
+  "properties": {
+    "display_name": {
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "enabled_joints": {
+      "items": {
+        "pattern": "^j[1-9][0-9]*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Enabled Joints",
+      "type": "array"
+    },
+    "has_linear_rail": {
+      "title": "Has Linear Rail",
+      "type": "boolean"
+    },
+    "joint_definitions": {
+      "items": {
+        "$ref": "#/$defs/JointDefinition"
+      },
+      "minItems": 1,
+      "title": "Joint Definitions",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tcp_link": {
+      "minLength": 1,
+      "title": "Tcp Link",
+      "type": "string"
+    },
+    "urdf_reference": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Urdf Reference"
+    },
+    "variant": {
+      "$ref": "#/$defs/RobotVariant"
+    }
+  },
+  "required": [
+    "variant",
+    "display_name",
+    "has_linear_rail",
+    "enabled_joints",
+    "joint_definitions",
+    "urdf_reference",
+    "tcp_link"
+  ],
+  "title": "RobotProfile",
+  "type": "object"
+}

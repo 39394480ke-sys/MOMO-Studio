@@ -1,0 +1,376 @@
+{
+  "$defs": {
+    "DomainUnit": {
+      "description": "Canonical persisted units at the domain/UI boundary.",
+      "enum": [
+        "deg",
+        "mm"
+      ],
+      "title": "DomainUnit",
+      "type": "string"
+    },
+    "Easing": {
+      "enum": [
+        "LINEAR",
+        "SMOOTHSTEP",
+        "EASE_IN_OUT"
+      ],
+      "title": "Easing",
+      "type": "string"
+    },
+    "JointState": {
+      "additionalProperties": false,
+      "description": "Joint positions keyed by semantic joint ID, never by anonymous index.\n\nPositions are stored in each joint definition's ``domain_unit``. ``units`` may be\nsupplied at an external boundary for an explicit unit check; when omitted, values\nare already asserted to be in the profile's canonical domain units.",
+      "properties": {
+        "positions": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "type": "number"
+            }
+          },
+          "title": "Positions",
+          "type": "object"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^j[1-9][0-9]*$": {
+                  "$ref": "#/$defs/DomainUnit"
+                }
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "positions"
+      ],
+      "title": "JointState",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MotionKeyframe": {
+      "additionalProperties": false,
+      "description": "A complete embedded snapshot plus its incoming transition metadata.",
+      "properties": {
+        "hold_s": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Hold S",
+          "type": "number"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "incoming_transition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MotionTransition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "pose_snapshot": {
+          "$ref": "#/$defs/PoseSnapshot"
+        },
+        "source_pose_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pose Id"
+        }
+      },
+      "required": [
+        "label",
+        "pose_snapshot"
+      ],
+      "title": "MotionKeyframe",
+      "type": "object"
+    },
+    "MotionMode": {
+      "enum": [
+        "JOINT",
+        "CARTESIAN_LINEAR"
+      ],
+      "title": "MotionMode",
+      "type": "string"
+    },
+    "MotionTransition": {
+      "additionalProperties": false,
+      "description": "Movement from the previous keyframe into its owning keyframe.",
+      "properties": {
+        "duration_s": {
+          "exclusiveMinimum": 0,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "easing": {
+          "$ref": "#/$defs/Easing",
+          "default": "SMOOTHSTEP"
+        },
+        "motion_mode": {
+          "$ref": "#/$defs/MotionMode"
+        }
+      },
+      "required": [
+        "duration_s",
+        "motion_mode"
+      ],
+      "title": "MotionTransition",
+      "type": "object"
+    },
+    "PlaybackDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "loop": {
+          "default": false,
+          "title": "Loop",
+          "type": "boolean"
+        },
+        "speed_multiplier": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Speed Multiplier",
+          "type": "number"
+        }
+      },
+      "title": "PlaybackDefaults",
+      "type": "object"
+    },
+    "PoseSnapshot": {
+      "additionalProperties": false,
+      "description": "An embedded, reproducible capture independent of named Pose files.",
+      "properties": {
+        "calibration_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Calibration Fingerprint"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "hardware_snapshot": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hardware Snapshot"
+        },
+        "joint_state": {
+          "$ref": "#/$defs/JointState"
+        },
+        "robot_variant": {
+          "$ref": "#/$defs/RobotVariant"
+        },
+        "tcp_pose": {
+          "$ref": "#/$defs/TcpPose"
+        }
+      },
+      "required": [
+        "robot_variant",
+        "joint_state",
+        "tcp_pose"
+      ],
+      "title": "PoseSnapshot",
+      "type": "object"
+    },
+    "QuaternionXYZW": {
+      "additionalProperties": false,
+      "description": "Finite, non-zero quaternion normalized into canonical storage form.",
+      "properties": {
+        "w": {
+          "title": "W",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z",
+        "w"
+      ],
+      "title": "QuaternionXYZW",
+      "type": "object"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    },
+    "TcpPose": {
+      "additionalProperties": false,
+      "description": "Canonical TCP pose: millimetres and a normalized XYZW quaternion.",
+      "properties": {
+        "frame": {
+          "default": "base",
+          "minLength": 1,
+          "title": "Frame",
+          "type": "string"
+        },
+        "orientation_quaternion_xyzw": {
+          "$ref": "#/$defs/QuaternionXYZW"
+        },
+        "position_mm": {
+          "$ref": "#/$defs/Vector3"
+        }
+      },
+      "required": [
+        "position_mm",
+        "orientation_quaternion_xyzw"
+      ],
+      "title": "TcpPose",
+      "type": "object"
+    },
+    "Vector3": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "title": "Vector3",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A playable motion that never dereferences source Pose files at runtime.",
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "keyframes": {
+      "items": {
+        "$ref": "#/$defs/MotionKeyframe"
+      },
+      "minItems": 2,
+      "title": "Keyframes",
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "playback_defaults": {
+      "$ref": "#/$defs/PlaybackDefaults"
+    },
+    "revision": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "robot_variant": {
+      "$ref": "#/$defs/RobotVariant"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "robot_variant",
+    "keyframes"
+  ],
+  "title": "Motion",
+  "type": "object"
+}

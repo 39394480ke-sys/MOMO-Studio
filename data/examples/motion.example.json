@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0.0",
+  "id": "20000000-0000-4000-8000-000000000001",
+  "name": "Stage 1 example motion",
+  "description": "Embedded-snapshot example only; it cannot command hardware.",
+  "robot_variant": "V2",
+  "keyframes": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "label": "Opening",
+      "pose_snapshot": {
+        "robot_variant": "V2",
+        "joint_state": {
+          "positions": {"j10": 100.0, "j11": 0.0, "j12": 20.0, "j13": -15.0, "j14": 0.0, "j15": 10.0}
+        },
+        "tcp_pose": {
+          "frame": "base",
+          "position_mm": {"x": 320.0, "y": 0.0, "z": 240.0},
+          "orientation_quaternion_xyzw": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
+        },
+        "hardware_snapshot": null,
+        "calibration_fingerprint": null,
+        "captured_at": "2026-08-23T12:00:00Z"
+      },
+      "source_pose_id": "10000000-0000-4000-8000-000000000001",
+      "hold_s": 0.5,
+      "incoming_transition": null
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000002",
+      "label": "Closing",
+      "pose_snapshot": {
+        "robot_variant": "V2",
+        "joint_state": {
+          "positions": {"j10": 240.0, "j11": 12.0, "j12": 35.0, "j13": -20.0, "j14": 5.0, "j15": 18.0}
+        },
+        "tcp_pose": {
+          "frame": "base",
+          "position_mm": {"x": 360.0, "y": 42.0, "z": 255.0},
+          "orientation_quaternion_xyzw": {"x": 0.0, "y": 0.1305259853353411, "z": 0.0, "w": 0.9914448886106773}
+        },
+        "hardware_snapshot": null,
+        "calibration_fingerprint": null,
+        "captured_at": "2026-08-23T12:00:05Z"
+      },
+      "source_pose_id": null,
+      "hold_s": 1.0,
+      "incoming_transition": {
+        "duration_s": 4.0,
+        "motion_mode": "JOINT",
+        "easing": "SMOOTHSTEP"
+      }
+    }
+  ],
+  "playback_defaults": {"loop": false, "speed_multiplier": 1.0},
+  "tags": ["example"],
+  "created_at": "2026-08-23T12:00:00Z",
+  "updated_at": "2026-08-23T12:00:00Z",
+  "revision": 1
+}
