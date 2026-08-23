@@ -250,7 +250,12 @@ def test_accepted_preflight_evidence_is_truthful_unique_and_source_is_enforced(
                 for negative in ("does not", "unknown", "stale", "rejected", "exceeds")
             ), (check.name, check.detail)
 
-        untrusted = intent.model_copy(update={"source": MotionCommandSource.LIBRARY})
+        untrusted = intent.model_copy(
+            update={
+                "source": MotionCommandSource.LIBRARY,
+                "command_type": MotionCommandType.HOME,
+            }
+        )
         with pytest.raises(MotionPreflightError) as rejected:
             await gateway.prepare(untrusted)
         assert "command_source" in failed_checks(rejected.value)

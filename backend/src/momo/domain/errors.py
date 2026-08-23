@@ -95,5 +95,40 @@ class JogLeaseExpiredError(RobotApplicationError):
     status_code = 409
 
 
+class EntityNotFoundError(RobotApplicationError):
+    code = "ENTITY_NOT_FOUND"
+    status_code = 404
+
+
+class EntityAlreadyExistsError(RobotApplicationError):
+    code = "ENTITY_ALREADY_EXISTS"
+    status_code = 409
+
+
+class RevisionConflictError(RobotApplicationError):
+    code = "REVISION_CONFLICT"
+    status_code = 409
+
+
+class EntityInvalidError(RobotApplicationError):
+    code = "ENTITY_INVALID"
+    status_code = 422
+
+
+class RepositoryCapacityError(RobotApplicationError):
+    code = "REPOSITORY_CAPACITY_EXCEEDED"
+    status_code = 507
+
+
+class CaptureStateChangedError(RobotApplicationError):
+    code = "CAPTURE_STATE_CHANGED"
+    status_code = 409
+
+
+class PoseIncompatibleError(RobotApplicationError):
+    code = "POSE_INCOMPATIBLE"
+    status_code = 422
+
+
 class HardwareMappingError(DomainValidationError):
     """A logical/raw conversion cannot be proven valid from explicit inputs."""

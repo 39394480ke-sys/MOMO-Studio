@@ -41,7 +41,7 @@ def install_error_handlers(app: FastAPI) -> None:
         ]
         return _response(
             ErrorResponse(
-                code="PROFILE_INVALID",
+                code="REQUEST_VALIDATION_ERROR",
                 message="Request validation failed",
                 details={"issues": details},
             ),

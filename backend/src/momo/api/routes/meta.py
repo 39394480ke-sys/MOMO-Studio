@@ -44,6 +44,13 @@ def product_scope(settings: SettingsDependency) -> ProductScopeResponse:
             "unified safe Dry Run motion and jog leases",
             "read-only rate-limited robot state WebSocket",
         ],
+        stage_4_available=[
+            "atomic schema-validated Pose and Motion repositories",
+            "coherent FK-backed Pose capture",
+            "compatible Pose Goto through the Motion Safety Gateway",
+            "bounded searchable Pose and Motion Library APIs",
+            "explicit-path default-dry-run validated Legacy action import",
+        ],
         included_in_first_version=[
             "single active MOMO V1 or V2 robot",
             "joint and Cartesian control",

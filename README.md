@@ -6,7 +6,9 @@ This repository is the new web-first system. The legacy [`MOMO_RobotARM`](https:
 
 ## Current status
 
-Stage 3 is complete on top of the completed Stage 2 robot core. It adds
+Stage 3 is complete on top of the completed Stage 2 robot core. Its dedicated commit is
+`133318e9437dff133a4c25bf01aec09cce5ae6e3` and is pushed to
+`origin/codex/v1-autonomous-completion`. It adds
 mesh-free V1/V2 kinematics models, deterministic FK/IK, Base/Tool Cartesian composition,
 one Motion Safety Gateway, cancellable interpolated Dry Run execution, a renewable Jog
 deadman lease, a bounded read-only robot-status WebSocket, and the complete responsive
@@ -27,6 +29,20 @@ The product remains locked to `DRY_RUN`, hardware access remains `DISABLED`, and
 adapter, reads no real Calibration, opens no camera, and commands no physical hardware.
 Every movement source passes through the same reviewed application gateway; there is no
 raw-servo or direct-driver API.
+
+Stage 4 is complete and GREEN. Its dedicated scope introduces independent
+Pose/Motion schema `2.0.0` contracts, UUID-named atomic file repositories with optimistic
+revisions and corrupt-file isolation, coherent Pose Capture, Dry Run Goto through the
+existing gateway, a bounded Library API/UI, and an explicit default-dry-run Legacy action
+importer. The final gate passed 273 backend tests, 71 frontend tests across 8 files,
+dependency checks, a 65-test route/import/hardware suite, and full desktop/mobile browser
+acceptance. The independent audit passes P1=0/P2=0. The containing commit uses subject
+`feat: add pose and motion library workflows`; its exact self-SHA/remote state is recorded
+by the next Stage rather than fabricated inside its own report.
+
+See the [Stage 4 report](docs/stage-reports/stage-04-library.md),
+[atomic repository decision](docs/adr/0011-atomic-entity-repositories.md), and
+[Legacy import guide](docs/legacy-action-import.md).
 
 ## Develop locally
 
@@ -60,17 +76,22 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
 ## Repository map
 
 - `backend/` — FastAPI factory, application services, domain models, ports/adapters, schema generator, tests.
-- `frontend/` — React/Vite application, REST fallback, lifecycle/motion controls, diagnostics, and tests.
+- `frontend/` — React/Vite application, REST fallback, lifecycle/motion controls,
+  Pose/Motion Library, diagnostics, and tests.
 - `kinematics_models/` — mesh-free, fingerprinted V1/V2 provisional Dry Run serial chains.
 - `config/default.yaml` — safe repository defaults; Real mode and non-disabled hardware access remain rejected.
 - `robot_profiles/` — fingerprinted product-contract examples, never device-ready profiles.
 - `calibration/examples/` — synthetic template calibrations, never real-device calibration.
-- `data/examples/` — reviewed schema examples; runtime data is ignored.
+- `data/examples/` — reviewed schema examples; operational Pose/Motion/runtime and
+  quarantine data is ignored.
 - `docs/` — product, architecture, safety, domain, ADR, audit, and Stage evidence.
 
 ## First-version scope
 
-Included later: connection, Dry Run/Real modes, joint and Cartesian control, FK/IK, poses, keyframes, motions, library/playback, camera-fed vision following, device diagnostics, and safety checks for one active robot.
+First-version scope includes connection, Dry Run/Real modes, joint and Cartesian
+control, FK/IK, poses, keyframes, motions, library/playback, camera-fed vision following,
+device diagnostics, and safety checks for one active robot. Only the completed Stages
+listed above are currently evidence-backed.
 
 Explicitly excluded: PyQt or another standalone GUI, AI/voice/natural-language control, gesture control, cinematic director/subject-lock directing, photography or video recording, grippers, teach mode, PyBullet product windows, community features, Camera Hub media management, and multi-arm product workflows.
 
@@ -80,9 +101,10 @@ and the complete [Stage 3 report](docs/stage-reports/stage-03-kinematics-and-con
 
 ## Later stages
 
-Stage 4 begins after the dedicated green Stage 3 commit. Pose/Motion Library,
-trajectory/playback, Studio, Vision, and the Real hardware boundary remain later Stage
-work. Every later motion source must reuse the Stage 3 Motion Safety Gateway rather than
-introducing a route-to-driver shortcut. Real hardware remains field-acceptance gated.
+Stage 4 implementation and final code/browser evidence are GREEN after the dedicated
+Stage 3 commit; its independent audit passes P1=0/P2=0. Trajectory/playback, Studio,
+Vision, and the Real hardware boundary remain later Stage work. Every later motion source
+must reuse the Stage 3 Motion Safety Gateway rather than introducing a route-to-driver
+shortcut. Real hardware remains field-acceptance gated.
 
 No open-source license has been selected. See `THIRD_PARTY_NOTICES.md` for provenance tracking; license selection remains a project decision.

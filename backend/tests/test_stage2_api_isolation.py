@@ -133,7 +133,7 @@ def test_variant_switch_and_invalid_variant_use_structured_contracts(tmp_path: P
             json_data={"variant": "V3"},
         )
         assert invalid.status_code == 422
-        assert invalid.json()["code"] == "PROFILE_INVALID"
+        assert invalid.json()["code"] == "REQUEST_VALIDATION_ERROR"
         assert set(invalid.json()) == {"code", "message", "details", "request_id"}
         assert "Traceback" not in invalid.text
 

@@ -10,12 +10,15 @@ from momo.adapters.kinematics.model_repository import FileKinematicsModelReposit
 from momo.adapters.kinematics.serial_chain import SerialChainKinematics
 from momo.adapters.motion.dry_run_motion_executor import DryRunMotionExecutor
 from momo.adapters.storage.file_calibration_repository import FileCalibrationRepository
+from momo.adapters.storage.file_motion_repository import FileMotionRepository
+from momo.adapters.storage.file_pose_repository import FilePoseRepository
 from momo.adapters.storage.profile_repository import FileProfileRepository
 from momo.adapters.storage.runtime_state_repository import FileRuntimeStateRepository
 from momo.adapters.time.system_clock import SystemClock
 from momo.application.services.calibration_service import CalibrationService
 from momo.application.services.jog_service import JogLeaseService
 from momo.application.services.kinematics_service import KinematicsService
+from momo.application.services.library_service import LibraryApplicationService
 from momo.application.services.motion_safety_gateway import MotionSafetyGateway
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.profile_service import ProfileService
@@ -62,16 +65,17 @@ def build_robot_service(settings: Settings) -> RobotApplicationService:
 
 
 @dataclass(frozen=True, slots=True)
-class Stage3Services:
+class ApplicationServices:
     kinematics: KinematicsService
     motion: MotionApplicationService
     jog: JogLeaseService
+    library: LibraryApplicationService
 
 
-def build_stage3_services(
+def build_application_services(
     settings: Settings,
     robot_service: RobotApplicationService,
-) -> Stage3Services:
+) -> ApplicationServices:
     """Compose Dry Run motion services without opening any external capability."""
 
     root = repository_root()
@@ -100,4 +104,14 @@ def build_stage3_services(
         lease_ttl_ms=settings.jog_lease_ttl_ms,
     )
     motion.register_stop_hook(jog.stop_all)
-    return Stage3Services(kinematics=kinematics, motion=motion, jog=jog)
+    library = LibraryApplicationService(
+        FilePoseRepository(_resolve_configured_path(settings.pose_directory, root), clock),
+        FileMotionRepository(
+            _resolve_configured_path(settings.motion_library_directory, root), clock
+        ),
+        robot_service,
+        kinematics,
+        motion,
+        clock,
+    )
+    return ApplicationServices(kinematics=kinematics, motion=motion, jog=jog, library=library)

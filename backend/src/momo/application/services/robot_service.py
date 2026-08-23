@@ -476,7 +476,7 @@ class RobotApplicationService:
                 "quarantined_runtime_file": self.runtime_repository.last_quarantined_file,
                 "backend_version": self.settings.version,
                 "legacy_source_commit": "ff8bbda0c2222cb57951c7913f7f12f5777b98fa",
-                "stage_policy": "STAGE_3_DRY_RUN_ONLY",
+                "stage_policy": "DRY_RUN_ONLY",
                 "active_profile_fingerprint": runtime.profile.fingerprint,
                 "robot_state_freshness_limit_s": self.settings.robot_state_freshness_limit_s,
                 "runtime_persistence_error": self._persistence_error,

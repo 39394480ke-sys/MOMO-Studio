@@ -4,21 +4,24 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
-from momo.api.dependencies import get_motion_service, get_robot_service
+from momo.api.dependencies import get_kinematics_service, get_motion_service, get_robot_service
 from momo.api.schemas import (
     DiagnosticsResponse,
     ProfileResponse,
     RobotCommandResponse,
     VariantSwitchRequest,
 )
+from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.errors import ProfileInvalidError
+from momo.domain.robot import RobotProfile
 from momo.domain.runtime import RobotStatus, StopResponse
 
 router = APIRouter(prefix="/robot", tags=["robot"])
 RobotServiceDependency = Annotated[RobotApplicationService, Depends(get_robot_service)]
 MotionServiceDependency = Annotated[MotionApplicationService, Depends(get_motion_service)]
+KinematicsServiceDependency = Annotated[KinematicsService, Depends(get_kinematics_service)]
 
 
 @router.get("", response_model=RobotStatus)
@@ -27,8 +30,20 @@ async def robot_status(service: RobotServiceDependency) -> RobotStatus:
 
 
 @router.get("/profile", response_model=ProfileResponse)
-async def robot_profile(service: RobotServiceDependency) -> ProfileResponse:
-    return ProfileResponse.model_validate(await service.get_profile())
+async def robot_profile(
+    service: RobotServiceDependency,
+    kinematics: KinematicsServiceDependency,
+) -> ProfileResponse:
+    payload = await service.get_profile()
+    profile = payload.get("profile")
+    if not isinstance(profile, RobotProfile):  # pragma: no cover - internal contract
+        raise TypeError("robot service returned an invalid profile")
+    return ProfileResponse(
+        profile=profile,
+        fingerprint=profile.fingerprint,
+        kinematics_fingerprint=kinematics.model_for(profile).fingerprint,
+        real_eligible=False,
+    )
 
 
 @router.get("/diagnostics", response_model=DiagnosticsResponse)

@@ -9,6 +9,8 @@ runtime_state_directory: data/runtime/robots
 profile_directory: robot_profiles
 calibration_directory: calibration/examples
 kinematics_model_directory: kinematics_models
+pose_directory: data/poses
+motion_library_directory: data/motions
 motion_update_hz: 25.0
 jog_lease_ttl_ms: 400
 robot_state_freshness_limit_s: 5.0

@@ -19,7 +19,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('MOMO Studio Stage 3 shell', () => {
+describe('MOMO Studio Stage 4 shell', () => {
   it.each([
     ['/control', 'Control'],
     ['/studio', 'Studio'],
@@ -30,13 +30,13 @@ describe('MOMO Studio Stage 3 shell', () => {
     mockStage3Backend();
     renderRoute(path);
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeVisible();
-    expect(screen.getByText(/Stage 3\s*·\s*Direct Control/)).toBeVisible();
+    expect(screen.getByText(/Stage 4\s*·\s*Pose & Motion Library/)).toBeVisible();
   });
 
-  it('labels future workspaces with their actual stages', async () => {
+  it('keeps Studio authoring truthfully gated while Library is active', async () => {
     mockStage3Backend();
     const view = renderRoute('/library');
-    expect(await screen.findByText(/scheduled for Stage 4/)).toBeVisible();
+    expect(await screen.findByText(/Stage 4 · Versioned file library/)).toBeVisible();
     view.unmount();
     renderRoute('/studio');
     expect(await screen.findByText(/scheduled for Stage 6/)).toBeVisible();

@@ -139,13 +139,13 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
 
     if (path === '/health') {
       return jsonResponse({
-        status: 'ok', product: 'MOMO Studio', version: '0.1.0', stage: 3,
+        status: 'ok', product: 'MOMO Studio', version: '0.1.0', stage: 4,
         control_mode: 'DRY_RUN', hardware_access_policy: 'DISABLED', real_motion_enabled: false,
       });
     }
     if (path === '/meta') {
       return jsonResponse({
-        product: 'MOMO Studio', version: '0.1.0', api_version: 'v1', stage: 3,
+        product: 'MOMO Studio', version: '0.1.0', api_version: 'v1', stage: 4,
         active_robot_variant: variant, supported_robot_variants: ['V1', 'V2'],
         supported_control_modes: ['DRY_RUN', 'REAL'], active_control_mode: 'DRY_RUN',
         hardware_access_policy: 'DISABLED', real_motion_enabled: false,
@@ -164,7 +164,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         status: 'TEMPLATE_ONLY', configured: true, template: true, variant_match: true,
         profile_match: true, joint_set_match: true, mapping_match: true, complete: true,
         calibration_valid: true, real_readiness: 'BLOCKED_BY_STAGE_POLICY',
-        blocking_reasons: ['Stage 3 remains Dry Run only'],
+        blocking_reasons: ['Stage 4 remains Dry Run only'],
       });
     }
     if (path === '/robot/diagnostics') {
@@ -173,7 +173,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         runtime_state_valid: true, runtime_state_diagnostic: 'No saved runtime state',
         quarantined_runtime_file: null, backend_version: '0.1.0',
         legacy_source_commit: 'ff8bbda0c2222cb57951c7913f7f12f5777b98fa',
-        stage_policy: 'STAGE_3_DRY_RUN_ONLY', active_profile_fingerprint: PROFILE_FINGERPRINT,
+        stage_policy: 'STAGE_4_DRY_RUN_ONLY', active_profile_fingerprint: PROFILE_FINGERPRINT,
         active_kinematics_fingerprint: KINEMATICS_FINGERPRINT, hardware_accessed: false,
       });
     }
@@ -216,6 +216,13 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
       return jsonResponse({ status: currentRobot, hardware_accessed: false });
     }
     if (path === '/robot') return jsonResponse(currentRobot);
+
+    if (path.startsWith('/poses?')) {
+      return jsonResponse({ items: [], page: 1, page_size: 24, total: 0 });
+    }
+    if (path.startsWith('/motions?')) {
+      return jsonResponse({ items: [], page: 1, page_size: 24, total: 0 });
+    }
 
     if (path === '/kinematics/ik') {
       if (options.ikError) {

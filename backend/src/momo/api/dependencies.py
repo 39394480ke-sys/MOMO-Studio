@@ -6,6 +6,7 @@ from fastapi import Request
 
 from momo.application.services.jog_service import JogLeaseService
 from momo.application.services.kinematics_service import KinematicsService
+from momo.application.services.library_service import LibraryApplicationService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.settings import Settings
@@ -29,3 +30,7 @@ def get_motion_service(request: Request) -> MotionApplicationService:
 
 def get_jog_service(request: Request) -> JogLeaseService:
     return cast(JogLeaseService, request.app.state.jog_service)
+
+
+def get_library_service(request: Request) -> LibraryApplicationService:
+    return cast(LibraryApplicationService, request.app.state.library_service)

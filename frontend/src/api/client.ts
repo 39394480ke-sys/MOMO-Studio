@@ -2,10 +2,17 @@ import { API_BASE_URL } from './config';
 import type {
   BootstrapResponse,
   CalibrationStatus,
+  CapturePoseRequest,
   CartesianJogRequest,
+  CreateMotionRequest,
+  CreatePoseRequest,
   DiagnosticsResponse,
+  DuplicateEntityRequest,
+  EntityListQuery,
+  EntityPage,
   ErrorResponse,
   ForwardKinematicsResponse,
+  GotoPoseRequest,
   HealthResponse,
   HomeRequest,
   InverseKinematicsRequest,
@@ -17,13 +24,19 @@ import type {
   MotionCommandState,
   MotionCommandStatus,
   MotionCommandSubmission,
+  MotionEntity,
+  MotionSummary,
   MotionPreflightReport,
   MotionStopResponse,
   MoveJointsRequest,
   MovePoseRequest,
+  PoseEntity,
+  PoseSummary,
   ProfileResponse,
   RobotStatus,
   RobotVariant,
+  UpdateMotionRequest,
+  UpdatePoseRequest,
 } from './types';
 
 const COMMAND_STATES = new Set<MotionCommandState>([
@@ -132,6 +145,7 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     });
   }
 
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -145,6 +159,43 @@ function postJson<T>(path: string, body?: unknown, init?: RequestInit): Promise<
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+function patchJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function entityListPath(path: '/poses' | '/motions', query: EntityListQuery): string {
+  const params = new URLSearchParams({
+    page: String(Math.max(1, Math.trunc(query.page))),
+    page_size: String(Math.min(50, Math.max(1, Math.trunc(query.page_size)))),
+    sort: query.sort,
+    order: query.order,
+  });
+  const search = query.search?.trim();
+  if (search && search.length > 200) {
+    throw new RangeError('Library search must be 200 characters or fewer');
+  }
+  if (search) params.set('search', search);
+  const tags = Array.from(
+    new Set(query.tags?.map((value) => value.trim()).filter(Boolean) ?? []),
+  );
+  if (tags.length > 32) throw new RangeError('Library filters accept at most 32 tags');
+  if (tags.some((tag) => tag.length > 64)) {
+    throw new RangeError('Library filter tags must be 64 characters or fewer');
+  }
+  for (const tag of tags) {
+    params.append('tag', tag);
+  }
+  return `${path}?${params.toString()}`;
+}
+
+function entityPath(path: '/poses' | '/motions', entityId: string): string {
+  return `${path}/${encodeURIComponent(entityId)}`;
 }
 
 function asPreflight(value: unknown): MotionPreflightReport | null {
@@ -330,4 +381,86 @@ export async function getMotionCommand(commandId: string): Promise<MotionCommand
 
 export function stopMotion(): Promise<MotionStopResponse> {
   return postJson<MotionStopResponse>('/motion/stop');
+}
+
+export function getPoses(
+  query: EntityListQuery,
+  signal?: AbortSignal,
+): Promise<EntityPage<PoseSummary>> {
+  return requestJson(entityListPath('/poses', query), { signal });
+}
+
+export function createPose(request: CreatePoseRequest): Promise<PoseEntity> {
+  return postJson('/poses', request);
+}
+
+export function capturePose(request: CapturePoseRequest): Promise<PoseEntity> {
+  return postJson('/poses/capture', request);
+}
+
+export function getPose(poseId: string, signal?: AbortSignal): Promise<PoseEntity> {
+  return requestJson(entityPath('/poses', poseId), { signal });
+}
+
+export function updatePose(poseId: string, request: UpdatePoseRequest): Promise<PoseEntity> {
+  return patchJson(entityPath('/poses', poseId), request);
+}
+
+export function deletePose(poseId: string, expectedRevision: number): Promise<void> {
+  const params = new URLSearchParams({ expected_revision: String(expectedRevision) });
+  return requestJson(`${entityPath('/poses', poseId)}?${params.toString()}`, {
+    method: 'DELETE',
+  });
+}
+
+export function duplicatePose(
+  poseId: string,
+  request: DuplicateEntityRequest,
+): Promise<PoseEntity> {
+  return postJson(`${entityPath('/poses', poseId)}/duplicate`, request);
+}
+
+export async function gotoPose(
+  poseId: string,
+  request: GotoPoseRequest,
+): Promise<MotionCommandSubmission> {
+  return normalizeSubmission(
+    await postJson<unknown>(`${entityPath('/poses', poseId)}/goto`, request),
+  );
+}
+
+export function getMotions(
+  query: EntityListQuery,
+  signal?: AbortSignal,
+): Promise<EntityPage<MotionSummary>> {
+  return requestJson(entityListPath('/motions', query), { signal });
+}
+
+export function createMotion(request: CreateMotionRequest): Promise<MotionEntity> {
+  return postJson('/motions', request);
+}
+
+export function getMotion(motionId: string, signal?: AbortSignal): Promise<MotionEntity> {
+  return requestJson(entityPath('/motions', motionId), { signal });
+}
+
+export function updateMotion(
+  motionId: string,
+  request: UpdateMotionRequest,
+): Promise<MotionEntity> {
+  return patchJson(entityPath('/motions', motionId), request);
+}
+
+export function deleteMotion(motionId: string, expectedRevision: number): Promise<void> {
+  const params = new URLSearchParams({ expected_revision: String(expectedRevision) });
+  return requestJson(`${entityPath('/motions', motionId)}?${params.toString()}`, {
+    method: 'DELETE',
+  });
+}
+
+export function duplicateMotion(
+  motionId: string,
+  request: DuplicateEntityRequest,
+): Promise<MotionEntity> {
+  return postJson(`${entityPath('/motions', motionId)}/duplicate`, request);
 }

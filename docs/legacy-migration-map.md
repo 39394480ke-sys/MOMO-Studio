@@ -89,15 +89,43 @@ untracked file was opened or executed.
 | Hold Jog needs a backend deadman | Renewable Jog lease | TTL expiry stops even when the browser loses the network. |
 | Status streaming is not a control path | Read-only bounded WebSocket | No motion/raw request schema; REST remains fallback. |
 
+## Stage 4 Library and action-import decisions
+
+Stage 4 read only pinned tracked Git objects via `git show`: V1/V2 sample action JSON
+shapes, their README, and action-library/recorder/common-alias source text. It did not
+inspect a Legacy worktree's ignored/untracked/local data, operator exports, local
+Calibration, runtime state, backup contents, serial configuration, or media, and it
+executed nothing from Legacy. No tracked sample numeric motion/raw value was copied into
+the product or tests; the converter and fixtures are independently written.
+
+| Legacy path/area | Observed contract/risk | Disposition | Stage 4 result / contract | Remaining gate |
+|---|---|---|---|---|
+| `动作录制与回放增强/` action documents | Useful action/frame shape and canonical/short Joint aliases coexist with fixed-order arrays, `*_deg` naming, raw/multi-turn state, gripper fields, mutable files, and incomplete unit/provenance evidence. Tracked samples use `source` labels that are not reliable hardware variants. | `REWRITE_WITH_CHARACTERIZATION` for explicit import; recording/playback architecture remains retired/deferred | Offline `momo.tools.import_legacy_actions` accepts only one explicit JSON file/directory, defaults to report-only dry run, requires `arm_replay_sequence_v1` plus explicit V1/V2 `robot_variant`/`variant`, top-level exact `joint_order`, and `pose_count`; normalizes a closed Joint alias table; validates matching primary/replay targets and characterized timing fallbacks; requires exact Profile units; recomputes TCP; embeds schema `2.0.0` snapshots; and uses fresh UUIDs. `source` is safe-label provenance only; raw/gripper/TCP fields are reported but never silently repurposed. Global byte/action/keyframe/report budgets fail closed before conversion. | Final importer/root gates and independent audit pass; Stage 4 is GREEN. Unknown/ambiguous/incomplete formats remain report-quarantined; physical accuracy and playback remain unavailable. |
+| `Web控制台/backend/action_composer.py` | Composition around mutable action/Pose references can make a saved Motion change when source data changes; monolithic service/filesystem coupling risks direct dispatch. | Formal entity rules `REWRITE`; architecture `RETIRE_AS_ARCHITECTURE` | Formal Motion still requires at least two keyframes and embeds full immutable snapshots. `source_pose_id` is provenance only; deleting/editing a Pose cannot alter a Motion. Stage 4 repositories cannot dispatch. | Incomplete authoring uses a separate Stage 6 `MotionDraft`; compiler/playback is Stage 5. |
+| `Web控制台/backend/controller_bridge.py`, `service.py`, and storage endpoints | Client paths, display-name filenames, broad controller methods, and direct storage/driver access would violate new boundaries. | `RETIRE_AS_ARCHITECTURE`; bounded CRUD `REWRITE` | UUID-only server roots, four-MiB/schema/Pydantic validation, expected-revision CAS, atomic replace, corrupt quarantine/list continuation, and bounded root-file/entry/aggregate scans with structured capacity errors. Only compatible Library Goto submits `LIBRARY` + `MOVE_JOINTS` through the existing gateway. | Single backend writer process only; backup/restore and LAN authorization remain later gates. |
+| Legacy recorded/user/local action data | May contain user motion, device-specific raw positions, identifiers, Calibration, secrets, or unsupported gripper state. | `EXCLUDE` | Only pinned tracked sample shapes/source text were characterized; no worktree ignored/untracked/local/runtime/user data or sample numeric motion/raw value was opened or copied. Tests use synthetic fixtures; importer provenance stores only basename, digest, bounded Legacy ID/source, and warnings. | Operator must explicitly select and review each import source; operational output remains ignored and outside Git. |
+
+### Stage 4 contracts derived from characterization
+
+| Contract | New authority | Enforcement target |
+|---|---|---|
+| Display names are not storage identity | Pose/Motion UUID | UUID filename/document equality; duplicate names allowed. |
+| Old snapshots lack required compatibility evidence | Independent Pose/Motion schema `2.0.0` | Schema `1.0.0` is rejected/quarantined; no invented fingerprint/sequence/unit. |
+| Saved Motion owns its playback data | Embedded `PoseSnapshot` values | Pose update/delete cannot cascade into a Motion. |
+| Import is deliberate and offline | Explicit CLI `--source`; default dry run | No scan, browser path, Legacy code execution, or write without `--write`. |
+| Aliases stop at the import boundary | Closed alias table then canonical Profile validation | V1 exactly J11-J15; V2 exactly J10-J15; collisions/missing/extra reject. |
+| Misleading units are reported, not guessed | Profile domain units for characterized `*_deg`; explicit units for generic targets | V2 J10 remains mm; unknown units reject. |
+| Repository is not a motion source | Storage ports plus Library application service | Only Goto constructs a command; gateway remains sole admission point. |
+
 ## Deferred Legacy areas
 
 | Legacy area | Disposition | Reason and gate |
 |---|---|---|
 | Physical/asset reuse from `URDF运动学仿真/` | Stage 3 software behavior `REWRITE_WITH_CHARACTERIZATION`; physical/asset authority remains `DEFER` | Mesh-free provisional chains are sufficient only for Dry Run. URDF/STL redistribution and physical V1/V2 correctness remain blocked on provenance, measurement and field acceptance. |
-| `动作录制与回放增强/` | `DEFER` | Stage 1 defined immutable embedded Pose Snapshot/Motion contracts, but Stage 2 adds no CRUD, trajectory, timeline, or playback. A future importer must use UUID identity, exact variant/joint/unit checks, explicit alias reports, and no silent gripper/raw loss. |
+| `动作录制与回放增强/` | Import slice `REWRITE_WITH_CHARACTERIZATION`; recording retired; playback `DEFER_TO_STAGE_5` | Stage 4 converts only validated explicit action JSON into immutable UUID Motion with a visible report. It does not record, compile, schedule, or play. |
 | `Web控制台/backend/service.py` | `RETIRE_AS_ARCHITECTURE` | More than one product area and multiple side effects are combined. Future capabilities become bounded application services with isolated construction and tests. |
-| `Web控制台/backend/action_composer.py` | `DEFER` | Motion authoring is outside Stage 2. Future composition must embed full snapshots rather than dereference mutable source Pose files. |
-| `Web控制台/backend/app.py` and `schemas.py` | `REWRITE` by approved Stage | The new FastAPI app factory and API schemas expose only approved Stage 2 lifecycle/diagnostic routes. Legacy AI, multi-arm, gripper, recording, motion, and raw schemas remain absent. |
+| `Web控制台/backend/action_composer.py` | Formal Motion rules `REWRITE`; interactive composition `DEFER_TO_STAGE_6` | Stage 4 creates only valid formal Motions with embedded snapshots. Draft/timeline authoring cannot weaken that invariant. |
+| `Web控制台/backend/app.py` and `schemas.py` | `REWRITE` by approved Stage | The new FastAPI app factory exposes only approved lifecycle/diagnostic, Stage 3 motion, and bounded Stage 4 Library routes. Legacy AI, multi-arm, gripper, recording, playback, arbitrary-path, and raw schemas remain absent. |
 | `视觉识别与跟随/` | `DEFER` | Vision is absent. A later provider must establish source freshness, target-loss inhibition, finite geometry, smoothing/dead-zone behavior, and model provenance without adding capture/recording. |
 | `硬件与装配资料/` | `ADAPT` as review evidence | Treat mapping, wiring, and maintenance notes as verification checklists, never canonical data. Do not copy operator records, serials, images, or Calibration. |
 | `THIRD_PARTY_NOTICES.md` and binary assets | `DEFER` pending provenance | Original source, exact license, attribution, modification, and redistribution rights must be recorded before any code/model/mesh/binary enters the new repository. |
@@ -107,13 +135,15 @@ untracked file was opened or executed.
 | Legacy input | Decision |
 |---|---|
 | V1 with exact canonical J11-J15 | Structurally compatible only; validate units, finiteness, ranges, provenance, and explicit Profile before conversion. |
-| V1 with five known semantic aliases | Future importer may map to J11-J15 only with a visible inference/conversion report; aliases never persist in the domain. |
+| V1 with five known semantic aliases | Stage 4 importer maps `SHOULDER_PAN`, `SHOULDER_LIFT`, `ELBOW_FLEX`, `WRIST_FLEX`, and `WRIST_ROLL` to J11-J15 with a visible report/provenance boundary; aliases never persist as Joint IDs. |
 | V1 with J10 | Reject or quarantine. Never crop J10, relabel as V2, or change the declared variant silently. |
-| V2 with exact canonical J10-J15 | Structurally compatible only; require J10 mm and J11-J15 deg, then Profile/Calibration checks. |
+| V2 with exact canonical J10-J15 | Structurally compatible only; importer requires J10 mm and J11-J15 deg through Profile-declared units. Characterized `*_deg` fields use those product units and emit a warning rather than treating J10 as an angle. |
 | Missing, unknown, duplicate, non-finite, or ambiguous-unit joints | Reject; never zero-fill or ignore. |
 | Legacy Calibration template | Non-production evidence only. Do not crop or copy numeric values; Stage 2 templates are newly constructed synthetic documents tied to new Profile Fingerprints. |
 | Local Calibration, backup, serial settings, runtime state, logs, secrets, or media | Excluded. Do not read, copy, summarize, log, or commit. |
-| Action with gripper or raw/multi-turn snapshot | Future importer must report unsupported fields and route any retained safety data through a separately reviewed typed schema; never reinterpret raw as logical state. |
+| Action with gripper or raw/multi-turn snapshot | Stage 4 reports ignored fields and never reinterprets them as a logical arm target. A valid exact logical Joint target is still required; raw-only input is rejected. |
+| Action with Legacy TCP/Cartesian fields | Ignore with an explicit warning and recompute TCP from typed Joint state using the selected provisional MOMO model; never trust a mismatched source TCP. |
+| Imported observation sequence | Store `state_sequence=null` because a coherent MOMO runtime observation cannot be established from offline Legacy data; never fabricate a live sequence. |
 | URDF/STL or vision model | Blocked until provenance/license and technical verification are complete. |
 
 The audited Git index contains a JSON artifact under `真实舵机控制/标定/标定备份_backups/` despite Legacy ignore/documentation intent. Its contents were not read. It has no target module and is permanently excluded from fixtures, excerpts, reports, and commits.

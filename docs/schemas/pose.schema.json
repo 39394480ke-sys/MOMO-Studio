@@ -9,43 +9,6 @@
       "title": "DomainUnit",
       "type": "string"
     },
-    "JointState": {
-      "additionalProperties": false,
-      "description": "Joint positions keyed by semantic joint ID, never by anonymous index.\n\nPositions are stored in each joint definition's ``domain_unit``. ``units`` may be\nsupplied at an external boundary for an explicit unit check; when omitted, values\nare already asserted to be in the profile's canonical domain units.",
-      "properties": {
-        "positions": {
-          "patternProperties": {
-            "^j[1-9][0-9]*$": {
-              "type": "number"
-            }
-          },
-          "title": "Positions",
-          "type": "object"
-        },
-        "units": {
-          "anyOf": [
-            {
-              "patternProperties": {
-                "^j[1-9][0-9]*$": {
-                  "$ref": "#/$defs/DomainUnit"
-                }
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Units"
-        }
-      },
-      "required": [
-        "positions"
-      ],
-      "title": "JointState",
-      "type": "object"
-    },
     "JsonValue": {},
     "PoseSnapshot": {
       "additionalProperties": false,
@@ -54,6 +17,7 @@
         "calibration_fingerprint": {
           "anyOf": [
             {
+              "pattern": "^[0-9a-f]{64}$",
               "type": "string"
             },
             {
@@ -84,10 +48,32 @@
           "title": "Hardware Snapshot"
         },
         "joint_state": {
-          "$ref": "#/$defs/JointState"
+          "$ref": "#/$defs/SnapshotJointState"
+        },
+        "kinematics_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Kinematics Fingerprint",
+          "type": "string"
+        },
+        "profile_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Profile Fingerprint",
+          "type": "string"
         },
         "robot_variant": {
           "$ref": "#/$defs/RobotVariant"
+        },
+        "state_sequence": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "State Sequence"
         },
         "tcp_pose": {
           "$ref": "#/$defs/TcpPose"
@@ -96,7 +82,10 @@
       "required": [
         "robot_variant",
         "joint_state",
-        "tcp_pose"
+        "tcp_pose",
+        "profile_fingerprint",
+        "kinematics_fingerprint",
+        "state_sequence"
       ],
       "title": "PoseSnapshot",
       "type": "object"
@@ -139,6 +128,36 @@
       ],
       "title": "RobotVariant",
       "type": "string"
+    },
+    "SnapshotJointState": {
+      "additionalProperties": false,
+      "description": "Persisted snapshot state with explicit, non-null domain units.",
+      "properties": {
+        "positions": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "type": "number"
+            }
+          },
+          "title": "Positions",
+          "type": "object"
+        },
+        "units": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "$ref": "#/$defs/DomainUnit"
+            }
+          },
+          "title": "Units",
+          "type": "object"
+        }
+      },
+      "required": [
+        "positions",
+        "units"
+      ],
+      "title": "SnapshotJointState",
+      "type": "object"
     },
     "TcpPose": {
       "additionalProperties": false,
@@ -199,6 +218,7 @@
     },
     "description": {
       "default": "",
+      "maxLength": 5000,
       "title": "Description",
       "type": "string"
     },
@@ -220,8 +240,8 @@
       "type": "integer"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "2.0.0",
+      "default": "2.0.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -230,8 +250,11 @@
     },
     "tags": {
       "items": {
+        "maxLength": 64,
+        "minLength": 1,
         "type": "string"
       },
+      "maxItems": 32,
       "title": "Tags",
       "type": "array"
     },

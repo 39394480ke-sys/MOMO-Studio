@@ -18,15 +18,24 @@ from pydantic import (
 
 from momo.domain.enums import Easing, MotionMode, RobotVariant
 from momo.domain.immutable import freeze_sequence
-from momo.domain.pose import Name, PoseSnapshot, _require_aware, utc_now
+from momo.domain.pose import (
+    Description,
+    Fingerprint,
+    Name,
+    PoseSnapshot,
+    Tag,
+    _require_aware,
+    utc_now,
+)
 from momo.domain.profiles import profile_for_validation
-from momo.domain.robot import SCHEMA_VERSION
+
+MOTION_SCHEMA_VERSION: Literal["2.0.0"] = "2.0.0"
 
 if TYPE_CHECKING:
     from momo.domain.robot import RobotProfile
 
-FiniteNonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
-FinitePositive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+FiniteNonNegative = Annotated[float, Field(strict=True, ge=0, le=600, allow_inf_nan=False)]
+FinitePositive = Annotated[float, Field(strict=True, gt=0, le=600, allow_inf_nan=False)]
 
 
 class MotionTransition(BaseModel):
@@ -45,7 +54,7 @@ class MotionKeyframe(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: UUID = Field(default_factory=uuid4)
-    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     pose_snapshot: PoseSnapshot
     source_pose_id: UUID | None = None
     hold_s: FiniteNonNegative = 0.0
@@ -65,7 +74,30 @@ class PlaybackDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     loop: bool = False
-    speed_multiplier: FinitePositive = 1.0
+    speed_multiplier: Annotated[float, Field(strict=True, gt=0, le=4, allow_inf_nan=False)] = 1.0
+
+
+class LegacyImportMetadata(BaseModel):
+    """Sanitized importer-owned provenance; never accepts raw servo or path data."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    importer: Literal["momo.tools.import_legacy_actions"] = "momo.tools.import_legacy_actions"
+    source_file_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)
+    ]
+    source_sha256: Fingerprint
+    legacy_id: Annotated[str, StringConstraints(max_length=200)] | None = None
+    legacy_source: Annotated[str, StringConstraints(max_length=64)] | None = None
+    warnings: Annotated[
+        list[Annotated[str, StringConstraints(min_length=1, max_length=200)]],
+        Field(max_length=32),
+    ] = Field(default_factory=list)
+
+    @field_validator("warnings")
+    @classmethod
+    def freeze_warnings(cls, value: list[str]) -> list[str]:
+        return freeze_sequence(value)
 
 
 class Motion(BaseModel):
@@ -78,23 +110,26 @@ class Motion(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["1.0.0"] = SCHEMA_VERSION
+    schema_version: Literal["2.0.0"] = MOTION_SCHEMA_VERSION
     id: UUID = Field(default_factory=uuid4)
     name: Name
-    description: str = ""
+    description: Description = ""
     robot_variant: RobotVariant
-    keyframes: Annotated[list[MotionKeyframe], Field(min_length=2)]
+    keyframes: Annotated[list[MotionKeyframe], Field(min_length=2, max_length=1000)]
     playback_defaults: PlaybackDefaults = Field(default_factory=PlaybackDefaults)
-    tags: list[str] = Field(default_factory=list)
+    tags: Annotated[list[Tag], Field(max_length=32)] = Field(default_factory=list)
+    source_metadata: LegacyImportMetadata | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
-    revision: Annotated[int, Field(ge=1)] = 1
+    revision: Annotated[int, Field(strict=True, ge=1)] = 1
 
     @field_validator("schema_version")
     @classmethod
     def require_supported_schema_version(cls, value: str) -> str:
-        if value != SCHEMA_VERSION:
-            raise ValueError(f"unsupported motion schema_version: {value}")
+        if value != MOTION_SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported motion schema_version: {value}; explicit migration is required"
+            )
         return value
 
     @field_validator("created_at", "updated_at")
@@ -135,12 +170,20 @@ class Motion(BaseModel):
                 raise ValueError(f"keyframe {index} must have an incoming_transition")
 
         profile = profile_for_validation(self.robot_variant, info.context)
+        expected_profile_fingerprint = self.keyframes[0].pose_snapshot.profile_fingerprint
+        expected_kinematics_fingerprint = self.keyframes[0].pose_snapshot.kinematics_fingerprint
         for index, keyframe in enumerate(self.keyframes):
             snapshot = keyframe.pose_snapshot
             if snapshot.robot_variant is not self.robot_variant:
                 raise ValueError(
                     f"keyframe {index} snapshot variant {snapshot.robot_variant.value} does not "
                     f"match Motion variant {self.robot_variant.value}"
+                )
+            if snapshot.profile_fingerprint != expected_profile_fingerprint:
+                raise ValueError(f"keyframe {index} profile_fingerprint does not match the Motion")
+            if snapshot.kinematics_fingerprint != expected_kinematics_fingerprint:
+                raise ValueError(
+                    f"keyframe {index} kinematics_fingerprint does not match the Motion"
                 )
             try:
                 if profile is not None:

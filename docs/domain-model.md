@@ -4,7 +4,7 @@
 
 `RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases.
 `ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability
-gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 3 continues to permit only
+gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 4 continues to permit only
 `DRY_RUN` plus `DISABLED`; the other enum members reserve vocabulary and grant no
 current capability.
 
@@ -111,7 +111,7 @@ Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE
 - `VALID_FOR_DRY_RUN`
 - `READY_FOR_REAL`
 
-Stage 3 still never returns effective Real readiness: `real_readiness` remains
+Stage 4 still never returns effective Real readiness: `real_readiness` remains
 `BLOCKED_BY_STAGE_POLICY`. A complete matching template can be structurally valid for
 diagnostics, but it cannot authorize hardware. Mapping mismatch is classified as
 `INCOMPLETE` and makes `calibration_valid=false`. The repository is read-only and loads
@@ -133,7 +133,7 @@ goal_raw = calibration_home_present_raw + relative_raw
 
 `logical_to_goal_raw`, `goal_raw_to_logical`, `validate_goal_raw`, and `effective_logical_limits_from_raw_bounds` are pure functions. Profile and Calibration raw bounds are intersected; the resulting raw range is converted in both directions and intersected with logical Profile limits. Inputs must be finite, scale/counts positive, direction valid, operating mode matching, Home configured, and the joint known. The rounding tolerance is derived from one half of a raw count in that joint's declared scale.
 
-These functions remain characterization and preflight inputs only. Stage 3 Dry Run
+These functions remain characterization and preflight inputs only. Stage 4 Dry Run
 commands never emit raw values and no API exposes raw mapping. A later reviewed Real
 gateway may use raw-derived reachable limits, but no Stage 3 executor can write them.
 
@@ -151,7 +151,7 @@ The file repository constrains robot IDs and paths, writes atomically, and quara
 `RobotStatus` is the read-only API projection: identity, variant, mode/policy, connection
 state, connected flag, Profile identity/verification, Calibration status, positions,
 units, optional raw positions, last error, timestamp, sequence, stale marker, and
-`hardware_accessed=false`. Stage 3 continues to return `raw_positions=null`; command and
+`hardware_accessed=false`. Stage 4 continues to return `raw_positions=null`; command and
 TCP status may extend the transport projection without changing the persisted runtime
 schema.
 
@@ -168,7 +168,7 @@ CONNECTED/FAULTED -> DISCONNECTING -> DISCONNECTED
 
 Duplicate Connect is rejected without creating another driver. Disconnect while already
 disconnected returns the stable state. Stop returns `STOPPED` when connected and
-`NOT_CONNECTED` when disconnected. During Stage 3 motion it first cancels the active
+`NOT_CONNECTED` when disconnected. During Dry Run motion it first cancels the active
 prepared command or Jog lease, then leaves the runtime at its last completed Dry Run
 sample. Driver/executor failures enter `FAULTED`, record a safe error summary, and never
 expose a traceback. `state_sequence` increases monotonically for lifecycle changes,
@@ -177,7 +177,9 @@ accepted execution samples, and Stop events.
 ## Motion command, preflight, and command status
 
 Stage 3 defines one command vocabulary for Joint Move, Joint Jog, Home, Cartesian Jog,
-and Move Pose, with later sources reserved for Goto, Playback, Studio, and Vision. An
+and Move Pose. Stage 4 admits exactly one Library movement intent: Goto is a
+`LIBRARY`-source `MOVE_JOINTS` command after persisted-snapshot compatibility checks.
+Playback, Studio, and Vision sources remain reserved. An
 immutable command carries a unique command ID, source, robot identity, expected state
 sequence, Profile and Kinematics fingerprints, explicit unit-bearing target or delta,
 timing intent, and idempotency identity. Clients cannot select a concrete executor or
@@ -207,18 +209,78 @@ stop signal, not the safety guarantee—network loss is covered by backend expir
 
 ## State, Pose, and Motion contracts
 
-`JointState.positions` is keyed by joint ID and may carry an explicit unit map. Validation against an explicit Profile rejects missing or unknown joints, wrong/missing units, booleans, non-finite values, and out-of-range values.
+`JointState.positions` is keyed by joint ID and may carry an explicit unit map in transient
+internal contexts. Persisted `PoseSnapshot` uses `SnapshotJointState`, which requires a
+non-null unit for every enabled Joint. Validation against an explicit Profile rejects
+missing or unknown joints, wrong/missing units, booleans, non-finite values, and
+out-of-range values.
 
-`TcpPose` contains a frame, `position_mm`, and canonical normalized `xyzw` quaternion. `PoseSnapshot` is the complete immutable-by-value capture of variant, keyed joint state, TCP, optional hardware safety snapshot, optional Calibration fingerprint provenance, and capture time. `Pose` adds UUID identity, display metadata, timestamps, revision, and schema version.
+`TcpPose` contains a frame, `position_mm`, and canonical normalized `xyzw` quaternion.
+`PoseSnapshot` schema `2.0.0` is the complete immutable-by-value capture of variant,
+keyed joint state, TCP, exact Profile and Kinematics fingerprints, an observation state
+sequence, optional hardware safety snapshot, optional Calibration fingerprint
+provenance, and capture time. A live Stage 4 Capture always stores a non-null sequence;
+an explicit Legacy import may store `null` only when no coherent source counter exists.
+Public snapshot writes also require canonical current-FK TCP and cannot claim hardware or
+Calibration provenance. `Pose` adds UUID identity, display metadata, timestamps,
+revision, and schema version.
+
+Capture obtains a connected, fresh robot snapshot, computes FK against that exact
+Profile/state/sequence, then obtains a second snapshot. It retries a bounded three times
+unless sequence, variant/Profile, joint state, and FK evidence remain coherent. It never
+combines Joint state and TCP from different observations. Stage 4 Dry Run records
+`hardware_snapshot=null` and `calibration_fingerprint=null` rather than inventing
+hardware evidence.
 
 A `MotionKeyframe` embeds a complete `PoseSnapshot`; optional `source_pose_id` is
 provenance only. `Motion` owns those copies, so editing or deleting a source Pose cannot
-alter playback data. Motion transitions and playback defaults remain structural Stage 1
-contracts. Stage 3 Move Pose accepts an explicit transient TCP target; it does not add a
-Pose/Motion repository, CRUD, trajectory compiler, Library, or playback workflow.
+alter playback data. A formal Motion contains at least two keyframes; its first
+keyframe has no incoming transition and every later keyframe has one. Stage 4 preserves
+those playable invariants rather than introducing an incomplete editing shape; Stage 6
+will use a separate `MotionDraft`. Motion schema `2.0.0` may carry typed, bounded
+`LegacyImportMetadata` for importer-owned provenance; Library API clients cannot set it.
+Stage 3 Move Pose remains an explicit transient
+TCP target; Stage 4 adds storage and Library workflows but no trajectory compiler or
+playback.
+
+## Entity repositories and revisions
+
+Pose and Motion persist independently under UUID filenames. Every read validates the
+generated JSON Schema, Pydantic model, and filename/document UUID equality. Every create
+starts at revision 1. An update or delete carries `expected_revision`; an update advances
+exactly once, and stale revisions return a structured conflict rather than overwriting.
+Duplicate display names are valid because identity is the UUID.
+
+Storage writes a bounded JSON payload to a temporary sibling, flushes and `fsync`s the
+file, atomically replaces the destination, then `fsync`s the directory. Corrupt,
+unsupported, oversized, symlinked, or mismatched entries are quarantined when possible;
+one bad entry never fails the full list. Sorting uses a stable UUID tie-break. Work is
+bounded at 5,000 root JSON entities, 10,000 scanned root entries, 64 MiB aggregate
+regular-entity bytes, and four MiB per entity; overflow raises a structured capacity
+error instead of a partial result. The repository lock protects a single backend
+process/repository instance only.
+
+Goto loads an immutable Pose, requires the expected entity revision, and compares
+variant, exact enabled-joint/unit set, Profile fingerprint, Kinematics fingerprint, and
+joint-state validity against the active robot. Only then does it create a Joint Motion
+for the normal Motion application service and gateway. A repository cannot dispatch an
+executor or driver.
 
 Nested lists/maps are frozen using JSON-serializable immutable containers. JSON round trips preserve meaning and do not expose `mappingproxy` or another non-serializable type.
 
 ## Schema evolution
 
-`schema_version` describes persisted shape; entity `revision` describes edits where the entity contract defines revisions. A persisted schema change requires compatibility analysis, round-trip tests, regenerated artifacts under `docs/schemas`, and an explicit Stage decision. Display names are never storage identities; persistent user entities use UUID filenames.
+`schema_version` describes persisted shape; entity `revision` describes edits where the
+entity contract defines revisions. A persisted schema change requires compatibility
+analysis, round-trip tests, regenerated artifacts under `docs/schemas`, and an explicit
+Stage decision. Display names are never storage identities; persistent user entities
+use UUID filenames.
+
+Stage 4 changes Pose and Motion independently from `1.0.0` to `2.0.0`. The change is
+intentionally incompatible because the old snapshot shape lacks Profile/Kinematics
+fingerprints and state-sequence evidence. Repository loading does not synthesize those
+fields or reinterpret old documents; `1.0.0` files are rejected/quarantined and require
+an explicit reviewed migration path. The exact decision is recorded in ADR 0011. Stage
+4 round-trip and compatibility tests pass, and two consecutive generated Pose/Motion
+schema artifacts were byte-identical; their exact SHA-256 values are recorded in the
+Stage report.

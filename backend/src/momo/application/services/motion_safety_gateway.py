@@ -103,10 +103,14 @@ class MotionSafetyGateway:
             "command_conflict",
             "another motion is already active",
         )
+        accepted_source = command.source is MotionCommandSource.CONTROL or (
+            command.source is MotionCommandSource.LIBRARY
+            and command.command_type is MotionCommandType.MOVE_JOINTS
+        )
         check(
-            command.source is MotionCommandSource.CONTROL,
+            accepted_source,
             "command_source",
-            "Stage 3 motion accepts CONTROL source only",
+            "Only CONTROL intents and Library Goto joint moves are accepted",
         )
         checks.append(
             PreflightCheck(

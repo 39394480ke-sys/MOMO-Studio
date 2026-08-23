@@ -326,7 +326,7 @@ export function ControlPage() {
     <div className="page control-workspace">
       <PageIntro
         title="Control"
-        description="Stage 3: one safety-gated Dry Run workspace for direct robot motion."
+        description="One safety-gated Dry Run workspace for direct robot motion."
         detail="Keyed V1/V2 joints, TCP kinematics, Cartesian motion, and deadman jog leases."
       />
 

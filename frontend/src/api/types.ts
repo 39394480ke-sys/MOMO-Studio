@@ -96,7 +96,7 @@ export interface RobotProfile {
 export interface ProfileResponse {
   profile: RobotProfile;
   fingerprint: string;
-  kinematics_fingerprint?: string;
+  kinematics_fingerprint: string;
   real_eligible: false;
 }
 
@@ -166,6 +166,168 @@ export interface TcpPose {
 export interface JointStatePayload {
   positions: Record<string, number>;
   units: Record<string, DomainUnit>;
+}
+
+export type EntitySortField = 'created_at' | 'updated_at' | 'name';
+export type SortOrder = 'asc' | 'desc';
+
+export interface EntityListQuery {
+  page: number;
+  page_size: number;
+  search?: string;
+  tags?: string[];
+  sort: EntitySortField;
+  order: SortOrder;
+}
+
+export interface EntityPage<T> {
+  items: T[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface PoseSnapshot {
+  robot_variant: RobotVariant;
+  joint_state: JointStatePayload;
+  tcp_pose: TcpPose;
+  profile_fingerprint: string;
+  kinematics_fingerprint: string;
+  state_sequence: number | null;
+  hardware_snapshot: Record<string, unknown> | null;
+  calibration_fingerprint: string | null;
+  captured_at: string;
+}
+
+export interface PoseSummary {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  robot_variant: RobotVariant;
+  joint_state: JointStatePayload;
+  tcp_pose: TcpPose;
+  profile_fingerprint: string;
+  kinematics_fingerprint: string;
+  state_sequence: number | null;
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+
+export interface PoseEntity extends Omit<
+  PoseSummary,
+  | 'robot_variant'
+  | 'joint_state'
+  | 'tcp_pose'
+  | 'profile_fingerprint'
+  | 'kinematics_fingerprint'
+  | 'state_sequence'
+> {
+  schema_version: '2.0.0';
+  snapshot: PoseSnapshot;
+}
+
+export interface CreatePoseRequest {
+  name: string;
+  description?: string;
+  tags?: string[];
+  snapshot: PoseSnapshot;
+}
+
+export interface CapturePoseRequest {
+  name: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface UpdatePoseRequest {
+  expected_revision: number;
+  name?: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface DuplicateEntityRequest {
+  expected_revision: number;
+  name?: string;
+}
+
+export interface GotoPoseRequest {
+  expected_revision: number;
+  duration_s?: number;
+  speed_scale?: number;
+  idempotency_key: string;
+}
+
+export type MotionMode = 'JOINT' | 'CARTESIAN_LINEAR';
+export type MotionEasing = 'LINEAR' | 'SMOOTHSTEP' | 'EASE_IN_OUT';
+
+export interface MotionTransition {
+  duration_s: number;
+  motion_mode: MotionMode;
+  easing: MotionEasing;
+}
+
+export interface MotionKeyframe {
+  id: string;
+  label: string;
+  pose_snapshot: PoseSnapshot;
+  source_pose_id: string | null;
+  hold_s: number;
+  incoming_transition: MotionTransition | null;
+}
+
+export interface MotionPlaybackDefaults {
+  loop: boolean;
+  speed_multiplier: number;
+}
+
+export interface MotionSummary {
+  id: string;
+  name: string;
+  description: string;
+  robot_variant: RobotVariant;
+  keyframe_count: number;
+  total_duration_s: number;
+  motion_types: MotionMode[];
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+
+export interface MotionEntity extends Omit<MotionSummary, 'keyframe_count' | 'total_duration_s' | 'motion_types'> {
+  schema_version: '2.0.0';
+  keyframes: MotionKeyframe[];
+  playback_defaults: MotionPlaybackDefaults;
+}
+
+export interface CreateMotionKeyframeRequest {
+  label: string;
+  pose_snapshot: PoseSnapshot;
+  source_pose_id?: string | null;
+  hold_s?: number;
+  incoming_transition: MotionTransition | null;
+}
+
+export interface CreateMotionRequest {
+  name: string;
+  description?: string;
+  robot_variant: RobotVariant;
+  keyframes: CreateMotionKeyframeRequest[];
+  playback_defaults?: MotionPlaybackDefaults;
+  tags?: string[];
+}
+
+export interface UpdateMotionRequest {
+  expected_revision: number;
+  name?: string;
+  description?: string;
+  robot_variant?: RobotVariant;
+  keyframes?: CreateMotionKeyframeRequest[];
+  tags?: string[];
+  playback_defaults?: MotionPlaybackDefaults;
 }
 
 export interface ForwardKinematicsResponse {

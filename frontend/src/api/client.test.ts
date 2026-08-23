@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, getBootstrapData, normalizeCommandStatus, requestJson } from './client';
+import {
+  ApiError,
+  deleteMotion,
+  deletePose,
+  duplicatePose,
+  getBootstrapData,
+  getPoses,
+  normalizeCommandStatus,
+  requestJson,
+} from './client';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -62,6 +71,71 @@ describe('API client errors', () => {
       code: 'INVALID_TARGET',
       details: { joint_id: 'j10' },
     });
+  });
+
+  it('resolves successful 204 deletes without trying to parse an empty body', async () => {
+    const json = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(deletePose('11111111-1111-4111-8111-111111111111', 7)).resolves.toBeUndefined();
+    await expect(deleteMotion('22222222-2222-4222-8222-222222222222', 3)).resolves.toBeUndefined();
+
+    expect(json).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/poses/11111111-1111-4111-8111-111111111111?expected_revision=7',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/motions/22222222-2222-4222-8222-222222222222?expected_revision=3',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('bounds list pages and sends stable repeated tag filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ items: [], page: 1, page_size: 50, total: 0 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getPoses({
+      page: -4,
+      page_size: 500,
+      search: '  inspection  ',
+      tags: [' demo ', 'demo', 'arm'],
+      sort: 'name',
+      order: 'asc',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/poses?page=1&page_size=50&sort=name&order=asc&search=inspection&tag=demo&tag=arm',
+      expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  it('posts expected_revision when duplicating a UUID-addressed Pose', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: vi.fn().mockResolvedValue({}),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await duplicatePose('33333333-3333-4333-8333-333333333333', {
+      expected_revision: 9,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/poses/33333333-3333-4333-8333-333333333333/duplicate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ expected_revision: 9 }),
+      }),
+    );
   });
 
   it('fails closed when command state is absent or malformed', () => {

@@ -8,9 +8,11 @@ delegates use cases to application services. Domain code expresses product, kine
 and safety invariants without importing the web framework or a hardware SDK.
 
 Stage 2 established one Active Robot, Profile/Calibration diagnostics, an in-memory Dry
-Run driver, and atomic runtime state. Stage 3 is complete and adds only Dry Run
-kinematics and control. Real hardware, Pose/Motion persistence, trajectory playback,
-Studio authoring, and Vision remain outside the Stage 3 boundary.
+Run driver, and atomic runtime state. Stage 3 is complete and adds Dry Run kinematics
+and control. Stage 4 is complete and adds Pose/Motion persistence and Library workflows;
+the final root, browser, isolation, and dependency gates pass, and the independent audit
+passes P1=0/P2=0. Real hardware, trajectory playback, Studio authoring, and Vision remain
+outside the Stage 4 boundary.
 
 ```text
 React Control workspace
@@ -25,6 +27,15 @@ React Control workspace
               -> Kinematics port
                   -> mesh-free serial-chain adapter
                       -> provisional V1/V2 model documents
+
+React Library workspace
+  -> bounded Pose/Motion REST DTOs (never server paths)
+      -> LibraryApplicationService
+          -> Pose/Motion repository ports
+              -> UUID-only atomic JSON adapters
+          -> coherent Capture via Robot + Kinematics services
+          -> Goto as LIBRARY / MOVE_JOINTS
+              -> Motion application service -> MotionSafetyGateway
 ```
 
 Dependencies point inward toward domain and port contracts. API routes do not import a
@@ -107,6 +118,13 @@ Freshness uses the monotonic age of the last successful high-level Dry Run drive
 observation. UTC `updated_at` is display/persistence data only. A stale state gets one
 bounded high-level observation attempt; failure or timeout remains stale.
 
+Stage 4 permits exactly one additional source/type pair:
+`LIBRARY` + `MOVE_JOINTS` for Goto Pose. The Library service validates the persisted
+snapshot against the active variant, exact joint/unit set, Profile fingerprint, and
+Kinematics fingerprint before submitting it to the normal motion application service.
+Repositories never call a driver. Motion creation, duplication, listing, and deletion
+are storage operations and do not dispatch movement; playback remains Stage 5.
+
 The `DryRunMotionExecutor` uses an injected monotonic clock, absolute deadlines, a fixed
 bounded update rate, and a cancellation signal. It interpolates single moves instead of
 teleporting state, advances `state_sequence` monotonically, persists compatible runtime
@@ -139,6 +157,16 @@ IK/reachability, joint move/jog, renewable Jog sessions, Cartesian Jog, Move Pos
 motion Stop, command status, and a robot-status WebSocket. Generated enumeration and
 route-isolation tests passed; the exact final inventory is recorded in the Stage report.
 
+Stage 4 adds bounded CRUD routes for `/api/v1/poses` and
+`/api/v1/motions`, plus Capture, Duplicate, and Goto subresources. List requests are
+page-based, cap a page at 50 entities, bound search and Tag filters, and provide stable
+created/updated/name sorting. Lists return bounded Pose/Motion summaries; complete
+snapshots/keyframes require one UUID detail request. Updates and deletes carry an
+expected revision and return typed conflicts. No route accepts a client disk path.
+Executed enumeration records 37 method/path combinations across 31 unique HTTP paths
+plus the existing read-only robot WebSocket; the focused 65-test
+route/import/hardware-isolation suite passes.
+
 The WebSocket is read-only. Its payload carries RobotStatus (including its safe last-error
 summary), TCP pose/FK, the latest command status/progress/error, state sequence, and
 top-level `hardware_accessed=false`; it has no separate fault-list field. The current
@@ -163,8 +191,20 @@ confirmation. The UI states that software Stop is not a physical emergency stop 
 offers no Real selector. REST polling/fetch remains available when the read-only
 WebSocket is unavailable.
 
-Frontend component tests and desktop/mobile/breakpoint browser acceptance pass. The
-checked widths have no horizontal overflow and the final browser console is empty.
+Stage 3 Control component tests and desktop/mobile/breakpoint browser acceptance pass.
+The checked widths have no horizontal overflow and the final browser console is empty.
+
+The Stage 4 Library workspace uses backend entities rather than browser-local files. It
+provides POSES and MOTIONS tabs, search/Tag/sort controls, bounded pagination, coherent
+Capture, a valid two-snapshot Motion creation path, on-demand full entity details,
+duplicate/delete confirmations, and Dry Run Goto confirmation. Motion creation obtains
+fresh full snapshots for two selected summaries and verifies their revisions before
+submit. A post-delete out-of-range page is clamped and refetched without a false empty
+state. Motion cards link into Studio by UUID, while Play remains visibly unavailable
+until Stage 5. Offline, stale response, and revision-conflict states fail closed in the
+frontend suite. Desktop and exact 390 x 844 mobile browser QA passed with no horizontal
+overflow or console warning/error; the Stage report distinguishes tested browser flows
+from component/integration-only coverage.
 
 ## Configuration and persistence
 
@@ -172,7 +212,7 @@ Safe default loading uses typed defaults, tracked `config/default.yaml`, then `M
 environment values. It does **not** probe or read ignored `config/local.yaml`. A caller
 may opt in to one specific local file only by explicitly passing `local_config_path` to
 the settings loader; that explicit file is then merged before environment overrides.
-Throughout Stage 3:
+Throughout Stage 4:
 
 ```text
 control_mode: DRY_RUN
@@ -188,8 +228,19 @@ Dry Run runtime state remains schema-versioned, path-confined, ignored operation
 written with a same-directory temporary file, flush, `fsync`, and replace. Restore
 requires robot identity, variant, Profile fingerprint, exact joint/unit set, finite
 values, and logical limits; Stage 3 must additionally reject motion against mismatched
-kinematics fingerprints and stale state sequences. Pose and Motion repositories remain
-future adapters.
+kinematics fingerprints and stale state sequences.
+
+Stage 4 Pose and Motion repositories use independent schema `2.0.0` documents under
+server-owned `data/poses/<uuid>.json` and `data/motions/<uuid>.json`. They validate both
+generated JSON Schema and domain invariants, require UUID filename/document equality,
+perform expected-revision compare-and-swap, and write by same-directory temporary file,
+flush, file `fsync`, atomic replace, and directory `fsync`. Invalid documents are moved
+to a server-owned quarantine when possible and omitted without aborting the list. The
+four-MiB cap is per entity; traversal is additionally capped at 5,000 root JSON entity
+files, 10,000 scanned root entries, and 64 MiB aggregate regular-entity bytes. Capacity
+overflow is a structured 507, not a partial page. Repository locking is single-process
+only; multi-process writers are unsupported. Schema `1.0.0` Pose/Motion documents are
+quarantined rather than silently assigned missing compatibility evidence.
 
 ## Repository structure
 
@@ -197,12 +248,17 @@ future adapters.
 - `backend/src/momo/ports/kinematics.py` — SI adapter protocol and named unit boundaries.
 - `backend/src/momo/adapters/kinematics` — mesh-free FK/IK implementation.
 - `backend/src/momo/application/services` — lifecycle, kinematics, gateway, executor
-  coordination, command status, and Jog lease use cases.
+  coordination, command status, Jog lease, and Library use cases.
 - `backend/src/momo/api` — versioned REST/read-only WebSocket transport only.
 - `backend/src/momo/adapters/hardware` — Dry Run adapter only in Stage 3.
-- `backend/src/momo/adapters/storage` — Profile, example Calibration, and runtime state.
+- `backend/src/momo/adapters/storage` — Profile, example Calibration, runtime state, and
+  atomic UUID Pose/Motion adapters.
 - `kinematics_models` — V1/V2 provisional mesh-free documents.
 - `frontend/src` — typed transport, shared runtime state, responsive pages/components.
 
-Stage 3 design decisions are recorded in ADR 0009 and ADR 0010. Completion evidence,
-tests, browser verification, and known limitations are tracked in the Stage 3 report.
+Stage 3 design decisions are recorded in ADR 0009 and ADR 0010. Stage 4 persistence and
+schema compatibility are recorded in ADR 0011; importer operation is documented in
+`legacy-action-import.md`. Executed code/browser evidence and known limitations are in
+the GREEN Stage 4 report; the independent re-review passes P1=0/P2=0. The dedicated
+containing commit's exact SHA/remote state is recorded by Stage 5 because a commit cannot
+embed its own SHA.

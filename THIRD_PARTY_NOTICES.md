@@ -8,7 +8,7 @@ MOMO Studio resolves its development/runtime packages through the manifests and 
 
 | Ecosystem | Packages presently declared or used | Current use | Provenance action before distribution |
 |---|---|---|---|
-| Python | Hatchling, FastAPI, Pydantic, pydantic-settings, PyYAML, Uvicorn and NumPy; development tools include httpx, pytest, Ruff, mypy and types-PyYAML | Build backend, API shell, configuration, domain validation/schema generation, mesh-free numerical kinematics and quality checks | Use the exact resolved versions in `backend/uv.lock`; collect each distribution's license metadata and bundled license text. |
+| Python | Hatchling, FastAPI, Pydantic, pydantic-settings, PyYAML, Uvicorn, NumPy and jsonschema; development tools include httpx, pytest, Ruff, mypy, types-PyYAML and types-jsonschema | Build backend, API shell, configuration, domain and persisted JSON Schema validation, mesh-free numerical kinematics and quality checks | Use the exact resolved versions in `backend/uv.lock`; collect each distribution's license metadata and bundled license text. |
 | JavaScript/TypeScript | React, React DOM, React Router, and Lucide React (ISC); Vite plus TypeScript, Vitest, Testing Library, ESLint and related development tools | Web application, routing, interface icons, tests, lint/type/build tooling | Use the exact resolved versions in the frontend lockfile; collect package license metadata and required notices. |
 
 Package names are identifiers for attribution and dependency review; they do not imply endorsement.
@@ -33,6 +33,30 @@ production audit (`npm audit --omit=dev --audit-level=moderate`) reported zero
 vulnerabilities. These point-in-time results do not replace release-time vulnerability
 and license review.
 
+### Stage 4 persisted-schema dependency
+
+Stage 4 adds `jsonschema` so each stored Pose/Motion document is checked against the
+same generated Draft 2020-12 schema used as the public artifact before Pydantic domain
+construction. The packages are installed from PyPI through `backend/uv.lock`, not
+vendored into this repository. The current lock and installed Python 3.11 metadata show:
+
+| Package | Locked version | Purpose | Installed metadata license expression |
+|---|---:|---|---|
+| `jsonschema` | `4.26.0` | Runtime Draft 2020-12 validation | `MIT` |
+| `attrs` | `26.1.0` | `jsonschema`/`referencing` runtime dependency | `MIT` |
+| `jsonschema-specifications` | `2025.9.1` | Referenced JSON Schema vocabularies | `MIT` |
+| `referencing` | `0.37.0` | JSON reference registry/resolution | `MIT` |
+| `rpds-py` | `2026.6.3` | Persistent data structures used by `referencing` | `MIT` |
+| `types-jsonschema` | `4.26.0.20260518` | Development-only mypy stubs | `Apache-2.0` |
+
+`referencing` also uses the already locked `typing-extensions` on supported Python
+versions. Version and license strings above are a point-in-time metadata observation,
+not a substitute for collecting and reviewing the actual license files of every wheel
+selected for distribution. The Stage 4 lock check passed with 44 resolved packages; its
+locked-runtime `pip-audit` reported no known vulnerabilities, and the frontend production
+audit reported zero vulnerabilities. These checks do not replace distribution-time
+license-file collection or vulnerability review.
+
 ## Project-generated design reference
 
 `docs/design/stage-01-shell-concept.png` was generated specifically for this repository on 2026-08-23 with OpenAI's built-in image-generation tool from a MOMO Studio Stage 1 UI brief. It used no Legacy image, robot asset, logo, screenshot or other third-party reference input. The file is design evidence only and is not rendered by the product.
@@ -50,7 +74,11 @@ URDF, mesh or other binary asset was copied into MOMO Studio during Stage 1. The
 produced only independently written migration/provenance documentation. Stage 3 later
 transcribed numerical joint-axis and origin-transform facts into independently written,
 mesh-free provisional models; it still copied no Legacy URDF, STL, mesh, controller code,
-or binary asset.
+or binary asset. For Stage 4, the main task inspected only pinned tracked Git objects via
+`git show`: V1/V2 sample action JSON shapes, their README, and relevant
+action-library/recorder/common-alias source text. The independently written importer and
+synthetic fixtures copy no tracked sample numeric motion/raw values, Legacy source
+implementation, ignored/local data, Calibration, runtime record, code, or asset.
 
 The audited Legacy root has no `LICENSE` or `COPYING` file. Its own `THIRD_PARTY_NOTICES.md` identifies some third-party material but does not grant a license for the repository as a whole. Therefore no Legacy code or asset may be copied, modified or redistributed until its copyright holder, original source and applicable license are established.
 

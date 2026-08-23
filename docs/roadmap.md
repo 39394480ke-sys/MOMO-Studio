@@ -44,14 +44,29 @@ All Stage 3 kinematics, safety, executor, Jog, WebSocket, hardware/camera-isolat
 frontend, build, schema, lock/audit, and desktop/mobile browser checks are green: 226
 backend tests and 54 frontend tests pass, checked responsive widths have no horizontal
 overflow, and the final browser console is empty. The Stage report records exact
-evidence. Stage 4 begins only after the dedicated Stage 3 commit exists.
+evidence. The dedicated Stage 3 commit is
+`133318e9437dff133a4c25bf01aec09cce5ae6e3` and is pushed to the working remote branch.
 
-## Stage 4 - Pose and Motion Library (not started)
+## Stage 4 - Pose and Motion Library (complete)
 
-Planned scope: UUID-based atomic Pose/Motion repositories, optimistic revisions,
-corruption quarantine, capture of a sequence-consistent Joint/TCP snapshot, list/search,
-duplicate/delete, Goto through the existing Motion Safety Gateway, and a reviewed Legacy
-import preview. It may not add playback or bypass the Stage 3 gateway.
+Stage 4 implements:
+
+- independent Pose/Motion schema `2.0.0` with exact Profile/Kinematics capture evidence;
+- UUID-only atomic JSON repositories, expected-revision conflicts, four-MiB entity caps,
+  stable sorting, and corrupt-file quarantine/list continuation;
+- bounded coherent Capture and compatibility-checked Goto through the existing Motion
+  Safety Gateway;
+- CRUD/search/Tag/sort/pagination APIs with no client filesystem path;
+- a responsive POSES/MOTIONS Library with inline confirmations, offline/conflict states,
+  actual Capture, two-Pose Motion creation, and Stage 5 Play disabled;
+- an explicit-source Legacy action importer that defaults to dry-run reporting, uses new
+  UUIDs, and rejects rather than guesses incomplete/ambiguous input.
+
+Playback, incomplete Motion editing, and any Real behavior remain outside Stage 4. The
+final backend/frontend, lint/type/format/build/schema/lock/dependency, browser, and
+safety-isolation gates pass. The independent audit passes P1=0/P2=0. Stage 4 is GREEN
+and complete; the next Stage records the dedicated containing commit's exact SHA/remote
+state because a commit cannot embed its own SHA.
 
 ## Stage 5 - Trajectory and playback (not started)
 
@@ -89,7 +104,8 @@ Calibration, Kinematics, device, operator, and field-acceptance gate is satisfie
 
 ## Evidence still required
 
-- Stage 4-8 implementation, verification, and one dedicated commit per Stage;
+- Stage 4 containing commit SHA/remote-state recording plus Stage 5-8 implementation,
+  verification, and one dedicated commit per Stage;
 - physically verified V1/V2 geometry, frames, joint limits, Homes, directions, Servo
   IDs, scales, raw bounds, modes, workspace, FK references, IK tolerances, and dynamics;
 - reviewed production Calibration lifecycle and independent device/field acceptance;

@@ -52,7 +52,7 @@ def test_health_api_is_dry_run_and_real_motion_is_disabled() -> None:
         "status": "ok",
         "product": "MOMO Studio",
         "version": "0.1.0",
-        "stage": 3,
+        "stage": 4,
         "control_mode": "DRY_RUN",
         "hardware_access_policy": "DISABLED",
         "real_motion_enabled": False,
@@ -70,8 +70,9 @@ def test_meta_and_product_scope_apis() -> None:
     scope_response = get(app, "/api/v1/meta/product-scope")
     assert scope_response.status_code == 200
     scope = scope_response.json()
-    assert scope["stage"] == 3
+    assert scope["stage"] == 4
     assert "mesh-free FK and IK" in scope["stage_3_available"]
+    assert "coherent FK-backed Pose capture" in scope["stage_4_available"]
     assert scope["release"] == "first_version"
     assert "single active MOMO V1 or V2 robot" in scope["included_in_first_version"]
     assert "photo, video recording, or media management" in scope["excluded_from_first_version"]
@@ -96,6 +97,14 @@ def test_stage_three_exposes_reviewed_motion_api_and_read_only_websocket() -> No
         "/api/v1/motion/joints": frozenset({"post"}),
         "/api/v1/motion/pose": frozenset({"post"}),
         "/api/v1/motion/stop": frozenset({"post"}),
+        "/api/v1/motions": frozenset({"get", "post"}),
+        "/api/v1/motions/{motion_id}": frozenset({"get", "patch", "delete"}),
+        "/api/v1/motions/{motion_id}/duplicate": frozenset({"post"}),
+        "/api/v1/poses": frozenset({"get", "post"}),
+        "/api/v1/poses/capture": frozenset({"post"}),
+        "/api/v1/poses/{pose_id}": frozenset({"get", "patch", "delete"}),
+        "/api/v1/poses/{pose_id}/duplicate": frozenset({"post"}),
+        "/api/v1/poses/{pose_id}/goto": frozenset({"post"}),
         "/api/v1/robot": frozenset({"get"}),
         "/api/v1/robot/connect": frozenset({"post"}),
         "/api/v1/robot/diagnostics": frozenset({"get"}),

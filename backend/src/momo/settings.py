@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     profile_directory: str = "robot_profiles"
     calibration_directory: str = "calibration/examples"
     kinematics_model_directory: str = "kinematics_models"
+    pose_directory: str = "data/poses"
+    motion_library_directory: str = "data/motions"
     motion_update_hz: float = Field(default=25.0, ge=20, le=100)
     jog_lease_ttl_ms: int = Field(default=400, ge=250, le=500)
     robot_state_freshness_limit_s: float = Field(default=5.0, gt=0, le=60)

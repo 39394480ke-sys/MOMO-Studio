@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "id": "10000000-0000-4000-8000-000000000001",
   "name": "Stage 1 example pose",
   "description": "Schema example only; not captured from or safe for real hardware.",
@@ -14,6 +14,14 @@
         "j13": -15.0,
         "j14": 0.0,
         "j15": 10.0
+      },
+      "units": {
+        "j10": "mm",
+        "j11": "deg",
+        "j12": "deg",
+        "j13": "deg",
+        "j14": "deg",
+        "j15": "deg"
       }
     },
     "tcp_pose": {
@@ -21,6 +29,9 @@
       "position_mm": {"x": 320.0, "y": 0.0, "z": 240.0},
       "orientation_quaternion_xyzw": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
     },
+    "profile_fingerprint": "bbb1dad31d57684c7d271c86302e7f130334acb07fc951f4e48d104feb6a0b0d",
+    "kinematics_fingerprint": "84fdb19f6f7045856e68be8b54ae6192b26c27106756bef604e69817903eca13",
+    "state_sequence": 0,
     "hardware_snapshot": null,
     "calibration_fingerprint": null,
     "captured_at": "2026-08-23T12:00:00Z"

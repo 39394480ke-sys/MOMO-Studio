@@ -2,7 +2,7 @@
 
 from momo.domain.enums import Easing, MotionMode, RobotVariant
 from momo.domain.motion import Motion, MotionKeyframe, MotionTransition
-from momo.domain.pose import PoseSnapshot, QuaternionXYZW, TcpPose, Vector3
+from momo.domain.pose import PoseSnapshot, QuaternionXYZW, SnapshotJointState, TcpPose, Vector3
 from momo.domain.profiles import canonical_robot_profile
 from momo.domain.robot import JointState
 
@@ -10,19 +10,30 @@ from momo.domain.robot import JointState
 def make_joint_state(variant: RobotVariant = RobotVariant.V2) -> JointState:
     profile = canonical_robot_profile(variant)
     return JointState(
-        positions={definition.joint_id: definition.home for definition in profile.joint_definitions}
+        positions={
+            definition.joint_id: definition.home for definition in profile.joint_definitions
+        },
+        units={
+            definition.joint_id: definition.domain_unit for definition in profile.joint_definitions
+        },
     )
 
 
 def make_snapshot(variant: RobotVariant = RobotVariant.V2) -> PoseSnapshot:
+    profile = canonical_robot_profile(variant)
     return PoseSnapshot(
         robot_variant=variant,
-        joint_state=make_joint_state(variant),
+        joint_state=SnapshotJointState.model_validate(
+            make_joint_state(variant).model_dump(mode="python", round_trip=True)
+        ),
         tcp_pose=TcpPose(
             frame="base",
             position_mm=Vector3(x=100.0, y=20.0, z=350.0),
             orientation_quaternion_xyzw=QuaternionXYZW(x=0.0, y=0.0, z=0.0, w=1.0),
         ),
+        profile_fingerprint=profile.fingerprint,
+        kinematics_fingerprint="b" * 64,
+        state_sequence=1,
     )
 
 
