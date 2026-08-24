@@ -2,6 +2,8 @@ import { Check, CircleAlert, Minus, ShieldCheck, X } from 'lucide-react';
 
 import { PageIntro } from '../components/PageIntro';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
+import { LanSecuritySessionPanel } from '../features/settings/LanSecuritySessionPanel';
+import { RealHardwarePanel } from '../features/settings/RealHardwarePanel';
 
 function MatchValue({ value }: { value: boolean | null | undefined }) {
   if (value === true) {
@@ -201,6 +203,9 @@ export function SettingsPage() {
           </div>
         </dl>
       </section>
+
+      <LanSecuritySessionPanel />
+      <RealHardwarePanel />
     </div>
   );
 }

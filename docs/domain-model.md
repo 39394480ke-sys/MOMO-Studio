@@ -4,9 +4,10 @@
 
 `RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases.
 `ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability
-gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 7 continues to permit only
-`DRY_RUN` plus disabled hardware access; the other enum members reserve vocabulary and
-grant no current motion capability. Camera access is independently typed as `DISABLED`,
+gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 8 gives the Real/Full vocabulary a
+pure all-gates authorization model, but the tracked/default context remains `DRY_RUN`
+plus disabled hardware access and the default composition has no Real bus factory.
+No enum value alone grants motion capability. Camera access is independently typed as `DISABLED`,
 `SYNTHETIC_ONLY`, or `LIVE_CAMERA_ALLOWED`, with `SYNTHETIC_ONLY` as the tracked
 default. A live policy value alone neither selects nor opens a camera.
 
@@ -113,11 +114,28 @@ Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE
 - `VALID_FOR_DRY_RUN`
 - `READY_FOR_REAL`
 
-Stage 7 still never returns effective Real readiness: `real_readiness` remains
-`BLOCKED_BY_STAGE_POLICY`. A complete matching template can be structurally valid for
-diagnostics, but it cannot authorize hardware. Mapping mismatch is classified as
-`INCOMPLETE` and makes `calibration_valid=false`. The repository is read-only and loads
-only reviewed example filenames; no calibration-write use case or API exists.
+The Stage 2 diagnostic service still treats reviewed examples as read-only Dry Run
+evidence. A complete matching template can be structurally valid for diagnostics, but
+it cannot authorize hardware. Mapping mismatch is classified as `INCOMPLETE` and makes
+`calibration_valid=false`.
+
+Stage 8 adds a separate Real Calibration workflow/repository. `CalibrationRevisionRecord`
+schema `1.0.0` wraps a complete non-template document with a monotonic positive revision,
+current and previous Calibration fingerprints, source, and creation time. Saving a new
+revision preserves the prior exact bytes under a fixed variant/revision/fingerprint
+backup and atomically replaces the variant's current record. Explicit rollback reads a
+unique earlier backup and saves its content as a fresh UUID/new forward revision; it does
+not rewind revision history. Example/template Calibration cannot be saved or promoted.
+
+`CalibrationWorkflowSession` is runtime-only, bounded to one operator/device context,
+and contains a per-joint status map. A joint moves from pending through raw capture,
+preview, and explicit confirmation. The preview binds selected joint/Servo identity,
+captured raw value, entered logical value, direction, Home, phase/raw bounds, round-trip
+error, and a deterministic mapping fingerprint. It authorizes no Servo write or motion.
+Save requires every Profile-enabled joint confirmed and revalidates the current session,
+then performs the atomic persistence attempt. Once persistence starts, the coordinator
+closes/revokes hardware authorization in `finally`, including after a
+replace-then-directory-fsync failure.
 
 ## Logical and raw mapping
 
@@ -135,9 +153,49 @@ goal_raw = calibration_home_present_raw + relative_raw
 
 `logical_to_goal_raw`, `goal_raw_to_logical`, `validate_goal_raw`, and `effective_logical_limits_from_raw_bounds` are pure functions. Profile and Calibration raw bounds are intersected; the resulting raw range is converted in both directions and intersected with logical Profile limits. Inputs must be finite, scale/counts positive, direction valid, operating mode matching, Home configured, and the joint known. The rounding tolerance is derived from one half of a raw count in that joint's declared scale.
 
-These functions remain characterization and preflight inputs only. Stage 5 Dry Run
-commands never emit raw values and no API exposes raw mapping. A later reviewed Real
-gateway may use raw-derived reachable limits, but no Stage 3 executor can write them.
+Dry Run commands never emit raw values and no API exposes raw mapping. Stage 8's
+`RealMotionExecutor` may use the same pure functions only after complete Real
+authorization, with a non-template verified Profile/Calibration and an exact immutable
+prepared trajectory. The committed release never injects that executor into a route.
+No Stage 3 Dry Run executor can write raw values.
+
+## Real-hardware authorization, device, and Stop
+
+`RealHardwareContext` is immutable evidence, not a device handle. It contains control/
+hardware policy, independent opt-in flags, field status, optional Profile/Calibration/
+Kinematics, expected Kinematics fingerprint, dependency identity/state, explicit device,
+and any device-safety uncertainty. `ExplicitServoDevice` has exactly one secret-repr
+serial path, protocol, and ordered unique Servo-ID allowlist; it has no scan range.
+
+`RealHardwareAuthorization` evaluates a `RealHardwareGateInput` containing that context,
+the evaluation time, and optional `OperatorSessionEvidence`. The report has a readiness
+state, deduplicated typed blockers, redacted confirmation facts, session status, and four
+separate booleans: Real Joint, Cartesian, Playback, and Vision Follow. A purpose-bound
+`RealHardwareAccessGrant` is created only when its corresponding capability passes.
+Diagnostics is read-only but still requires the complete Joint gate and a current
+session; it is not a weaker hardware bypass.
+
+An Operator Session is context-bound, short lived, and single-owner. Token-free evidence
+records session UUID, robot/variant, Profile/Calibration fingerprints, exact Servo IDs,
+issued/expiry times, physical-E-stop confirmation, and required Real/Full policy. The raw
+token is returned once and only a digest/evidence remain in backend memory. Expiry,
+restart, explicit revoke, connection failure, disconnect, context mismatch, or
+Calibration transition invalidates it. A backend expiry cleanup closes any connected bus
+even when the frontend has disappeared.
+
+`ServoWriteResult` partitions every requested ID into written/failed sets and cannot
+claim completeness with an unknown safety state. `RealStopOutcome` distinguishes
+`STOPPED_AND_VERIFIED`, `HOLD_REQUESTED`, `TORQUE_DISABLE_REQUESTED`, `NOT_CONNECTED`,
+`FAILED`, and `SAFETY_STATE_UNCERTAIN`. Only the first may claim all requested IDs were
+verified stopped while connected. The pending Feetech shell returns uncertainty and
+requires the physical E-stop; software Stop is never a physical emergency-stop claim.
+
+`RealMotionStatus` binds an execution UUID, Operator Session, robot/variant/artifact
+fingerprints, exact trajectory digest, purpose, lifecycle/progress, state-sequence
+evidence, hardware-access/safety truth, typed fault, and typed Stop outcome. The executor
+accepts only a complete `PreparedTrajectory`, maps bounded samples, schedules monotonic
+deadlines without catch-up bursts, checks live authorization/context, reads back, and
+publishes bounded audit events. Fake Bus is the only autonomous execution adapter.
 
 ## Runtime state and status
 
@@ -416,9 +474,10 @@ The MotionDraft recovery schema is stricter than an API create schema: every ser
 field is required recursively, including defaulted fields, server-owned provenance/trust,
 and nested keyframe/edge/save-intent identities. Recovery never reconstructs omitted
 past state from current defaults.
-Configured runtime/Profile/Calibration/Kinematics/Pose/Motion/Draft roots are validated
-as pairwise disjoint before repository construction, including equal, nested,
-resolved/symlink, NFC-Unicode-normalized, and case-folded aliases.
+Configured runtime/Profile/example-Calibration/Real-Calibration/Kinematics/Pose/Motion/
+Draft/restore-journal/audit roots are validated as pairwise disjoint before repository
+construction, including equal, nested, resolved/symlink, NFC-Unicode-normalized, and
+case-folded aliases.
 
 Goto loads an immutable Pose, requires the expected entity revision, and compares
 variant, exact enabled-joint/unit set, Profile fingerprint, Kinematics fingerprint, and
@@ -435,6 +494,37 @@ recovery, revision/keyframe checks, and command submission against autosave, so 
 checked persisted frame cannot be replaced inside the check-to-submit interval.
 
 Nested lists/maps are frozen using JSON-serializable immutable containers. JSON round trips preserve meaning and do not expose `mappingproxy` or another non-serializable type.
+
+## Backup transaction and security contracts
+
+`BackupEnvelope` is deterministic canonical JSON with a manifest, sorted descriptors,
+per-payload SHA-256, descriptor-list SHA-256, and manifest SHA-256. A document identifies
+exactly one Pose, Motion, MotionDraft, or explicitly selected Calibration. Revisioned
+payloads retain their exact final revision. `BackupImportPreview` reports validity,
+collision policy (`reject` or `skip` only), per-item create/skip/conflict/invalid action,
+migrations, safe issues, totals, and the full-bundle digest. A successful preview grants
+one bounded five-minute restore attempt for that exact digest/policy/Calibration tuple.
+
+`BackupRestoreTransaction` schema `1.0.0` is the durable write-ahead intent. It records a
+transaction UUID, bundle digest, bounded exact `(kind, UUID, revision)` entity targets,
+and at most one exact absent `(variant, Calibration UUID)` target per V1/V2 variant. It
+contains no payload or client path. The journal is published before creates and cleared
+only after complete commit or proven compensation. Startup loads it before serving
+traffic and removes those exact targets. This makes restore process-crash atomic in the
+supported single-process repository model while preserving concurrent later revisions
+through exact compare-and-swap.
+
+`NetworkSecurityPolicy` separates `LOCAL_ONLY` from explicit `LAN`. LAN requires a
+concrete private bind, authentication, and exact allowlisted HTTP Origins using the API
+bind host; the UI port may differ. `AuthorizedPrincipal` identifies its authentication
+method and permitted REST/CONTROL/WEBSOCKET/VISION surfaces. `SessionGrant` is bounded,
+scoped, and expiring; the one-time secret is intentionally outside the model.
+
+`SecurityAuditEvent` is a bounded structured record with request ID, optional command/
+robot/principal identity, source, mode, preflight, outcome, duration, and safe error code.
+Motion submission supplies the optional command/robot/mode/preflight evidence. All
+details are recursively bounded and redacted before a sink; a query/body, raw token,
+absolute path, URL, or full serial identity is never an audit contract.
 
 ## Schema evolution
 
@@ -465,3 +555,10 @@ Stage 7 adds generated schemas for transient `FrameMetadata`, `TrackingResult`, 
 change Pose, Motion, MotionDraft, or another persisted user schema and create no media
 storage contract. Full deterministic generation and schema-current tests pass in the
 432-test backend gate.
+
+Stage 8 adds `backup-envelope.schema.json`,
+`backup-restore-transaction.schema.json`, and `calibration-revision.schema.json` without
+changing Pose `2.0.0`, Motion `2.0.0`, or MotionDraft `1.0.0`. The transaction schema is
+operational recovery state under an ignored fixed server directory, not a user-editable
+web payload. Two fresh full generations are byte-identical and match the tracked schema
+tree; the final backend gate passes 563 tests.

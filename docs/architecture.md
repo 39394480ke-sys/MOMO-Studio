@@ -14,8 +14,13 @@ whole-path trajectory compilation, immutable prepared-plan identity, preview, an
 bounded Dry Run playback. Stage 6 Studio is complete in pushed commit
 `37783bdf8c01146d3a312980dbe4a25716e5468c`. Stage 7 adds the Synthetic Vision and
 lease-bound Dry Run Follow slice; automated/static and desktop/mobile browser gates are
-green with final independent audit P1=0/P2=0; dedicated commit/push remains open. Live camera
-activation and Real hardware/Follow remain outside the current boundary.
+green with final independent audit P1=0/P2=0 and pushed commit
+`dedbdabb9a35aefea01df05f0652214428305a93`. Stage 8 implements a deny-by-default
+Real-hardware/Calibration boundary, local/LAN security, deterministic backup with
+process-crash recovery, same-backend offline SPA hosting, CI, and release-candidate
+identity. Physical use, Feetech adapter verification, and field acceptance remain
+outside autonomous evidence. Final Stage 8 combined/browser gates and the P1=0/P2=0
+audit pass; the dedicated Stage 8 Git delivery remains pending.
 
 ```text
 React Control workspace
@@ -77,13 +82,39 @@ React Vision workspace
           -> pure FollowController + Profile-bound command factory
           -> VisionCommandCoordinator
               -> Motion application service -> MotionSafetyGateway
+
+React Settings / release workspace
+  -> readiness, masked device evidence, Operator Session, diagnostics, Calibration wizard
+      -> DeviceDiagnosticsService / CalibrationWorkflowCoordinator
+          -> RealHardwareAuthorization (pure all-gates decision)
+          -> OperatorSessionService (bounded, context-bound, expiring)
+          -> ServoBus port (explicit device + explicit IDs; no scan/register API)
+              -> FakeServoBus in automated evidence
+              -> optional Feetech shell: Pending Adapter Verification / writes disabled
+  -> LAN browser session exchange and revoke
+      -> one SecurityService for REST, control, WebSocket, and Vision
+
+Backup / recovery surface
+  -> deterministic byte envelope -> dry-run preview -> one-use digest/options grant
+      -> shared repository maintenance gate
+          -> durable restore WAL before first create
+          -> exact-revision Pose/Motion/MotionDraft imports
+          -> bounded absent-only Calibration batch
+          -> compensation on failure/cancellation or before startup traffic after crash
+
+Release hosting
+  -> one FastAPI process may serve versioned API + locally built relative React assets
+      -> SPA refresh fallback only for extensionless non-API GET/HEAD
+      -> no CDN-backed interactive API docs; missing APIs/assets stay 404
 ```
 
 Dependencies point inward toward domain and port contracts. API routes do not import a
-driver, executor implementation, serial package, or Legacy controller. The composition
-root explicitly injects the Dry Run implementations. There is no module-global robot,
-`arm_a` product assumption, Fleet surface, serial adapter, device scan, startup live
-camera open/enumeration, or raw-control transport.
+driver, executor implementation, serial package, or Legacy controller. The default
+composition explicitly injects the Dry Run implementations and gives the device service
+no Real bus factory. A separately reviewed field composition would inject only the
+`ServoBusFactory` port after all gates pass. There is no module-global robot, `arm_a`
+product assumption, Fleet surface, device scan, startup serial/camera open/enumeration,
+or raw-control transport.
 
 ## Active Robot and lifecycle
 
@@ -106,6 +137,53 @@ Lifecycle transitions, variant changes, motion admission, and Stop share explici
 coordination. Only one motion command or Jog lease may own execution at a time. A
 variant change remains disconnected-only and replaces the runtime, Profile, and
 kinematics context without auto-connecting.
+
+## Stage 8 Real-hardware boundary
+
+Real authorization is a pure decision over a complete `RealHardwareContext` plus one
+current Operator Session. A grant requires `REAL`, `FULL`, real-motion/startup/local
+opt-ins, a verified non-template Profile, complete non-template matching Calibration,
+verified matching Kinematics, field acceptance `PASSED`, an available identified
+adapter, one explicit device/protocol and exactly the Profile's ordered Servo IDs, and
+an unexpired context-matching session. No one flag or UI action bypasses another.
+
+Capability readiness stays separate: Joint, Cartesian, Playback, and Vision Follow are
+not one switch. Provisional kinematics blocks geometry-dependent capabilities. The
+committed release context fails multiple upstream gates and therefore cannot create an
+adapter. Session expiry/context drift closes an authorized connection through a
+backend-owned cleanup path and invalidates Calibration authorization.
+
+The `ServoBus` port is deliberately narrow: open/close, ping exact IDs, typed present
+position/mode/torque reads, mapped goal writes, and typed Stop/Hold. It exposes no scan,
+arbitrary register, raw SDK, torque-enable, Home, or calibration-write surface. Connect
+opens only the configured device, pings only configured IDs, validates bounded reads,
+and does not move. Any partial connection failure closes and clears authorization.
+
+The Feetech implementation is an independently written optional shell. Import is lazy
+inside a fully granted factory, construction/open are separate, and the release
+composition does not instantiate it. Exact SDK/API/license/cancellation and physical
+Stop semantics remain Pending Adapter Verification; goal writes are disabled and Stop
+reports `SAFETY_STATE_UNCERTAIN`. Automated executor coverage uses only Fake Bus.
+
+The Real executor accepts the exact immutable `PreparedTrajectory` and digest; it does
+not compile browser samples. It maps each logical sample through the verified
+Profile/Calibration, checks raw bounds, schedules with monotonic deadlines, writes the
+explicit ID map, reads back, checks divergence, and updates high-level state through an
+observer. Authorization/context/sequence/position evidence is rechecked at boundaries.
+Partial writes, timeout, bus fault, readback mismatch, cancellation, disconnect, and
+expiry enter a typed terminal/fault state and request a truthful typed Stop.
+
+Calibration authoring is a separate protected workflow over an already authorized,
+explicitly connected bus. It reads only the one selected Profile joint/Servo ID, accepts
+the operator's observed logical value, previews direction/Home/phase/raw bounds and
+round-trip evidence, and requires explicit per-joint confirmation. Saving builds a
+complete non-template document and atomically installs a new forward revision after
+preserving the previous revision in a fixed backup directory. After any persistence
+attempt begins—success, failure, or
+replace-then-fsync uncertainty—the coordinator closes/revokes hardware authorization in
+`finally`. Rollback restores old content as another new revision; it never rewinds
+history or promotes an example. Cancellation cannot release the workflow guard before
+connection/session cleanup reaches a terminal state.
 
 ## Kinematics boundary
 
@@ -287,6 +365,28 @@ is 71 method/path combinations across 61 unique HTTP paths plus the same read-on
 Robot WebSocket. There is no Vision command WebSocket, live-camera-open route, raw
 camera identifier, recording route, or alternate motion path.
 
+Stage 8 adds release/security session exchange, readiness/session/connect/diagnostic/
+Stop device endpoints, protected Calibration-session/read/preview/confirm/save/rollback
+endpoints, and backup export/preview/restore endpoints. These routes depend on
+application ports/services only. They accept bounded DTOs or uploaded backup bytes—never
+a server filesystem path, SDK object, arbitrary Servo/register address, or executable
+sample. Default device calls report blockers without constructing a bus.
+
+One `SecurityService` protects normal REST, control, priority Stop, Vision, and
+WebSocket surfaces. LAN browsers exchange a long-term Bearer once for a short-lived
+HttpOnly `SameSite=Strict` cookie. The LAN policy permits only exact allowlisted HTTP
+Origins on the API bind host (the UI port may differ); wildcard, public, cross-host,
+HTTPS, and opaque Origins fail closed. Established Robot WebSockets and Vision streams
+reauthorize each bounded publish/frame so expiry or revoke terminates the connection.
+Control principals and sessions have hard capacity/rate bounds; priority Stop remains
+authenticated but is not blocked by the ordinary command bucket.
+
+`StructuredRequestAuditMiddleware` assigns a bounded request ID and records safe source,
+principal, outcome, duration, status, and error code. Motion submissions/Jog start also
+publish their command ID, `primary` robot, Dry Run mode, and preflight state. Recursive
+redaction removes credentials, URLs, POSIX/Windows/file paths, and masks device identity
+before the bounded memory or bounded rotating JSONL sink.
+
 The Synthetic stream uses `multipart/x-mixed-replace`, `Cache-Control: no-store`, and
 already encoded bounded PNG frames. Each slow consumer observes one latest-value slot
 instead of accumulating a queue. The service permits 4 clients by default and at most
@@ -360,24 +460,38 @@ priority Stop, disconnect, or unmount. The checked 1440×960 and 390×844 real-a
 passed Synthetic Select/Detect/Follow/Stop and responsive bounds with console
 warnings/errors `[]`.
 
+The Stage 8 Settings additions display release identity, LAN browser-session state,
+masked Real artifact/device evidence, exact blockers/capability readiness, explicit
+connect/diagnostics/Stop controls, and the protected Calibration wizard. Default data
+shows `Hardware access disabled` and no action probes a device. Frontend controls retain
+only non-secret session expiry metadata; the long-term Bearer input is cleared after
+exchange and no session token is JavaScript-readable or stored in browser storage.
+Final Stage 8 browser acceptance passes at 1440×960, 390×844, and 850/830 breakpoint
+widths with no horizontal overflow and console warnings/errors `[]`.
+
 ## Configuration and persistence
 
 Safe default loading uses typed defaults, tracked `config/default.yaml`, then `MOMO_*`
 environment values. It does **not** probe or read ignored `config/local.yaml`. A caller
 may opt in to one specific local file only by explicitly passing `local_config_path` to
 the settings loader; that explicit file is then merged before environment overrides.
-Throughout Stage 7:
+The tracked Stage 8 release defaults remain:
 
 ```text
 control_mode: DRY_RUN
 real_motion_enabled: false
 hardware_access_policy: DISABLED
 camera_access_policy: SYNTHETIC_ONLY
+field_acceptance_status: PENDING
+lan_enabled: false
 ```
 
-Selecting `REAL`, `READ_ONLY`, `FULL`, or real motion fails before any adapter is built.
-The serial-port field remains inert. Kinematics models are reviewed repository inputs,
-not local hardware configuration.
+Capability-bearing values may be loaded only through one explicitly selected ignored
+local file or environment overrides, but no single value creates authority. The
+authorization matrix evaluates the complete set and the default release composition
+still supplies no Real bus factory. The serial-port field is inert until a separately
+reviewed field composition holds a complete grant. Kinematics models are reviewed
+repository inputs, not local hardware configuration.
 
 Stage 7 defaults to the in-memory source at 12 fps and 640×360, with configuration caps
 of 30 fps and 1280×720. `LIVE_CAMERA_ALLOWED` does not change startup composition: the
@@ -424,21 +538,42 @@ or mismatched creation/content remains retained and fail-closed. The operator ma
 only that exact marker through a revision/operation-bound confirmation API, which uses a
 raw Draft CAS and never mutates a Motion.
 
+Stage 8 Real Calibration revisions live under the fixed ignored `data/calibration`
+root, one current file per variant plus fixed private backup directories. A forward save
+validates a complete non-template document, writes the previous bytes to a durable
+revision/fingerprint backup, then atomically replaces current bytes. Explicit rollback
+uses an old backup as new content with a fresh identity and monotonic revision.
+
+Backup restore uses the same process-wide `RepositoryMaintenanceGate` as ordinary
+Pose/Motion/Draft repository work. Before the first exact create it durably publishes a
+bounded transaction in `data/restore/restore-transaction.json`. Success or complete
+compensation clears the journal durably. Application lifespan recovers any surviving
+intent before yielding/serving requests; failure blocks startup. This supplies
+process-crash atomic restore for the supported single-process, server-owned repository
+configuration. Multiple backend writers and unsupported filesystems remain outside the
+contract.
+
 ## Repository structure
 
 - `backend/src/momo/domain/kinematics` — model/fingerprint and FK/IK result contracts.
 - `backend/src/momo/ports/kinematics.py` — SI adapter protocol and named unit boundaries.
 - `backend/src/momo/adapters/kinematics` — mesh-free FK/IK implementation.
 - `backend/src/momo/application/services` — lifecycle, kinematics, gateway, executor
-  coordination, command status, Jog lease, Library, trajectory, playback, and bounded
-  Studio Draft/compile, formal-save, and robot-action use cases.
+  coordination, command status, Jog lease, Library, trajectory, playback, bounded
+  Studio/Vision use cases, and Stage 8 authorization/device/Calibration/security/backup
+  services.
 - `backend/src/momo/adapters/playback` — bounded latest-value playback observation.
 - `backend/src/momo/adapters/vision` — Synthetic/disabled/latest-value adapters and a
   policy-first lazy-import optional OpenCV camera shell.
-- `backend/src/momo/api` — versioned REST/read-only WebSocket transport only.
-- `backend/src/momo/adapters/hardware` — Dry Run adapter only in Stage 3.
-- `backend/src/momo/adapters/storage` — Profile, example Calibration, runtime state, and
-  atomic UUID Pose/Motion/MotionDraft adapters.
+- `backend/src/momo/api` — versioned REST/read-only WebSocket transport, security
+  middleware/dependencies, and optional safe SPA hosting; no raw driver surface.
+- `backend/src/momo/adapters/hardware` — Dry Run/Fake bus plus a default-denied lazy
+  Feetech shell whose adapter verification and writes remain pending.
+- `backend/src/momo/adapters/storage` — Profile/example Calibration/runtime state,
+  atomic UUID Pose/Motion/MotionDraft, revisioned Real Calibration, and durable restore
+  journal adapters.
+- `backend/src/momo/adapters/motion/real_motion_executor.py` — exact-prepared Fake-Bus-
+  exercised Real execution path; not injected by the committed default composition.
 - `kinematics_models` — V1/V2 provisional mesh-free documents.
 - `frontend/src` — typed transport, shared runtime state, responsive pages/components,
   composed Studio Draft/Motion/Pose/navigation hooks, and Vision selection/Follow state.
@@ -451,5 +586,6 @@ are recorded in ADR 0013 and `studio-user-workflow.md`. Executed evidence and kn
 limitations are in each Stage report; the Stage 6 report explicitly separates green
 implementation evidence from its now-recorded containing commit. Stage 7 camera access,
 frame identity, provider honesty, and Follow lease decisions are in ADR 0014 and
-`vision-provider-capabilities.md`; its report separates green implementation/browser/
-audit evidence from Pending commit/push delivery.
+`vision-provider-capabilities.md`; its dedicated commit is pushed. Stage 8 authorization,
+network/audit, and release/field decisions are ADRs 0015–0017. The Stage 8 report records
+green combined/browser/audit evidence and keeps only Git delivery pending.

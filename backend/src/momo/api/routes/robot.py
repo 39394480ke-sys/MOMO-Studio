@@ -11,6 +11,7 @@ from momo.api.schemas import (
     RobotCommandResponse,
     VariantSwitchRequest,
 )
+from momo.api.security import authorize_control_request, authorize_priority_stop_request
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
@@ -51,7 +52,11 @@ async def robot_diagnostics(service: RobotServiceDependency) -> DiagnosticsRespo
     return DiagnosticsResponse.model_validate(await service.diagnostics())
 
 
-@router.post("/connect", response_model=RobotCommandResponse)
+@router.post(
+    "/connect",
+    response_model=RobotCommandResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def connect_robot(
     request: Request,
     service: RobotServiceDependency,
@@ -61,17 +66,29 @@ async def connect_robot(
     return RobotCommandResponse(status=await service.connect(), hardware_accessed=False)
 
 
-@router.post("/disconnect", response_model=RobotCommandResponse)
+@router.post(
+    "/disconnect",
+    response_model=RobotCommandResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def disconnect_robot(service: MotionServiceDependency) -> RobotCommandResponse:
     return RobotCommandResponse(status=await service.disconnect(), hardware_accessed=False)
 
 
-@router.post("/stop", response_model=StopResponse)
+@router.post(
+    "/stop",
+    response_model=StopResponse,
+    dependencies=[Depends(authorize_priority_stop_request)],
+)
 async def stop_robot(service: MotionServiceDependency) -> StopResponse:
     return await service.stop()
 
 
-@router.put("/variant", response_model=RobotCommandResponse)
+@router.put(
+    "/variant",
+    response_model=RobotCommandResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def switch_robot_variant(
     request: VariantSwitchRequest,
     service: RobotServiceDependency,

@@ -1,8 +1,9 @@
-.PHONY: install test lint format-check build dev-backend dev-frontend schemas
+.PHONY: install test lint format-check build dev-backend serve-backend dev-frontend schemas
 
 BACKEND_PYTHON ?= backend/.venv/bin/python
 UV ?= uv
 NPM ?= npm
+LOCAL_CONFIG ?= config/local.yaml
 
 install:
 	$(UV) sync --project backend --extra dev --python 3.11 --locked
@@ -28,7 +29,9 @@ schemas:
 	PYTHONPATH=backend/src $(BACKEND_PYTHON) backend/scripts/generate_schemas.py
 
 dev-backend:
-	$(BACKEND_PYTHON) -m uvicorn momo.api.app:create_app --factory --reload --app-dir backend/src
+	PYTHONPATH=backend/src $(BACKEND_PYTHON) -m momo.serve --local-config "$(LOCAL_CONFIG)"
+
+serve-backend: dev-backend
 
 dev-frontend:
 	$(NPM) --prefix frontend run dev

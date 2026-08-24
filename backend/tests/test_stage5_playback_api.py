@@ -1054,7 +1054,13 @@ def test_motion_mutation_linearizes_after_validated_playing_claim(
 def test_robot_websocket_includes_typed_read_only_playback_status(tmp_path: Path) -> None:
     app = make_stage4_app(tmp_path)
     asyncio.run(app.state.robot_service.connect())
-    with TestClient(app) as client, client.websocket_connect("/api/v1/ws/robot") as socket:
+    with (
+        TestClient(app) as client,
+        client.websocket_connect(
+            "/api/v1/ws/robot",
+            headers={"origin": "http://127.0.0.1:8000"},
+        ) as socket,
+    ):
         payload = socket.receive_json()
         assert payload["playback_status"]["state"] == "IDLE"
         assert payload["playback_status"]["hardware_accessed"] is False
@@ -1111,7 +1117,13 @@ def test_runtime_fault_is_sanitized_in_http_and_websocket(
 
     asyncio.run(scenario())
 
-    with TestClient(app) as client, client.websocket_connect("/api/v1/ws/robot") as socket:
+    with (
+        TestClient(app) as client,
+        client.websocket_connect(
+            "/api/v1/ws/robot",
+            headers={"origin": "http://127.0.0.1:8000"},
+        ) as socket,
+    ):
         payload = socket.receive_json()
         assert payload["playback_status"]["state"] == "FAULTED"
         assert payload["playback_status"]["error"] == public_reason

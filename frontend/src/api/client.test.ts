@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ApiError,
+  createLanSecuritySession,
   deleteMotion,
   deletePose,
   duplicatePose,
@@ -14,6 +15,7 @@ import {
   pausePlayback,
   playMotion,
   requestJson,
+  revokeLanSecuritySession,
   resumePlayback,
   setPlaybackLoop,
   setPlaybackRate,
@@ -26,6 +28,62 @@ afterEach(() => {
 });
 
 describe('API client errors', () => {
+  it('always includes HttpOnly-cookie credentials and does not allow a caller override', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ ok: true }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await requestJson('/health', { credentials: 'omit' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/health',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('exchanges a bearer for non-secret cookie metadata and revokes via the cookie', async () => {
+    const bearer = 'lan-session-exchange-token-material-0123456789';
+    const json = vi.fn().mockResolvedValue({
+      principal_id: 'operator',
+      issued_at: '2026-08-24T01:00:00Z',
+      expires_at: '2026-08-24T01:05:00Z',
+      surfaces: ['REST', 'CONTROL', 'WEBSOCKET', 'VISION'],
+      session_token: 'must-not-reach-javascript',
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json })
+      .mockResolvedValueOnce({ ok: true, status: 204, json: vi.fn() });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const session = await createLanSecuritySession(bearer);
+    await revokeLanSecuritySession();
+
+    expect(session).toEqual({
+      principal_id: 'operator',
+      issued_at: '2026-08-24T01:00:00Z',
+      expires_at: '2026-08-24T01:05:00Z',
+      surfaces: ['REST', 'CONTROL', 'WEBSOCKET', 'VISION'],
+    });
+    expect(session).not.toHaveProperty('session_token');
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/security/session',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: expect.objectContaining({ Authorization: `Bearer ${bearer}` }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/security/session',
+      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
+    );
+  });
+
   it('propagates one abort signal through all six bootstrap requests', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

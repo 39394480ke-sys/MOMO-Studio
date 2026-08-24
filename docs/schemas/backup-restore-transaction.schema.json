@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "BackupEntityKind": {
+      "enum": [
+        "pose",
+        "motion",
+        "draft",
+        "calibration"
+      ],
+      "title": "BackupEntityKind",
+      "type": "string"
+    },
+    "BackupRestoreCalibrationTarget": {
+      "additionalProperties": false,
+      "description": "Exact absent calibration identity recorded for crash compensation.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "variant": {
+          "$ref": "#/$defs/RobotVariant"
+        }
+      },
+      "required": [
+        "variant",
+        "id"
+      ],
+      "title": "BackupRestoreCalibrationTarget",
+      "type": "object"
+    },
+    "BackupRestoreEntityTarget": {
+      "additionalProperties": false,
+      "description": "Exact create target recorded before a multi-repository restore starts.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/BackupEntityKind"
+        },
+        "revision": {
+          "maximum": 50000,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "revision"
+      ],
+      "title": "BackupRestoreEntityTarget",
+      "type": "object"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Bounded write-ahead intent for process-crash atomic restore.",
+  "properties": {
+    "bundle_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Bundle Sha256",
+      "type": "string"
+    },
+    "calibrations": {
+      "items": {
+        "$ref": "#/$defs/BackupRestoreCalibrationTarget"
+      },
+      "maxItems": 2,
+      "title": "Calibrations",
+      "type": "array"
+    },
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/BackupRestoreEntityTarget"
+      },
+      "maxItems": 5000,
+      "title": "Entities",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "transaction_id": {
+      "format": "uuid",
+      "title": "Transaction Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "bundle_sha256",
+    "entities"
+  ],
+  "title": "BackupRestoreTransaction",
+  "type": "object"
+}

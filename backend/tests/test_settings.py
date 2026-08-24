@@ -59,59 +59,83 @@ def test_ignored_local_config_is_read_only_when_explicitly_requested(tmp_path: P
     assert explicit.active_robot_variant is RobotVariant.V2
 
 
-def test_stage_three_rejects_every_attempt_to_enable_real_motion(
+def test_stage_eight_accepts_partial_real_configuration_without_granting_hardware(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with pytest.raises(ValidationError, match="locked to false"):
-        Settings(real_motion_enabled=True)
-
-    settings = Settings()
+    settings = Settings(real_motion_enabled=True)
+    assert settings.real_motion_enabled is True
+    assert settings.hardware_startup_enabled is False
+    assert settings.hardware_local_config_enabled is False
     real_motion_field = "real_motion_enabled"
     with pytest.raises(ValidationError, match="Instance is frozen"):
         setattr(settings, real_motion_field, True)
 
     monkeypatch.setenv("MOMO_REAL_MOTION_ENABLED", "true")
-    with pytest.raises(ValidationError, match="locked to false"):
-        load_settings(
-            default_config_path=tmp_path / "missing.yaml",
-            local_config_path=tmp_path / "missing-local.yaml",
-        )
+    loaded = load_settings(default_config_path=tmp_path / "missing.yaml")
+    assert loaded.real_motion_enabled is True
+    assert loaded.hardware_local_config_enabled is False
 
 
 @pytest.mark.parametrize(
     "policy",
     [HardwareAccessPolicy.READ_ONLY, HardwareAccessPolicy.FULL],
 )
-def test_stage_three_rejects_non_disabled_hardware_policy(policy: HardwareAccessPolicy) -> None:
-    with pytest.raises(ValidationError, match="hardware_access=DISABLED"):
-        Settings(hardware_access_policy=policy)
+def test_stage_eight_preserves_non_disabled_policy_as_readiness_evidence(
+    policy: HardwareAccessPolicy,
+) -> None:
+    settings = Settings(hardware_access_policy=policy)
+    assert settings.hardware_access_policy is policy
+    assert settings.hardware_startup_enabled is False
+    assert settings.hardware_local_config_enabled is False
 
 
-def test_yaml_and_environment_cannot_override_hardware_gate(
+def test_hardware_local_authorization_requires_exact_explicit_local_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = tmp_path / "unsafe.yaml"
-    config.write_text("hardware_access: read_only\n", encoding="utf-8")
-    with pytest.raises(ValidationError, match="hardware_access=DISABLED"):
+    default = tmp_path / "default.yaml"
+    default.write_text("hardware_access: disabled\n", encoding="utf-8")
+    monkeypatch.setenv("MOMO_HARDWARE_LOCAL_CONFIG_ENABLED", "true")
+    monkeypatch.setenv("MOMO_SERIAL_PORT", "/dev/explicit-test-only")
+    monkeypatch.setenv("MOMO_SERVO_IDS", "[1,2]")
+    monkeypatch.setenv("MOMO_SERVO_PROTOCOL", "sts")
+    with pytest.raises(ValueError, match="explicitly supplied local config"):
+        load_settings(default_config_path=default)
+
+    local = tmp_path / "local.yaml"
+    local.write_text(
+        "hardware_local_config_enabled: true\n"
+        "serial_port: /dev/explicit-test-only\n"
+        "servo_ids: [1, 2]\n"
+        "servo_protocol: sts\n",
+        encoding="utf-8",
+    )
+    configured = load_settings(default_config_path=default, local_config_path=local)
+    assert configured.hardware_local_config_enabled is True
+    assert configured.servo_ids == (1, 2)
+
+    monkeypatch.setenv("MOMO_SERIAL_PORT", "/dev/environment-mismatch")
+    with pytest.raises(ValueError, match="exact device"):
         load_settings(
-            default_config_path=config,
-            local_config_path=tmp_path / "missing-local.yaml",
+            default_config_path=default,
+            local_config_path=local,
         )
 
-    config.write_text("hardware_access: disabled\n", encoding="utf-8")
-    monkeypatch.setenv("MOMO_HARDWARE_ACCESS_POLICY", "full")
-    with pytest.raises(ValidationError, match="hardware_access=DISABLED"):
-        load_settings(
-            default_config_path=config,
-            local_config_path=tmp_path / "missing-local.yaml",
-        )
+
+def test_real_control_mode_is_only_one_readiness_input() -> None:
+    settings = Settings(control_mode=ControlMode.REAL)
+    assert settings.control_mode is ControlMode.REAL
+    assert settings.real_motion_enabled is False
+    assert settings.hardware_access_policy is HardwareAccessPolicy.DISABLED
 
 
-def test_stage_three_rejects_real_control_mode() -> None:
-    with pytest.raises(ValidationError, match="control_mode=DRY_RUN"):
-        Settings(control_mode=ControlMode.REAL)
+def test_local_origins_are_explicit_loopback_values() -> None:
+    settings = Settings()
+    assert "http://127.0.0.1:5173" in settings.local_allowed_origins
+    assert "http://localhost:8000" in settings.local_allowed_origins
+    with pytest.raises(ValidationError, match="Local Origins"):
+        Settings(local_allowed_origins=("http://evil.example",))
 
 
 @pytest.mark.parametrize(

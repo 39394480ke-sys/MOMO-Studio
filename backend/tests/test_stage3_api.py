@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
@@ -418,7 +419,10 @@ def test_robot_websocket_is_read_only_and_contains_full_fk_status(tmp_path: Path
         )
         assert accepted.status_code == 202
         assert client.post("/api/v1/motion/stop").status_code == 200
-        with client.websocket_connect("/api/v1/ws/robot") as websocket:
+        with client.websocket_connect(
+            "/api/v1/ws/robot",
+            headers={"origin": "http://127.0.0.1:8000"},
+        ) as websocket:
             payload = websocket.receive_json()
 
     assert payload["hardware_accessed"] is False
@@ -443,6 +447,10 @@ def test_robot_websocket_rate_cap_and_disconnect_cleanup(
     class DisconnectingWebSocket:
         def __init__(self, app: FastAPI) -> None:
             self.app = app
+            self.headers = {"origin": "http://127.0.0.1:8000"}
+            self.cookies: dict[str, str] = {}
+            self.query_params: dict[str, str] = {}
+            self.state = SimpleNamespace()
             self.accepted = False
             self.payloads: list[dict[str, Any]] = []
 
@@ -484,6 +492,10 @@ def test_robot_websocket_slow_send_is_cancelled_without_queue_growth(
     class SlowWebSocket:
         def __init__(self, app: FastAPI) -> None:
             self.app = app
+            self.headers = {"origin": "http://127.0.0.1:8000"}
+            self.cookies: dict[str, str] = {}
+            self.query_params: dict[str, str] = {}
+            self.state = SimpleNamespace()
             self.accepted = False
             self.in_flight = 0
             self.maximum_in_flight = 0

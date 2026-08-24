@@ -14,6 +14,7 @@ from momo.api.library_schemas import (
     PoseSummary,
     SortOrder,
 )
+from momo.api.security import authorize_control_request
 from momo.application.library_commands import (
     DuplicateEntityCommand,
     GotoPoseCommand,
@@ -116,6 +117,7 @@ async def duplicate_pose(
     "/poses/{pose_id}/goto",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def goto_pose(
     pose_id: UUID, request: GotoPoseCommand, service: LibraryService

@@ -13,7 +13,11 @@ import pytest
 from momo.application.services.studio_formal_save_coordinator import (
     StudioFormalSaveCoordinator,
 )
-from momo.domain.errors import EntityNotFoundError, RevisionConflictError
+from momo.domain.errors import (
+    EntityAlreadyExistsError,
+    EntityNotFoundError,
+    RevisionConflictError,
+)
 from momo.domain.motion import Motion
 from momo.domain.motion_draft import MotionDraft, MotionDraftSaveIntent
 from momo.domain.trajectory import TrajectoryCompileOutcome
@@ -52,6 +56,12 @@ class MemoryDraftRepository:
                 },
             )
         self.entities[draft.id] = draft
+
+    async def import_exact(self, draft: MotionDraft) -> bool:
+        if draft.id in self.entities:
+            raise EntityAlreadyExistsError("Motion draft already exists")
+        self.entities[draft.id] = draft
+        return False
 
     async def delete(self, draft_id: UUID, *, expected_revision: int) -> bool:
         current = self.entities.get(draft_id)

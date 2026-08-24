@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Path, status
 
 from momo.api.dependencies import get_trajectory_service
+from momo.api.security import authorize_control_request, authorize_priority_stop_request
 from momo.api.trajectory_presenters import preflight_response, preview_response
 from momo.api.trajectory_schemas import (
     PlaybackLoopRequest,
@@ -43,6 +44,7 @@ async def preflight_motion(
     "/motions/{motion_id}/play",
     response_model=PlaybackStatus,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def play_motion(
     motion_id: UUID,
@@ -58,22 +60,38 @@ async def play_motion(
     )
 
 
-@router.post("/playback/pause", response_model=PlaybackStatus)
+@router.post(
+    "/playback/pause",
+    response_model=PlaybackStatus,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def pause_playback(service: TrajectoryService) -> PlaybackStatus:
     return await service.pause()
 
 
-@router.post("/playback/resume", response_model=PlaybackStatus)
+@router.post(
+    "/playback/resume",
+    response_model=PlaybackStatus,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def resume_playback(service: TrajectoryService) -> PlaybackStatus:
     return await service.resume()
 
 
-@router.post("/playback/stop", response_model=PlaybackStatus)
+@router.post(
+    "/playback/stop",
+    response_model=PlaybackStatus,
+    dependencies=[Depends(authorize_priority_stop_request)],
+)
 async def stop_playback(service: TrajectoryService) -> PlaybackStatus:
     return await service.stop()
 
 
-@router.put("/playback/rate", response_model=PlaybackStatus)
+@router.put(
+    "/playback/rate",
+    response_model=PlaybackStatus,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def set_playback_rate(
     request: PlaybackRateRequest,
     service: TrajectoryService,
@@ -81,7 +99,11 @@ async def set_playback_rate(
     return await service.set_rate(request.rate)
 
 
-@router.put("/playback/loop", response_model=PlaybackStatus)
+@router.put(
+    "/playback/loop",
+    response_model=PlaybackStatus,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def set_playback_loop(
     request: PlaybackLoopRequest,
     service: TrajectoryService,

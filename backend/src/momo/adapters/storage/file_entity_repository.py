@@ -10,6 +10,7 @@ import stat
 import tempfile
 import threading
 from collections.abc import Sequence
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar, cast
@@ -19,7 +20,9 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import BaseModel, ValidationError
 
+from momo.adapters.storage.durable_directory import ensure_directory_durable
 from momo.domain.errors import (
+    AtomicImportCommittedError,
     EntityAlreadyExistsError,
     EntityInvalidError,
     RepositoryCapacityError,
@@ -33,6 +36,42 @@ MAX_REPOSITORY_ENTITY_FILES = 5000
 MAX_REPOSITORY_SCAN_ENTRIES = 10000
 MAX_REPOSITORY_AGGREGATE_BYTES = 64 * 1024 * 1024
 QUARANTINE_DIGEST_BYTES = 64 * 1024
+
+
+class RepositoryMaintenanceGate(AbstractAsyncContextManager[None]):
+    """Task-reentrant process-local fence shared by related repositories.
+
+    Normal repository calls take the gate briefly. Backup restore takes the same
+    gate for the whole validated batch and can then call repository methods
+    reentrantly, preventing application writers from interleaving with compensation.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._owner: asyncio.Task[object] | None = None
+        self._depth = 0
+
+    async def __aenter__(self) -> None:
+        task = asyncio.current_task()
+        if task is None:  # pragma: no cover - async context always has a task
+            raise RuntimeError("repository maintenance gate requires an asyncio task")
+        if self._owner is task:
+            self._depth += 1
+            return None
+        await self._lock.acquire()
+        self._owner = task
+        self._depth = 1
+        return None
+
+    async def __aexit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        del exc_type, exc, traceback
+        task = asyncio.current_task()
+        if task is None or self._owner is not task or self._depth < 1:
+            raise RuntimeError("repository maintenance gate released by a non-owner")
+        self._depth -= 1
+        if self._depth == 0:
+            self._owner = None
+            self._lock.release()
 
 
 def _reject_json_constant(value: str) -> None:
@@ -66,6 +105,7 @@ class AtomicJsonEntityRepository(Generic[EntityT]):
         clock: Clock,
         *,
         json_schema: dict[str, Any] | None = None,
+        maintenance_gate: RepositoryMaintenanceGate | None = None,
     ) -> None:
         self.directory = directory.resolve()
         self.quarantine_directory = self.directory / "quarantine"
@@ -75,21 +115,63 @@ class AtomicJsonEntityRepository(Generic[EntityT]):
         self._validator = Draft202012Validator(schema)
         self.clock = clock
         self._lock = threading.RLock()
+        self._directory_durable = False
+        self.maintenance_gate = maintenance_gate or RepositoryMaintenanceGate()
 
     async def get(self, entity_id: UUID) -> EntityT | None:
-        return await asyncio.to_thread(self._get_sync, entity_id)
+        async with self.maintenance_gate:
+            return await asyncio.to_thread(self._get_sync, entity_id)
 
     async def list(self) -> Sequence[EntityT]:
-        return await asyncio.to_thread(self._list_sync)
+        async with self.maintenance_gate:
+            return await asyncio.to_thread(self._list_sync)
 
     async def save(self, entity: EntityT, *, expected_revision: int | None = None) -> None:
-        await asyncio.to_thread(self._save_sync, entity, expected_revision)
+        async with self.maintenance_gate:
+            await asyncio.to_thread(self._save_sync, entity, expected_revision)
+
+    async def import_exact(self, entity: EntityT) -> bool:
+        """Create one validated final revision with one atomic replace and fsync."""
+
+        async with self.maintenance_gate:
+            worker = asyncio.create_task(
+                asyncio.to_thread(self._import_exact_sync, entity),
+                name="repository-import-exact",
+            )
+            cancellation_requested = False
+            while True:
+                try:
+                    await asyncio.shield(worker)
+                    return cancellation_requested
+                except asyncio.CancelledError:
+                    cancellation_requested = True
+                except AtomicImportCommittedError as error:
+                    error.cancellation_requested = cancellation_requested
+                    raise
 
     async def delete(self, entity_id: UUID, *, expected_revision: int) -> bool:
-        return await asyncio.to_thread(self._delete_sync, entity_id, expected_revision)
+        async with self.maintenance_gate:
+            worker = asyncio.create_task(
+                asyncio.to_thread(self._delete_sync, entity_id, expected_revision),
+                name="repository-delete",
+            )
+            while True:
+                try:
+                    return await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    # A filesystem unlink cannot be cancelled once dispatched. Reach
+                    # its known terminal state so callers never infer that a file
+                    # survived merely because their await was interrupted.
+                    continue
 
     def _ensure_directory(self) -> None:
-        self.directory.mkdir(parents=True, exist_ok=True)
+        if self._directory_durable and self.directory.is_dir():
+            return
+        ensure_directory_durable(
+            self.directory,
+            fsync_directory=self._fsync_directory,
+        )
+        self._directory_durable = True
 
     def _entity_path(self, entity_id: UUID) -> Path:
         if not isinstance(entity_id, UUID):
@@ -288,10 +370,56 @@ class AtomicJsonEntityRepository(Generic[EntityT]):
                 self._raise_capacity("aggregate_bytes", MAX_REPOSITORY_AGGREGATE_BYTES)
             self._atomic_replace(path, payload)
 
+    def _import_exact_sync(self, entity: EntityT) -> None:
+        """Create an absent entity at its exact validated revision in bounded work."""
+
+        with self._lock:
+            entity_id = getattr(entity, "id", None)
+            revision = getattr(entity, "revision", None)
+            if not isinstance(entity_id, UUID) or not isinstance(revision, int) or revision < 1:
+                raise EntityInvalidError("Imported entity identity or revision is invalid")
+            path = self._entity_path(entity_id)
+            self._ensure_directory()
+            if os.path.lexists(path):
+                if not stat.S_ISREG(path.lstat().st_mode):
+                    self._quarantine(path)
+                    raise EntityInvalidError("Only regular files are repository entities")
+                existing = self._read_or_quarantine(path, expected_id=entity_id)
+                if existing is None:
+                    raise EntityInvalidError("Stored entity is corrupt and was quarantined")
+                raise EntityAlreadyExistsError("Entity UUID already exists")
+
+            serialized = entity.model_dump(mode="json")
+            self._validate_schema(serialized)
+            payload = (
+                json.dumps(
+                    serialized,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    indent=2,
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+            if len(payload) > MAX_ENTITY_BYTES:
+                raise EntityInvalidError("Entity exceeds the maximum persisted size")
+            paths = self._repository_paths()
+            if len(paths) >= MAX_REPOSITORY_ENTITY_FILES:
+                self._raise_capacity("entity_files", MAX_REPOSITORY_ENTITY_FILES)
+            aggregate = self._require_aggregate_capacity(paths)
+            if aggregate + len(payload) > MAX_REPOSITORY_AGGREGATE_BYTES:
+                self._raise_capacity("aggregate_bytes", MAX_REPOSITORY_AGGREGATE_BYTES)
+            self._atomic_replace(path, payload)
+
     def _delete_sync(self, entity_id: UUID, expected_revision: int) -> bool:
         with self._lock:
             path = self._entity_path(entity_id)
             if not os.path.lexists(path):
+                # A previous unlink may have succeeded before its directory fsync
+                # failed. Recovery retries must make that absence durable before a
+                # write-ahead restore journal can be cleared.
+                if self.directory.is_dir():
+                    self._fsync_directory(self.directory)
                 return False
             existing = self._read_or_quarantine(path, expected_id=entity_id)
             if existing is None:
@@ -316,15 +444,21 @@ class AtomicJsonEntityRepository(Generic[EntityT]):
             dir=self.directory,
         )
         temporary = Path(temporary_name)
+        replaced = False
         try:
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, destination)
+            replaced = True
             self._fsync_directory(self.directory)
-        except BaseException:
+        except BaseException as error:
             temporary.unlink(missing_ok=True)
+            if replaced:
+                raise AtomicImportCommittedError(
+                    "Entity bytes were replaced but directory durability is uncertain"
+                ) from error
             raise
 
     @staticmethod

@@ -7,10 +7,15 @@ from datetime import datetime
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
 from momo.api.dependencies import get_vision_service
+from momo.api.security import (
+    authorize_control_request,
+    authorize_priority_stop_request,
+    reauthorize_http_stream,
+)
 from momo.api.vision_schemas import (
     NormalizedBoundingBoxDto,
     VisionCapabilitiesResponse,
@@ -33,6 +38,7 @@ from momo.application.services.vision_service import (
     VisionRuntimeSnapshot,
 )
 from momo.domain.errors import VisionProviderUnavailableError
+from momo.domain.security import SecuritySurface
 from momo.domain.vision import (
     NormalizedBoundingBox,
     TrackingStatus,
@@ -205,7 +211,7 @@ async def latest_frame(service: VisionServiceDependency) -> Response:
 
 
 @router.get("/stream")
-async def stream(service: VisionServiceDependency) -> StreamingResponse:
+async def stream(request: Request, service: VisionServiceDependency) -> StreamingResponse:
     if service.source.capability.status is not VisionProviderStatus.AVAILABLE:
         raise VisionProviderUnavailableError(
             service.source.capability.detail or "The configured frame source is unavailable"
@@ -213,6 +219,8 @@ async def stream(service: VisionServiceDependency) -> StreamingResponse:
 
     async def parts() -> AsyncIterator[bytes]:
         async for frame in service.stream_frames():
+            if not reauthorize_http_stream(request, SecuritySurface.VISION):
+                return
             payload = service.encode_stream_frame(frame)
             headers = (
                 f"--{STREAM_BOUNDARY}\r\n"
@@ -283,7 +291,11 @@ async def reset_tracking(service: VisionServiceDependency) -> VisionStatusRespon
     return _status(await service.reset_tracking(), now=service.clock.now())
 
 
-@router.post("/follow/start", response_model=VisionFollowLeaseResponse)
+@router.post(
+    "/follow/start",
+    response_model=VisionFollowLeaseResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def start_follow(
     request: VisionFollowStartRequest,
     service: VisionServiceDependency,
@@ -307,7 +319,11 @@ async def start_follow(
     )
 
 
-@router.post("/follow/{lease_id}/heartbeat", response_model=VisionFollowLeaseResponse)
+@router.post(
+    "/follow/{lease_id}/heartbeat",
+    response_model=VisionFollowLeaseResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def heartbeat_follow(
     lease_id: UUID,
     service: VisionServiceDependency,
@@ -323,7 +339,11 @@ async def heartbeat_follow(
     )
 
 
-@router.post("/follow/{lease_id}/stop", response_model=VisionStatusResponse)
+@router.post(
+    "/follow/{lease_id}/stop",
+    response_model=VisionStatusResponse,
+    dependencies=[Depends(authorize_priority_stop_request)],
+)
 async def stop_follow(
     lease_id: UUID,
     service: VisionServiceDependency,

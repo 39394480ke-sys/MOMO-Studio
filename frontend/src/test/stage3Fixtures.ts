@@ -141,13 +141,15 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
 
     if (path === '/health') {
       return jsonResponse({
-        status: 'ok', product: 'MOMO Studio', version: '0.1.0', stage: 4,
+        status: 'ok', product: 'MOMO Studio', version: '0.1.0-rc1', stage: 8,
         control_mode: 'DRY_RUN', hardware_access_policy: 'DISABLED', real_motion_enabled: false,
       });
     }
     if (path === '/meta') {
       return jsonResponse({
-        product: 'MOMO Studio', version: '0.1.0', api_version: 'v1', stage: 4,
+        product: 'MOMO Studio', version: '0.1.0-rc1', api_version: 'v1', stage: 8,
+        release_status: 'FIELD_ACCEPTANCE_REQUIRED', dry_run_validated: true,
+        real_hardware_field_acceptance: 'PENDING',
         active_robot_variant: variant, supported_robot_variants: ['V1', 'V2'],
         supported_control_modes: ['DRY_RUN', 'REAL'], active_control_mode: 'DRY_RUN',
         hardware_access_policy: 'DISABLED', real_motion_enabled: false,

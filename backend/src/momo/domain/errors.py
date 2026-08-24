@@ -110,6 +110,14 @@ class RevisionConflictError(RobotApplicationError):
     status_code = 409
 
 
+class AtomicImportCommittedError(OSError):
+    """An exact entity import became visible but directory durability is uncertain."""
+
+    def __init__(self, message: str, *, cancellation_requested: bool = False) -> None:
+        super().__init__(message)
+        self.cancellation_requested = cancellation_requested
+
+
 class EntityInvalidError(RobotApplicationError):
     code = "ENTITY_INVALID"
     status_code = 422

@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends
 from momo.api.dependencies import get_robot_service, get_settings
 from momo.api.schemas import MetaResponse, ProductScopeResponse
 from momo.application.services.robot_service import RobotApplicationService
-from momo.domain.enums import ControlMode, HardwareAccessPolicy
 from momo.settings import Settings
 
 router = APIRouter(prefix="/meta", tags=["meta"])
@@ -25,9 +24,9 @@ async def metadata(
         product=settings.product_name,
         version=settings.version,
         active_robot_variant=status.variant,
-        active_control_mode=ControlMode.DRY_RUN,
-        hardware_access_policy=HardwareAccessPolicy.DISABLED,
-        real_motion_enabled=False,
+        active_control_mode=settings.control_mode,
+        hardware_access_policy=settings.hardware_access_policy,
+        real_motion_enabled=settings.real_motion_enabled,
     )
 
 
@@ -68,6 +67,14 @@ def product_scope(settings: SettingsDependency) -> ProductScopeResponse:
             "normalized manual target selection and honest provider capabilities",
             "person and face detection against the Synthetic fixture",
             "lease-bound Dry Run Follow through the Motion Safety Gateway",
+        ],
+        stage_8_available=[
+            "deny-by-default Real readiness and short-lived Operator Sessions",
+            "explicit-ID ServoBus boundary with Fake Bus acceptance coverage",
+            "protected read-only diagnostics and calibration workflow",
+            "prepared-trajectory Real executor path validated only with Fake Bus",
+            "LAN authorization, redacted audit, config-free backup, and schema preview",
+            "release-candidate packaging and field-acceptance documentation",
         ],
         included_in_first_version=[
             "single active MOMO V1 or V2 robot",

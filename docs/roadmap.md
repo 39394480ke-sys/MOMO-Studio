@@ -109,7 +109,7 @@ and composed frontend session hooks. Commit
 `37783bdf8c01146d3a312980dbe4a25716e5468c` contains the Stage and is pushed to
 `origin/codex/v1-autonomous-completion`.
 
-## Stage 7 - Vision and safe following (implementation/audit green; delivery pending)
+## Stage 7 - Vision and safe following (complete / green)
 
 The Stage 7 worktree implements:
 
@@ -131,33 +131,60 @@ core/Follow/API suite, 190 frontend tests across 14 files, a focused 16-test Vis
 client/page suite, backend/frontend static/build/schema/lock/npm gates, and real-app
 desktop/mobile browser acceptance with empty warning/error logs. No OpenCV dependency
 was added; no camera was opened/enumerated and no model was downloaded. Final independent
-audit closes P1=0/P2=0. The dedicated Stage 7 commit/push remains Pending, so Stage 7 is
-not yet complete.
+audit closes P1=0/P2=0. Stage 7 is complete in pushed commit
+`dedbdabb9a35aefea01df05f0652214428305a93`.
 
-## Stage 8 - Real boundary and release hardening (not started)
+## Stage 8 - Real boundary and release hardening (software complete / green; delivery pending)
 
-Planned scope: minimal ServoBus port, Fake Bus, gated optional Feetech shell, multi-factor
-Real readiness, short-lived Operator Session, explicit-ID/no-scan connection,
-read-only diagnostics, protected Calibration workflow, Fake-Bus Real executor,
-uncertain Stop semantics, LAN security, backup/migration, CI, operator/field acceptance
-documents, packaging plan, and `0.1.0-rc1` with
-`FIELD_ACCEPTANCE_REQUIRED`.
+The current worktree implements:
 
-No field item will be executed autonomously. Real Joint, Cartesian, Playback, and Vision
-capabilities remain independently blocked until every applicable verified Profile,
-Calibration, Kinematics, device, operator, and field-acceptance gate is satisfied.
+- a minimal explicit-ID/no-scan `ServoBus` port, deterministic Fake Bus, and a lazy
+  optional Feetech shell that remains `PENDING_ADAPTER_VERIFICATION` and disables goal
+  writes until its package/API/license/cancellation/physical semantics are reviewed;
+- a pure multi-factor Real readiness matrix, separate capability readiness, a bounded
+  context-bound Operator Session, explicit-connect/read-only diagnostics, and backend
+  expiry cleanup without automatic connect, Home, torque, scan, or movement;
+- a selected-joint current-angle Calibration workflow with complete preview, immutable
+  revision/fingerprint, atomic V1/V2 file replacement, prior-revision backup, and
+  explicit rollback; examples cannot be promoted to Real;
+- an exact-PreparedTrajectory Real executor exercised only through Fake Bus contracts,
+  including raw mapping/bounds, monotonic deadlines, readback/divergence, partial-write,
+  cancellation, session expiry, and truthful Stop uncertainty;
+- loopback-by-default serving, opt-in authenticated LAN, exact same-host HTTP Origin,
+  bounded HttpOnly sessions, ongoing WebSocket/Vision authorization, request/body/rate
+  bounds, and structured redacted audit;
+- deterministic config-free backup/export/preview/migration, one-use preview grants,
+  exact-revision import, atomic Calibration batch handling, and a durable write-ahead
+  journal with startup recovery for process-crash atomic restore;
+- same-backend relative SPA hosting, no CDN-backed API docs or runtime asset dependency,
+  CI isolation checks, operator/security/recovery/field documentation, and release
+  identity `0.1.0-rc1` / `FIELD_ACCEPTANCE_REQUIRED`.
+
+No field item has been or will be executed autonomously. The shipped defaults remain
+Dry Run, hardware Disabled, real motion false, Synthetic camera, and field acceptance
+Pending. Real Joint, Cartesian, Playback, and Vision capabilities remain independently
+blocked until every applicable verified Profile, Calibration, Kinematics, adapter,
+device, operator, and field-acceptance gate is satisfied.
+
+Final software evidence is GREEN: 563 backend tests, 201 frontend tests across 17 files,
+Ruff/format/strict mypy, ESLint/TypeScript/build, deterministic schemas, lock/dependency,
+52-test isolation, secret-scan, and npm-audit gates pass. The complete V2 Dry Run workflow
+passes at 1440×960 and 390×844, with 850/830 breakpoint checks, no horizontal overflow,
+and console warnings/errors `[]`. The final independent audit closes P1=0/P2=0 after 74
+focused tests. The dedicated Stage 8 commit/push and Draft PR disposition remain pending.
 
 ## Evidence still required
 
-- Stage 7 dedicated commit/push, plus Stage 8 implementation, verification, and
-  dedicated commit;
+- dedicated Stage 8 commit/push and Draft PR disposition;
 - physically verified V1/V2 geometry, frames, joint limits, Homes, directions, Servo
   IDs, scales, raw bounds, modes, workspace, FK references, IK tolerances, and dynamics;
 - reviewed production Calibration lifecycle and independent device/field acceptance;
 - exact dependency/license provenance for every optional hardware, vision, model, mesh,
   or binary artifact;
-- LAN authentication, backup/migration, reproducible release, and packaging evidence;
-- final combined verification, clean tree, push, and Draft PR.
+- deployment-topology LAN/TLS/firewall evidence and independent backup disaster-recovery
+  exercise outside the automated fixture environment;
+- reproducible packaged distribution, repository license decision, and native packaging
+  evidence if Tauri is later introduced.
 
 All later work must preserve domain/application/ports/adapters/API boundaries, explicit
 enabled-joint/unit contracts, bounded resources, one motion safety entry point, and the

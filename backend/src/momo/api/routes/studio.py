@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from momo.api.dependencies import get_studio_service
+from momo.api.security import authorize_control_request
 from momo.api.studio_schemas import (
     MotionDraftCompileResponse,
     MotionDraftListResponse,
@@ -137,6 +138,7 @@ async def abandon_draft_save_intent(
     "/drafts/{draft_id}/keyframes/{keyframe_id}/goto",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def goto_draft_keyframe(
     draft_id: UUID,

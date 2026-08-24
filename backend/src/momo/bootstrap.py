@@ -11,6 +11,7 @@ from momo.adapters.kinematics.serial_chain import SerialChainKinematics
 from momo.adapters.motion.dry_run_motion_executor import DryRunMotionExecutor
 from momo.adapters.playback.latest_value_observer import LatestValuePlaybackObserver
 from momo.adapters.storage.file_calibration_repository import FileCalibrationRepository
+from momo.adapters.storage.file_entity_repository import RepositoryMaintenanceGate
 from momo.adapters.storage.file_motion_draft_repository import FileMotionDraftRepository
 from momo.adapters.storage.file_motion_repository import FileMotionRepository
 from momo.adapters.storage.file_pose_repository import FilePoseRepository
@@ -100,6 +101,7 @@ class ApplicationServices:
     studio: StudioApplicationService
     vision: VisionApplicationService
     playback_observer: LatestValuePlaybackObserver
+    maintenance_gate: RepositoryMaintenanceGate
 
 
 def build_application_services(
@@ -135,10 +137,16 @@ def build_application_services(
     )
     motion.register_stop_hook(jog.stop_all)
     motion_repository = FileMotionRepository(
-        _resolve_configured_path(settings.motion_library_directory, root), clock
+        _resolve_configured_path(settings.motion_library_directory, root),
+        clock,
+        maintenance_gate=(maintenance_gate := RepositoryMaintenanceGate()),
     )
     library = LibraryApplicationService(
-        FilePoseRepository(_resolve_configured_path(settings.pose_directory, root), clock),
+        FilePoseRepository(
+            _resolve_configured_path(settings.pose_directory, root),
+            clock,
+            maintenance_gate=maintenance_gate,
+        ),
         motion_repository,
         robot_service,
         kinematics,
@@ -165,7 +173,9 @@ def build_application_services(
     motion.register_stop_hook(trajectory.shutdown)
     studio = StudioApplicationService(
         FileMotionDraftRepository(
-            _resolve_configured_path(settings.motion_draft_directory, root), clock
+            _resolve_configured_path(settings.motion_draft_directory, root),
+            clock,
+            maintenance_gate=maintenance_gate,
         ),
         library,
         robot_service,
@@ -244,4 +254,5 @@ def build_application_services(
         studio=studio,
         vision=vision,
         playback_observer=playback_observer,
+        maintenance_gate=maintenance_gate,
     )

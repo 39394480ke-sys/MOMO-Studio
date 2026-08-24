@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 
 from momo.api.dependencies import get_jog_service, get_motion_service
 from momo.api.motion_schemas import (
@@ -14,9 +14,11 @@ from momo.api.motion_schemas import (
     MoveJointsRequest,
     MovePoseRequest,
 )
+from momo.api.security import authorize_control_request, authorize_priority_stop_request
 from momo.application.services.jog_service import JogLeaseService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.domain.jog import JogLeaseResponse, JogStopResponse
+from momo.domain.motion_command import MotionCommand
 from momo.domain.motion_preflight import MotionAccepted, MotionCommandStatus
 from momo.domain.runtime import StopResponse
 
@@ -25,79 +27,147 @@ MotionServiceDependency = Annotated[MotionApplicationService, Depends(get_motion
 JogServiceDependency = Annotated[JogLeaseService, Depends(get_jog_service)]
 
 
+def _set_motion_audit_context(
+    http_request: Request,
+    *,
+    command_id: UUID,
+    robot_id: str,
+    preflight: str,
+) -> None:
+    """Attach bounded motion evidence to the request-level structured audit."""
+
+    http_request.state.command_id = str(command_id)
+    http_request.state.robot_id = robot_id
+    http_request.state.mode = "DRY_RUN"
+    http_request.state.preflight = preflight
+
+
+async def _submit_motion(
+    http_request: Request,
+    service: MotionApplicationService,
+    command: MotionCommand,
+) -> MotionAccepted:
+    command_id = command.command_id
+    robot_id = command.robot_id
+    _set_motion_audit_context(
+        http_request,
+        command_id=command_id,
+        robot_id=robot_id,
+        preflight="PENDING",
+    )
+    try:
+        accepted = await service.submit(command)
+    except Exception:
+        http_request.state.preflight = "REJECTED"
+        raise
+    http_request.state.command_id = str(accepted.command_id)
+    http_request.state.preflight = "ACCEPTED" if accepted.preflight.accepted else "REJECTED"
+    return accepted
+
+
 @router.post(
     "/joints",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def move_joints(
     request: MoveJointsRequest,
+    http_request: Request,
     service: MotionServiceDependency,
 ) -> MotionAccepted:
-    return await service.submit(request.command())
+    return await _submit_motion(http_request, service, request.command())
 
 
 @router.post(
     "/jog-step",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def joint_jog_step(
     request: JointJogStepRequest,
+    http_request: Request,
     service: MotionServiceDependency,
 ) -> MotionAccepted:
-    return await service.submit(request.command())
+    return await _submit_motion(http_request, service, request.command())
 
 
 @router.post(
     "/cartesian-jog",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def cartesian_jog(
     request: CartesianJogRequest,
+    http_request: Request,
     service: MotionServiceDependency,
 ) -> MotionAccepted:
-    return await service.submit(request.command())
+    return await _submit_motion(http_request, service, request.command())
 
 
 @router.post(
     "/pose",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def move_pose(
     request: MovePoseRequest,
+    http_request: Request,
     service: MotionServiceDependency,
 ) -> MotionAccepted:
-    return await service.submit(request.command())
+    return await _submit_motion(http_request, service, request.command())
 
 
 @router.post(
     "/home",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def home(
     request: HomeRequest,
+    http_request: Request,
     service: MotionServiceDependency,
 ) -> MotionAccepted:
-    return await service.submit(request.command())
+    return await _submit_motion(http_request, service, request.command())
 
 
 @router.post(
     "/jog/start",
     response_model=JogLeaseResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
 )
 async def start_continuous_jog(
     request: ContinuousJogStartRequest,
+    http_request: Request,
     service: JogServiceDependency,
 ) -> JogLeaseResponse:
-    return await service.start(request.command())
+    command = request.command()
+    _set_motion_audit_context(
+        http_request,
+        command_id=command.command_id,
+        robot_id=command.robot_id,
+        preflight="PENDING",
+    )
+    try:
+        response = await service.start(command)
+    except Exception:
+        http_request.state.preflight = "REJECTED"
+        raise
+    http_request.state.command_id = str(response.command_id)
+    http_request.state.preflight = "ACCEPTED"
+    return response
 
 
-@router.post("/jog/{session_id}/heartbeat", response_model=JogLeaseResponse)
+@router.post(
+    "/jog/{session_id}/heartbeat",
+    response_model=JogLeaseResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
 async def heartbeat_continuous_jog(
     session_id: UUID,
     service: JogServiceDependency,
@@ -105,7 +175,11 @@ async def heartbeat_continuous_jog(
     return await service.heartbeat(session_id)
 
 
-@router.post("/jog/{session_id}/stop", response_model=JogStopResponse)
+@router.post(
+    "/jog/{session_id}/stop",
+    response_model=JogStopResponse,
+    dependencies=[Depends(authorize_priority_stop_request)],
+)
 async def stop_continuous_jog(
     session_id: UUID,
     service: JogServiceDependency,
@@ -121,6 +195,10 @@ async def command_status(
     return service.get_status(command_id)
 
 
-@router.post("/stop", response_model=StopResponse)
+@router.post(
+    "/stop",
+    response_model=StopResponse,
+    dependencies=[Depends(authorize_priority_stop_request)],
+)
 async def stop_motion(service: MotionServiceDependency) -> StopResponse:
     return await service.stop()

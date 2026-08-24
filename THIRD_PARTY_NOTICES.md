@@ -89,6 +89,35 @@ scene fixtures written for repository tests and browser acceptance. They contain
 third-party weights or training data and must not be represented as a general-purpose
 learned model.
 
+### Stage 8 optional Feetech adapter candidate
+
+The pinned Legacy commit declares `feetech-servo-sdk==1.0.0` in its tracked
+`requirements-arm.txt`, and tracked Legacy code imports that distribution as
+`scservo_sdk`. MOMO Studio used those tracked facts only to shape an independently
+written, lazy optional adapter shell. It copied no SDK source, register table, driver,
+binary, Calibration, serial setting, or Stop implementation. The package is not added to
+`backend/pyproject.toml` or `backend/uv.lock`; normal import, startup, tests, and builds do
+not import it.
+
+The candidate remains **Pending Adapter Verification**. The
+[PyPI 1.0.0 record](https://pypi.org/project/feetech-servo-sdk/1.0.0/) identifies a 2022
+source distribution, `scservo_sdk`, an Adam-Software homepage, and `The Unlicense`, while
+describing its contents as copied from an older official archive. The currently visible
+[FTServo SDK repository](https://gitee.com/ftservo/SCServoSDK) added an MIT license in
+2024. Those facts do not establish that the exact 2022 archive, every copied file, or the
+package's physical Stop/register semantics share the later license or current API.
+LeRobot's current Feetech adapter documentation also describes the published PyPI build
+as unofficial and applies compatibility workarounds; MOMO Studio does not reuse that
+implementation.
+
+Before enabling or distributing the optional adapter, a reviewer must pin and inspect
+the exact artifact and hash, trace every file to its upstream revision/license, collect
+license text, confirm Python/platform support, validate only the required typed calls,
+and field-test explicit-ID ping/read/write and Stop/Hold semantics. Until then the shell
+reports unavailable/Pending, and Stop returns `SAFETY_STATE_UNCERTAIN` rather than
+guessing. No package installation, archive download, serial access, or hardware call was
+performed during Stage 8 autonomous work.
+
 ## Project-generated design reference
 
 `docs/design/stage-01-shell-concept.png` was generated specifically for this repository on 2026-08-23 with OpenAI's built-in image-generation tool from a MOMO Studio Stage 1 UI brief. It used no Legacy image, robot asset, logo, screenshot or other third-party reference input. The file is design evidence only and is not rendered by the product.

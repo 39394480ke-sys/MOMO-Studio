@@ -6,10 +6,13 @@ import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from momo.api.security import authorize_websocket
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.playback_service import PlaybackService
 from momo.application.services.robot_service import RobotApplicationService
+from momo.application.services.security_service import SecurityService
+from momo.domain.security import SecurityViolation
 
 router = APIRouter(tags=["robot-state"])
 WS_UPDATE_HZ = 10.0
@@ -23,6 +26,11 @@ async def _wait_for_next_publish() -> None:
 
 @router.websocket("/ws/robot")
 async def robot_state_socket(websocket: WebSocket) -> None:
+    security: SecurityService = websocket.app.state.security_service
+    try:
+        await authorize_websocket(websocket, security)
+    except SecurityViolation:
+        return
     await websocket.accept()
     robot_service: RobotApplicationService = websocket.app.state.robot_service
     kinematics: KinematicsService = websocket.app.state.kinematics_service
@@ -30,6 +38,9 @@ async def robot_state_socket(websocket: WebSocket) -> None:
     playback: PlaybackService = websocket.app.state.playback_service
     try:
         while True:
+            # Session cookies are short lived and revocable. Re-authorize every
+            # bounded publish so an established socket cannot outlive its grant.
+            await authorize_websocket(websocket, security)
             status, profile, state = await robot_service.get_motion_snapshot()
             fk = await kinematics.forward(
                 profile,
@@ -56,5 +67,5 @@ async def robot_state_socket(websocket: WebSocket) -> None:
                 timeout=WS_SEND_TIMEOUT_S,
             )
             await _wait_for_next_publish()
-    except (WebSocketDisconnect, TimeoutError, RuntimeError):
+    except (SecurityViolation, WebSocketDisconnect, TimeoutError, RuntimeError):
         return

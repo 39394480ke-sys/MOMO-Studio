@@ -6,32 +6,35 @@ MOMO Studio is a local photography motion workstation for one active MOMO V1 or 
 
 `Connect → position in Joint or Cartesian mode → save Pose/add keyframe → arrange a timeline → choose transition, duration, hold, and easing → save Motion → manage in Library → preflight and play`
 
-The product is delivered in evidence-backed Stages. Completed work through Stage 6
+The product is delivered in evidence-backed Stages. Completed work through Stage 7
 provides Dry Run control, kinematics, Library, trajectory preflight/preview/playback,
-and Studio authoring. Stage 7 Vision/Follow implementation, browser acceptance, and
-final independent audit P1=0/P2=0 are green; dedicated commit/push remains Pending.
-The Real boundary remains separately gated Stage 8 work.
+Studio authoring, and Synthetic Vision/Follow. Stage 8 implements the separately gated
+Real-hardware, Calibration, security, backup/recovery, and release-candidate software
+boundary. Its final combined software gates, Dry Run browser acceptance, and independent
+audit pass; only dedicated Git delivery and physical field acceptance remain separate
+closeout items. No physical acceptance is implied.
 
 ## First-version capability boundary
 
 | Area | Included in product direction | Current evidence |
 |---|---|---|
-| Robot control | V1/V2, connect/disconnect, Dry Run/Real, joint state, step/continuous jog, Move Joints, parameters, Home, Stop, software emergency-stop entry | Dry Run lifecycle/control complete; Real remains blocked |
+| Robot control | V1/V2, connect/disconnect, Dry Run/Real, joint state, step/continuous jog, Move Joints, parameters, Home, Stop, software emergency-stop entry | Dry Run lifecycle/control complete; multi-factor Real software boundary implemented but default/field use blocked |
 | Kinematics | FK/IK, joint and Cartesian control, Base/Tool frames, Move Pose, reachability/error checks | Provisional Dry Run FK/IK/control complete |
 | Pose | Named snapshots containing keyed joints and canonical TCP, list/delete/Goto | Versioned atomic Library/Capture/Goto complete |
 | Motion | Embedded keyframes, transitions, timeline, library, preflight, play/pause/resume/stop, loop/rate, interpolation/sampling, multi-turn safety, compatibility checks | Formal Library, deterministic preflight/preview/Playback, and Studio Draft/edge/autosave/Save/Goto complete through Stage 6 |
-| Vision | Camera feed for selection, manual box, object/face detection, following, center error, EMA, dead zone, stop on target loss | Synthetic source/fixture detectors/tracker, frame-bound ROI, bounded stream, and lease-bound Dry Run Follow implemented; Stage 7 browser/audit green and delivery pending; live camera and Real Follow blocked |
-| Device and safety | Calibration status, current-angle calibration, per-joint diagnostics, dependency/hardware checks, joint/raw/multi-turn limits, profile/calibration match | Safety rules and architecture boundary only |
+| Vision | Camera feed for selection, manual box, object/face detection, following, center error, EMA, dead zone, stop on target loss | Synthetic source/fixture detectors/tracker, frame-bound ROI, bounded stream, and lease-bound Dry Run Follow complete in pushed Stage 7; live camera and Real Follow blocked |
+| Device and safety | Calibration status, current-angle calibration, per-joint diagnostics, dependency/hardware checks, joint/raw/multi-turn limits, profile/calibration match | Fake-only gated readiness/diagnostics/Calibration/executor software implemented; Feetech and physical acceptance pending |
+| Security and recovery | Loopback/LAN policy, REST/WebSocket/Vision auth, bounded audit, backup/preview/migration/restore | Local default, strict same-host HTTP LAN Origin, structured redaction, and WAL startup recovery implemented; deployment/field exercise pending |
 
 ## Product pages
 
 The first version has exactly five primary pages: Control, Studio, Library, Vision, and
-Settings. Every route renders and labels unavailable functionality honestly. Through
-Stage 6, Control, Library/Playback, and Studio are backend-driven. Stage 7 replaces the
-Vision placeholder with a Synthetic provider workspace for manual ROI, fixture
-detection/tracking, and lease-bound Dry Run Follow. It displays unavailable optional
-providers and the Real block reason honestly; no page fabricates live-camera or Real
-readiness.
+Settings. Every route renders and labels unavailable functionality honestly. Control,
+Library/Playback, Studio, and Synthetic Vision are backend-driven. Settings shows LAN
+session controls, Real readiness blockers, masked device evidence, diagnostics, and the
+protected Calibration workflow without fabricating availability. The persistent release
+banner says `MOMO Studio 0.1.0-rc1`, `Dry Run validated`, and `Real hardware field
+acceptance pending`. No page fabricates live-camera, Feetech, or Real readiness.
 
 ## Explicitly out of scope
 
@@ -39,7 +42,8 @@ The first version does not include PyQt or another separate desktop GUI, AI dial
 
 Vision displays a local Synthetic stream solely for target selection and following.
 Optional live capture remains separately gated. Neither capability creates photography,
-recording, or media-library scope.
+recording, or media-library scope. Backup accepts uploaded bytes, not a browser-selected
+server path, and same-backend SPA hosting does not create a second GUI.
 
 ## Variants are product contracts
 

@@ -19,7 +19,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('MOMO Studio Stage 7 shell', () => {
+describe('MOMO Studio Stage 8 release-candidate shell', () => {
   it.each([
     ['/control', 'Control'],
     ['/studio', 'Studio'],
@@ -30,7 +30,9 @@ describe('MOMO Studio Stage 7 shell', () => {
     mockStage3Backend();
     renderRoute(path);
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeVisible();
-    expect(screen.getByText(/Stage 7\s*·\s*Safe Vision Following/)).toBeVisible();
+    expect(screen.getByText('MOMO Studio 0.1.0-rc1')).toBeVisible();
+    expect(screen.getByText('Dry Run validated')).toBeVisible();
+    expect(screen.getByText('Real hardware field acceptance pending')).toBeVisible();
   });
 
   it('opens the active Studio timeline authoring workspace', async () => {

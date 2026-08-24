@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "momo-studio-backend"
-version = "0.1.0"
-description = "Stage 7 Dry Run Studio with safe Synthetic vision following"
+version = "0.1.0-rc1"
+description = "MOMO Studio v1 release candidate with field-gated hardware boundaries"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
@@ -16,6 +16,9 @@ dependencies = [
   "PyYAML>=6,<7",
   "uvicorn[standard]>=0.34,<1",
 ]
+
+[project.scripts]
+momo-studio-serve = "momo.serve:main"
 
 [project.optional-dependencies]
 dev = [

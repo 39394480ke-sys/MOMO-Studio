@@ -17,7 +17,7 @@ from momo.settings import Settings
 def make_app() -> FastAPI:
     settings = Settings(
         product_name="MOMO Studio",
-        version="0.1.0",
+        version="0.1.0-rc1",
         control_mode=ControlMode.DRY_RUN,
         real_motion_enabled=False,
         active_robot_variant=RobotVariant.V2,
@@ -51,8 +51,8 @@ def test_health_api_is_dry_run_and_real_motion_is_disabled() -> None:
     assert response.json() == {
         "status": "ok",
         "product": "MOMO Studio",
-        "version": "0.1.0",
-        "stage": 7,
+        "version": "0.1.0-rc1",
+        "stage": 8,
         "control_mode": "DRY_RUN",
         "hardware_access_policy": "DISABLED",
         "real_motion_enabled": False,
@@ -66,11 +66,14 @@ def test_meta_and_product_scope_apis() -> None:
     assert response.json()["supported_robot_variants"] == ["V1", "V2"]
     assert response.json()["active_robot_variant"] == "V2"
     assert response.json()["real_motion_enabled"] is False
+    assert response.json()["release_status"] == "FIELD_ACCEPTANCE_REQUIRED"
+    assert response.json()["dry_run_validated"] is True
+    assert response.json()["real_hardware_field_acceptance"] == "PENDING"
 
     scope_response = get(app, "/api/v1/meta/product-scope")
     assert scope_response.status_code == 200
     scope = scope_response.json()
-    assert scope["stage"] == 7
+    assert scope["stage"] == 8
     assert "mesh-free FK and IK" in scope["stage_3_available"]
     assert "coherent FK-backed Pose capture" in scope["stage_4_available"]
     assert (
@@ -84,16 +87,36 @@ def test_meta_and_product_scope_apis() -> None:
     assert (
         "lease-bound Dry Run Follow through the Motion Safety Gateway" in scope["stage_7_available"]
     )
+    assert (
+        "deny-by-default Real readiness and short-lived Operator Sessions"
+        in scope["stage_8_available"]
+    )
     assert scope["release"] == "first_version"
     assert "single active MOMO V1 or V2 robot" in scope["included_in_first_version"]
     assert "photo, video recording, or media management" in scope["excluded_from_first_version"]
 
 
-def test_stage_three_exposes_reviewed_motion_api_and_read_only_websocket() -> None:
+def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
     app = create_app(Settings(control_mode=ControlMode.DRY_RUN, real_motion_enabled=False))
     api_paths = {path: frozenset(methods) for path, methods in app.openapi()["paths"].items()}
     assert api_paths == {
+        "/api/v1/backup/export": frozenset({"post"}),
+        "/api/v1/backup/import/preview": frozenset({"post"}),
+        "/api/v1/backup/import/restore": frozenset({"post"}),
         "/api/v1/calibration/status": frozenset({"get"}),
+        "/api/v1/device/connect": frozenset({"post"}),
+        "/api/v1/device/calibration/rollback": frozenset({"post"}),
+        "/api/v1/device/calibration/sessions": frozenset({"post"}),
+        "/api/v1/device/calibration/sessions/{session_id}": frozenset({"get", "delete"}),
+        "/api/v1/device/calibration/sessions/{session_id}/complete": frozenset({"post"}),
+        "/api/v1/device/calibration/sessions/{session_id}/confirm": frozenset({"post"}),
+        "/api/v1/device/calibration/sessions/{session_id}/preview": frozenset({"post"}),
+        "/api/v1/device/calibration/sessions/{session_id}/read": frozenset({"post"}),
+        "/api/v1/device/diagnostics": frozenset({"post"}),
+        "/api/v1/device/disconnect": frozenset({"post"}),
+        "/api/v1/device/operator-session": frozenset({"post", "delete"}),
+        "/api/v1/device/readiness": frozenset({"get"}),
+        "/api/v1/device/stop": frozenset({"post"}),
         "/api/v1/health": frozenset({"get"}),
         "/api/v1/kinematics/ik": frozenset({"post"}),
         "/api/v1/meta": frozenset({"get"}),
@@ -132,6 +155,7 @@ def test_stage_three_exposes_reviewed_motion_api_and_read_only_websocket() -> No
         "/api/v1/robot/profile": frozenset({"get"}),
         "/api/v1/robot/stop": frozenset({"post"}),
         "/api/v1/robot/variant": frozenset({"put"}),
+        "/api/v1/security/session": frozenset({"post", "delete"}),
         "/api/v1/studio/capture": frozenset({"post"}),
         "/api/v1/studio/drafts": frozenset({"get", "post"}),
         "/api/v1/studio/drafts/from-motion/{motion_id}": frozenset({"post"}),

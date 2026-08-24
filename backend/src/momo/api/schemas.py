@@ -16,10 +16,10 @@ class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     product: str
     version: str
-    stage: Literal[7] = 7
-    control_mode: Literal[ControlMode.DRY_RUN] = ControlMode.DRY_RUN
-    hardware_access_policy: Literal[HardwareAccessPolicy.DISABLED] = HardwareAccessPolicy.DISABLED
-    real_motion_enabled: Literal[False] = False
+    stage: Literal[8] = 8
+    control_mode: ControlMode
+    hardware_access_policy: HardwareAccessPolicy
+    real_motion_enabled: bool
 
 
 class MetaResponse(BaseModel):
@@ -28,7 +28,10 @@ class MetaResponse(BaseModel):
     product: str
     version: str
     api_version: Literal["v1"] = "v1"
-    stage: Literal[7] = 7
+    stage: Literal[8] = 8
+    release_status: Literal["FIELD_ACCEPTANCE_REQUIRED"] = "FIELD_ACCEPTANCE_REQUIRED"
+    dry_run_validated: Literal[True] = True
+    real_hardware_field_acceptance: Literal["PENDING"] = "PENDING"
     active_robot_variant: RobotVariant
     supported_robot_variants: list[RobotVariant] = Field(
         default_factory=lambda: [RobotVariant.V1, RobotVariant.V2]
@@ -36,9 +39,9 @@ class MetaResponse(BaseModel):
     supported_control_modes: list[ControlMode] = Field(
         default_factory=lambda: [ControlMode.DRY_RUN, ControlMode.REAL]
     )
-    active_control_mode: Literal[ControlMode.DRY_RUN] = ControlMode.DRY_RUN
-    hardware_access_policy: Literal[HardwareAccessPolicy.DISABLED] = HardwareAccessPolicy.DISABLED
-    real_motion_enabled: Literal[False] = False
+    active_control_mode: ControlMode
+    hardware_access_policy: HardwareAccessPolicy
+    real_motion_enabled: bool
 
 
 class ProductScopeResponse(BaseModel):
@@ -46,12 +49,13 @@ class ProductScopeResponse(BaseModel):
 
     product: str
     release: Literal["first_version"] = "first_version"
-    stage: Literal[7] = 7
+    stage: Literal[8] = 8
     stage_3_available: list[str]
     stage_4_available: list[str]
     stage_5_available: list[str]
     stage_6_available: list[str]
     stage_7_available: list[str]
+    stage_8_available: list[str]
     included_in_first_version: list[str]
     excluded_from_first_version: list[str]
 

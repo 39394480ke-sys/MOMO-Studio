@@ -39,7 +39,11 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
-      <footer className="stage-footer">Stage 7&nbsp; · &nbsp;Safe Vision Following</footer>
+      <footer className="stage-footer" aria-label="Release status">
+        <strong>MOMO Studio 0.1.0-rc1</strong>
+        <span>Dry Run validated</span>
+        <span>Real hardware field acceptance pending</span>
+      </footer>
     </div>
   );
 }

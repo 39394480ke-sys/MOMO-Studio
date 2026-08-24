@@ -129,6 +129,8 @@ export function useRobotSocket(enabled: boolean): {
     const connect = () => {
       if (disposed) return;
       setConnectionState('connecting');
+      // The browser supplies the scoped HttpOnly cookie. Never add a token to this
+      // URL or expose it through a JavaScript-readable WebSocket subprotocol.
       const currentSocket = new WebSocket(robotWebSocketUrl());
       let closeHandled = false;
       socket = currentSocket;

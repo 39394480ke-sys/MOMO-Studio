@@ -10,10 +10,12 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   readonly listeners = new Map<string, SocketListener[]>();
   readonly url: string;
+  readonly protocols: string | string[] | undefined;
   closed = false;
 
-  constructor(url: string) {
+  constructor(url: string, protocols?: string | string[]) {
     this.url = url;
+    this.protocols = protocols;
     FakeWebSocket.instances.push(this);
   }
 
@@ -50,6 +52,19 @@ afterEach(() => {
 });
 
 describe('robot WebSocket', () => {
+  it('uses the browser HttpOnly-cookie transport without a URL or subprotocol token', () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    render(<SocketState />);
+
+    const socket = FakeWebSocket.instances[0];
+    const url = new URL(socket.url);
+    expect(url.pathname).toBe('/api/v1/ws/robot');
+    expect(url.search).toBe('');
+    expect(url.username).toBe('');
+    expect(url.password).toBe('');
+    expect(socket.protocols).toBeUndefined();
+  });
+
   it('parses robot, TCP, command progress, and state sequence from the Stage 3 payload', () => {
     const robot = robotFor('V2', true);
     const parsed = parseRobotSocketMessage({

@@ -8,7 +8,9 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from momo.domain.backup import BackupEnvelope, BackupRestoreTransaction
 from momo.domain.calibration import CalibrationDocument
+from momo.domain.calibration_workflow import CalibrationRevisionRecord
 from momo.domain.kinematics.model import KinematicsModel
 from momo.domain.motion import Motion
 from momo.domain.motion_draft import MotionDraft, motion_draft_persisted_json_schema
@@ -19,7 +21,10 @@ from momo.domain.vision import FrameMetadata, TrackingResult
 from momo.domain.vision_follow import FollowStatus
 
 SCHEMAS: dict[str, type[BaseModel]] = {
+    "backup-envelope.schema.json": BackupEnvelope,
+    "backup-restore-transaction.schema.json": BackupRestoreTransaction,
     "calibration.schema.json": CalibrationDocument,
+    "calibration-revision.schema.json": CalibrationRevisionRecord,
     "kinematics-model.schema.json": KinematicsModel,
     "motion.schema.json": Motion,
     "motion-draft.schema.json": MotionDraft,
