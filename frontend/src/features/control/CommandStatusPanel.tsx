@@ -13,7 +13,7 @@ interface CommandStatusPanelProps {
 function PreflightEvidence({ preflight }: { preflight: MotionPreflightReport }) {
   return (
     <div className="preflight-report">
-      <strong>{preflight.accepted ? 'Preflight accepted' : 'Preflight rejected'}</strong>
+      <strong>{preflight.accepted ? '预检通过' : '预检未通过'}</strong>
       <ul>
         {preflight.checks.map((check, index) => (
           <li
@@ -42,8 +42,8 @@ export function CommandStatusPanel({
     <section className="control-panel control-panel--command" aria-labelledby="command-status-title">
       <div className="section-heading section-heading--compact">
         <div>
-          <p className="section-kicker">Command / Preflight</p>
-          <h2 id="command-status-title">Execution status</h2>
+          <p className="section-kicker">命令 / 预检</p>
+          <h2 id="command-status-title">执行状态</h2>
         </div>
         <span className={`command-state command-state--${command?.state.toLowerCase() ?? 'idle'}`}>
           {command?.state ?? 'IDLE'}
@@ -53,19 +53,19 @@ export function CommandStatusPanel({
       {command ? (
         <div className="command-status-body" role="status">
           <code>{command.command_id}</code>
-          <div className="command-progress" aria-label="Command progress">
+          <div className="command-progress" aria-label="命令进度">
             <span style={{ width: `${Math.max(0, Math.min(1, command.progress ?? 0)) * 100}%` }} />
           </div>
           <p>{Math.round((command.progress ?? 0) * 100)}% {command.message ?? ''}</p>
           {preflight ? (
             <PreflightEvidence preflight={preflight} />
           ) : (
-            <p className="inline-status"><Clock3 aria-hidden="true" /> Waiting for preflight evidence.</p>
+            <p className="inline-status"><Clock3 aria-hidden="true" /> 等待预检结果。</p>
           )}
           {command.error ? <p className="motion-error"><CircleAlert aria-hidden="true" /> {command.error}</p> : null}
         </div>
       ) : (
-        <p className="empty-state">No motion command has been submitted in this session.</p>
+        <p className="empty-state">本次会话尚未提交运动命令。</p>
       )}
 
       {rejectedPreflight ? <PreflightEvidence preflight={rejectedPreflight} /> : null}

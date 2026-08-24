@@ -4,11 +4,11 @@ import { NavIcon } from '../components/NavIcon';
 import { StatusHeader } from '../components/StatusHeader';
 
 const navigation = [
-  { label: 'Control', to: '/control', icon: 'control' },
-  { label: 'Studio', to: '/studio', icon: 'studio' },
-  { label: 'Library', to: '/library', icon: 'library' },
-  { label: 'Vision', to: '/vision', icon: 'vision' },
-  { label: 'Settings', to: '/settings', icon: 'settings' },
+  { label: '控制', to: '/control', icon: 'control' },
+  { label: '编排', to: '/studio', icon: 'studio' },
+  { label: '资源库', to: '/library', icon: 'library' },
+  { label: '视觉', to: '/vision', icon: 'vision' },
+  { label: '设置', to: '/settings', icon: 'settings' },
 ] as const;
 
 export function AppShell() {
@@ -18,7 +18,7 @@ export function AppShell() {
         <div className="brand" aria-label="MOMO Studio">
           <strong>MOMO</strong> <span>Studio</span>
         </div>
-        <nav className="main-nav" aria-label="Primary navigation">
+        <nav className="main-nav" aria-label="主导航">
           {navigation.map((item) => (
             <NavLink
               className={({ isActive }) =>
@@ -39,10 +39,10 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
-      <footer className="stage-footer" aria-label="Release status">
+      <footer className="stage-footer" aria-label="发布状态">
         <strong>MOMO Studio 0.1.0-rc1</strong>
-        <span>Dry Run validated</span>
-        <span>Real hardware field acceptance pending</span>
+        <span>仿真运行已验证</span>
+        <span>真实硬件现场验收待完成</span>
       </footer>
     </div>
   );

@@ -39,7 +39,7 @@ const TERMINAL_COMMAND_STATES = new Set([
 ]);
 
 function formatUpdatedAt(value: string | undefined): string {
-  if (!value) return 'Waiting for backend';
+  if (!value) return '等待后端';
   return new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
     minute: '2-digit',
@@ -69,28 +69,28 @@ function availabilityFor(options: {
   fk: ReturnType<typeof useForwardKinematics>['fk'];
   expectedStateSequence: number | null;
 }): MotionAvailability {
-  if (!options.backendOnline) return { allowed: false, reason: 'Backend unavailable' };
-  if (options.stale) return { allowed: false, reason: 'Backend state is stale' };
-  if (!options.robot) return { allowed: false, reason: 'Waiting for robot state' };
+  if (!options.backendOnline) return { allowed: false, reason: '后端不可用' };
+  if (options.stale) return { allowed: false, reason: '后端状态已过期' };
+  if (!options.robot) return { allowed: false, reason: '等待机器人状态' };
   if (!options.robot.connected) {
-    return { allowed: false, reason: 'Connect the Dry Run robot to enable motion' };
+    return { allowed: false, reason: '连接仿真机器人后即可启用运动' };
   }
   if (!options.hasCompleteProfile) {
-    return { allowed: false, reason: 'Active profile does not match this robot' };
+    return { allowed: false, reason: '活动配置与此机器人不匹配' };
   }
   if (!options.fk) {
-    return { allowed: false, reason: 'Waiting for current forward kinematics' };
+    return { allowed: false, reason: '等待当前正向运动学结果' };
   }
   if (
     options.expectedStateSequence === null ||
     options.fk.state_sequence !== options.expectedStateSequence
   ) {
-    return { allowed: false, reason: 'Synchronizing robot state and forward kinematics' };
+    return { allowed: false, reason: '正在同步机器人状态与正向运动学' };
   }
   if (options.fk.profile_fingerprint !== options.robot.profile_fingerprint) {
-    return { allowed: false, reason: 'Profile fingerprint changed; refresh before moving' };
+    return { allowed: false, reason: '配置指纹已变化；请刷新后再运动' };
   }
-  return { allowed: true, reason: 'Dry Run motion is ready' };
+  return { allowed: true, reason: '仿真运动已就绪' };
 }
 
 export function ControlPage() {
@@ -119,9 +119,9 @@ export function ControlPage() {
   });
   const availability = useMemo(
     () => commands.stopUncertain
-      ? { allowed: false, reason: 'Motion safety state is uncertain; use STOP MOTION' }
+      ? { allowed: false, reason: '运动安全状态不确定；请停止运动' }
       : runtime.pendingAction !== null
-        ? { allowed: false, reason: 'Robot lifecycle action pending · motion disabled' }
+        ? { allowed: false, reason: '机器人生命周期操作进行中 · 运动已禁用' }
       : availabilityFor({
           backendOnline,
           stale: effectiveStale,
@@ -325,9 +325,9 @@ export function ControlPage() {
   return (
     <div className="page control-workspace">
       <PageIntro
-        title="Control"
-        description="One safety-gated Dry Run workspace for direct robot motion."
-        detail="Keyed V1/V2 joints, TCP kinematics, Cartesian motion, and deadman jog leases."
+        title="控制"
+        description="用于直接控制机器人运动的安全门控仿真工作区。"
+        detail="支持 V1/V2 关节、TCP 运动学、笛卡尔运动与按住点动安全租约。"
       />
 
       {(runtime.error || effectiveStale) ? (
@@ -337,13 +337,13 @@ export function ControlPage() {
             <strong>
               {effectiveStale
                 ? runtime.backend === 'unavailable'
-                  ? 'Backend unavailable · showing stale state'
-                  : 'Robot state stale · motion disabled'
-                : 'Request failed'}
+                  ? '后端不可用 · 正在显示过期状态'
+                  : '机器人状态已过期 · 运动已禁用'
+                : '请求失败'}
             </strong>
             {runtime.error ? <span>{runtime.error}</span> : null}
           </div>
-          <button aria-label="Retry backend request" onClick={() => void runtime.refresh()} type="button">
+          <button aria-label="重试后端请求" onClick={() => void runtime.refresh()} type="button">
             <RefreshCw aria-hidden="true" />
           </button>
         </div>
@@ -365,8 +365,8 @@ export function ControlPage() {
       <section className="control-overview" aria-labelledby="active-robot-title">
         <div className="section-heading section-heading--compact">
           <div>
-            <p className="section-kicker">Active Robot</p>
-            <h2 id="active-robot-title">{robot ? `${robot.robot_id} · ${robot.variant}` : 'Waiting for backend'}</h2>
+          <p className="section-kicker">活动机器人</p>
+            <h2 id="active-robot-title">{robot ? `${robot.robot_id} · ${robot.variant}` : '等待后端'}</h2>
           </div>
           <div className={`connection-state connection-state--${robot?.connection_state.toLowerCase() ?? 'pending'}`}>
             <span aria-hidden="true" />
@@ -374,10 +374,10 @@ export function ControlPage() {
           </div>
         </div>
         <dl className="runtime-facts">
-          <div><dt>Mode</dt><dd>{robot?.control_mode ?? 'DRY_RUN'}</dd></div>
-          <div><dt>Profile</dt><dd>{robot?.profile_verification_status ?? 'Pending'}</dd></div>
-          <div><dt>Calibration</dt><dd>{runtime.calibration?.status ?? robot?.calibration_status ?? 'Pending'}</dd></div>
-          <div><dt>Updated</dt><dd>{formatUpdatedAt(robot?.updated_at)}</dd></div>
+          <div><dt>模式</dt><dd>{robot?.control_mode ?? 'DRY_RUN'}</dd></div>
+          <div><dt>配置</dt><dd>{robot?.profile_verification_status ?? '待确认'}</dd></div>
+          <div><dt>校准</dt><dd>{runtime.calibration?.status ?? robot?.calibration_status ?? '待确认'}</dd></div>
+          <div><dt>更新时间</dt><dd>{formatUpdatedAt(robot?.updated_at)}</dd></div>
         </dl>
       </section>
 
@@ -401,7 +401,7 @@ export function ControlPage() {
           />
         ) : (
           <section className="control-panel control-panel--joints">
-            <p className="empty-state">Joint controls will appear after a matching robot profile loads.</p>
+            <p className="empty-state">加载匹配的机器人配置后将显示关节控制。</p>
           </section>
         )}
 

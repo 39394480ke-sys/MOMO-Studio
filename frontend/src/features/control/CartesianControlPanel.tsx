@@ -32,7 +32,7 @@ interface CartesianControlPanelProps {
 }
 
 function TcpSummary({ fk }: { fk: ForwardKinematicsResponse | null }) {
-  if (!fk) return <p className="empty-state">Waiting for current FK from the backend.</p>;
+  if (!fk) return <p className="empty-state">正在等待后端返回当前正向运动学结果。</p>;
   const position = fk.tcp_pose.position_mm;
   const orientation = fk.tcp_pose.orientation_quaternion_xyzw;
   const rotation = quaternionToRpyDegrees(orientation);
@@ -43,7 +43,7 @@ function TcpSummary({ fk }: { fk: ForwardKinematicsResponse | null }) {
         <dd>{position.x.toFixed(2)}, {position.y.toFixed(2)}, {position.z.toFixed(2)} mm</dd>
       </div>
       <div>
-        <dt>Quaternion XYZW</dt>
+        <dt>四元数 XYZW</dt>
         <dd>{orientation.x.toFixed(4)}, {orientation.y.toFixed(4)}, {orientation.z.toFixed(4)}, {orientation.w.toFixed(4)}</dd>
       </div>
       <div>
@@ -51,11 +51,11 @@ function TcpSummary({ fk }: { fk: ForwardKinematicsResponse | null }) {
         <dd>{rotation.x.toFixed(2)}, {rotation.y.toFixed(2)}, {rotation.z.toFixed(2)} deg</dd>
       </div>
       <div>
-        <dt>State sequence</dt>
+        <dt>状态序列</dt>
         <dd>{fk.state_sequence}</dd>
       </div>
       <div>
-        <dt>Kinematics</dt>
+        <dt>运动学</dt>
         <dd><code>{fk.kinematics_fingerprint.slice(0, 12)}…</code></dd>
       </div>
     </dl>
@@ -122,10 +122,10 @@ export function CartesianControlPanel({
     <section className="control-panel control-panel--cartesian" aria-labelledby="cartesian-title">
       <div className="section-heading section-heading--compact">
         <div>
-          <p className="section-kicker">TCP / Cartesian</p>
-          <h2 id="cartesian-title">Pose and jog</h2>
+          <p className="section-kicker">TCP / 笛卡尔</p>
+          <h2 id="cartesian-title">位姿与点动</h2>
         </div>
-        <div className="frame-selector" aria-label="Cartesian reference frame">
+        <div className="frame-selector" aria-label="笛卡尔参考坐标系">
           {(['BASE', 'TOOL'] as const).map((candidate) => (
             <button
               aria-pressed={frame === candidate}
@@ -139,19 +139,19 @@ export function CartesianControlPanel({
         </div>
       </div>
 
-      {fkLoading && !fk ? <p className="inline-status">Computing current FK…</p> : <TcpSummary fk={fk} />}
+      {fkLoading && !fk ? <p className="inline-status">正在计算当前正向运动学…</p> : <TcpSummary fk={fk} />}
 
       <div className="cartesian-jog-grid">
-        <JogAxisGroup disabled={disabled} kind="translation" onJog={onCartesianJog} title="Position jog · mm" />
-        <JogAxisGroup disabled={disabled} kind="rotation" onJog={onCartesianJog} title="Orientation jog · deg" />
+        <JogAxisGroup disabled={disabled} kind="translation" onJog={onCartesianJog} title="位置点动 · mm" />
+        <JogAxisGroup disabled={disabled} kind="rotation" onJog={onCartesianJog} title="姿态点动 · deg" />
       </div>
       <p className="control-hint">
-        {frame} increments: {parameters.cartesianStepMm} mm translation and {parameters.rotationStepDeg} deg rotation.
+        {frame} 增量：平移 {parameters.cartesianStepMm} mm，旋转 {parameters.rotationStepDeg} deg。
       </p>
 
       <div className="pose-editor">
         <fieldset>
-          <legend>Target position · mm</legend>
+          <legend>目标位置 · mm</legend>
           {(['x', 'y', 'z'] as const).map((axis) => (
             <label key={axis}>{axis.toUpperCase()}
               <input
@@ -166,9 +166,9 @@ export function CartesianControlPanel({
           ))}
         </fieldset>
         <fieldset>
-          <legend>Target RPY · deg</legend>
+          <legend>目标 RPY · deg</legend>
           {(['x', 'y', 'z'] as const).map((axis, index) => (
-            <label key={axis}>{['Roll', 'Pitch', 'Yaw'][index]}
+            <label key={axis}>{['滚转', '俯仰', '偏航'][index]}
               <input
                 aria-label={`Target ${['roll', 'pitch', 'yaw'][index]} (deg)`}
                 disabled={disabled}
@@ -189,7 +189,7 @@ export function CartesianControlPanel({
           onClick={() => void onSolveIk()}
           type="button"
         >
-          <ScanSearch aria-hidden="true" /> {ikPending ? 'Solving…' : 'Check IK'}
+          <ScanSearch aria-hidden="true" /> {ikPending ? '求解中…' : '检查逆解'}
         </button>
         <button
           className="command-button command-button--primary"
@@ -197,16 +197,16 @@ export function CartesianControlPanel({
           onClick={() => void onMovePose()}
           type="button"
         >
-          <Crosshair aria-hidden="true" /> {pending === 'move-pose' ? 'Submitting…' : 'Move Pose'}
+          <Crosshair aria-hidden="true" /> {pending === 'move-pose' ? '提交中…' : '移动到位姿'}
         </button>
       </div>
 
       {ikResult ? (
         <div className={`ik-result ik-result--${ikResult.success ? 'success' : 'failure'}`} role="status">
-          <strong>{ikResult.success ? 'IK reachable' : 'IK not reachable'}</strong>
+          <strong>{ikResult.success ? '逆解可达' : '逆解不可达'}</strong>
           <span>{ikResult.termination_reason}</span>
-          <span>Position residual {ikResult.position_error_mm.toFixed(3)} mm · {ikResult.iterations} iterations</span>
-          {ikResult.orientation_error_deg !== null ? <span>Orientation residual {ikResult.orientation_error_deg.toFixed(3)} deg</span> : null}
+          <span>位置残差 {ikResult.position_error_mm.toFixed(3)} mm · {ikResult.iterations} 次迭代</span>
+          {ikResult.orientation_error_deg !== null ? <span>姿态残差 {ikResult.orientation_error_deg.toFixed(3)} deg</span> : null}
           {ikResult.warnings.length > 0 ? <span>{ikResult.warnings.join(' · ')}</span> : null}
         </div>
       ) : null}

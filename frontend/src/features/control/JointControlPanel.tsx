@@ -58,8 +58,8 @@ export function JointControlPanel({
     <section className="control-panel control-panel--joints" aria-labelledby="joint-control-title">
       <div className="section-heading section-heading--compact">
         <div>
-          <p className="section-kicker">Joint Control</p>
-          <h2 id="joint-control-title">Keyed joints</h2>
+          <p className="section-kicker">关节控制</p>
+          <h2 id="joint-control-title">独立关节</h2>
         </div>
         <span className="read-only-label">{robot.variant}</span>
       </div>
@@ -75,16 +75,16 @@ export function JointControlPanel({
               <header>
                 <div>
                   <strong>{jointId.toUpperCase()}</strong>
-                  <span>{definition.joint_type === 'PRISMATIC' ? 'Linear rail' : 'Revolute'}</span>
+                  <span>{definition.joint_type === 'PRISMATIC' ? '直线导轨' : '旋转关节'}</span>
                 </div>
                 <p>
-                  <span>Current</span>
+                  <span>当前</span>
                   <strong>{current.toFixed(2)}</strong>
                   <span>{unit}</span>
                 </p>
               </header>
               <label>
-                Target ({unit})
+                目标值（{unit}）
                 <input
                   aria-label={`${jointId.toUpperCase()} target (${unit})`}
                   disabled={disabled}
@@ -106,7 +106,7 @@ export function JointControlPanel({
                     onClick={() => void onStepJog(jointId, direction)}
                     type="button"
                   >
-                    {direction < 0 ? '− Step' : '+ Step'}
+                    {direction < 0 ? '− 单步' : '+ 单步'}
                   </button>
                 ))}
               </div>
@@ -125,7 +125,7 @@ export function JointControlPanel({
                       type="button"
                     >
                       <MoveHorizontal aria-hidden="true" />
-                      {starting ? 'Starting…' : direction < 0 ? 'Hold −' : 'Hold +'}
+                      {starting ? '启动中…' : direction < 0 ? '按住 −' : '按住 +'}
                     </button>
                   );
                 })}
@@ -137,7 +137,7 @@ export function JointControlPanel({
 
       <div className="panel-actions">
         <button className="command-button" disabled={disabled} onClick={onResetTargets} type="button">
-          <RotateCcw aria-hidden="true" /> Reset targets
+          <RotateCcw aria-hidden="true" /> 重置目标值
         </button>
         <button
           className="command-button command-button--primary"
@@ -145,15 +145,15 @@ export function JointControlPanel({
           onClick={() => void onMoveJoints()}
           type="button"
         >
-          {pending === 'move-joints' ? 'Submitting…' : 'Move all joints'}
+          {pending === 'move-joints' ? '提交中…' : '移动全部关节'}
         </button>
       </div>
       {!availability.allowed ? (
         <p className="motion-disabled-reason" role="status">{availability.reason}</p>
       ) : null}
       <p className="control-hint">
-        Step uses {parameters.jointStepDeg} deg for revolute joints and {parameters.railStepMm} mm for the rail.
-        Hold buttons require a live lease; release, blur, hide, or network loss stops the jog.
+        旋转关节单步为 {parameters.jointStepDeg} deg，导轨单步为 {parameters.railStepMm} mm。
+        按住按钮需要有效租约；松开、窗口失焦、页面隐藏或网络中断都会停止点动。
       </p>
     </section>
   );

@@ -5,12 +5,12 @@ export function StatusHeader() {
   const backendLabel =
     backend === 'connected'
       ? stale
-        ? 'Backend stale'
-        : 'Backend connected'
-      : 'Backend unavailable';
+        ? '后端状态已过期'
+        : '后端已连接'
+      : '后端不可用';
 
   return (
-    <header className="status-header" aria-label="System status">
+    <header className="status-header" aria-label="系统状态">
       <div className={`status-item status-item--backend status-item--${backend}`} role="status">
         <span className="status-dot" aria-hidden="true" />
         <span>{backendLabel}</span>
@@ -21,11 +21,11 @@ export function StatusHeader() {
       </div>
       <div className="status-item status-item--robot">
         <span className="status-dot" aria-hidden="true" />
-        <span>{robot ? `${robot.robot_id} · ${robot.variant}` : 'Active robot pending'}</span>
+        <span>{robot ? `${robot.robot_id} · ${robot.variant}` : '等待活动机器人'}</span>
       </div>
       <div className="status-item status-item--locked">
         <span className="status-dot" aria-hidden="true" />
-        <span>Real motion disabled</span>
+        <span>真实运动已禁用</span>
       </div>
     </header>
   );
