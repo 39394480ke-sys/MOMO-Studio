@@ -931,11 +931,12 @@ def test_concurrent_compile_and_save_have_no_lock_inversion(
                 json_data={"expected_revision": 1},
             )
         )
-        for _ in range(20):
-            if service._mutation_lock.locked():
-                break
-            await asyncio.sleep(0)
-        assert service._mutation_lock.locked()
+
+        async def wait_for_save_to_hold_mutation_lock() -> None:
+            while not service._mutation_lock.locked():
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(wait_for_save_to_hold_mutation_lock(), timeout=1.0)
         release_compile.set()
         compiled, saved = await asyncio.wait_for(
             asyncio.gather(compile_task, save_task),
