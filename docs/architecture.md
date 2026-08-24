@@ -20,7 +20,9 @@ Real-hardware/Calibration boundary, local/LAN security, deterministic backup wit
 process-crash recovery, same-backend offline SPA hosting, CI, and release-candidate
 identity. Physical use, Feetech adapter verification, and field acceptance remain
 outside autonomous evidence. Final Stage 8 combined/browser gates and the P1=0/P2=0
-audit pass; the dedicated Stage 8 Git delivery remains pending.
+audit pass; dedicated Stage 8 commit
+`4f7a75606aacb3fc93128445d7487ff196ce9efb` is pushed and Draft PR
+[#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open.
 
 ```text
 React Control workspace
@@ -588,4 +590,4 @@ implementation evidence from its now-recorded containing commit. Stage 7 camera 
 frame identity, provider honesty, and Follow lease decisions are in ADR 0014 and
 `vision-provider-capabilities.md`; its dedicated commit is pushed. Stage 8 authorization,
 network/audit, and release/field decisions are ADRs 0015–0017. The Stage 8 report records
-green combined/browser/audit evidence and keeps only Git delivery pending.
+green combined/browser/audit evidence plus its pushed commit and open Draft PR.

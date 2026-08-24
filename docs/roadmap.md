@@ -171,11 +171,12 @@ Ruff/format/strict mypy, ESLint/TypeScript/build, deterministic schemas, lock/de
 52-test isolation, secret-scan, and npm-audit gates pass. The complete V2 Dry Run workflow
 passes at 1440×960 and 390×844, with 850/830 breakpoint checks, no horizontal overflow,
 and console warnings/errors `[]`. The final independent audit closes P1=0/P2=0 after 74
-focused tests. The dedicated Stage 8 commit/push and Draft PR disposition remain pending.
+focused tests. Stage 8 commit `4f7a75606aacb3fc93128445d7487ff196ce9efb` is
+pushed, and Draft PR [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open.
 
 ## Evidence still required
 
-- dedicated Stage 8 commit/push and Draft PR disposition;
+- human review of the unmerged Draft PR without inferring physical acceptance;
 - physically verified V1/V2 geometry, frames, joint limits, Homes, directions, Servo
   IDs, scales, raw bounds, modes, workspace, FK references, IK tolerances, and dynamics;
 - reviewed production Calibration lifecycle and independent device/field acceptance;

@@ -24,8 +24,8 @@ seams while preserving a deny-by-default release configuration:
 The software authorization, diagnostic, Calibration, and executor paths do not imply
 physical readiness. Every item in `real-hardware-acceptance.md` remains unchecked.
 Final Stage 8 combined software and browser gates pass, and the independent audit closes
-P1=0/P2=0; only the dedicated Git delivery remains pending. Nothing in this document
-authorizes live-camera access, Real motion, Real Follow, or a physical Stop claim.
+P1=0/P2=0; the dedicated commit is pushed and Draft PR #1 is open. Nothing in this
+document authorizes live-camera access, Real motion, Real Follow, or a physical Stop claim.
 
 ## Provisional kinematics are not Real authority
 
@@ -583,7 +583,8 @@ protected Calibration workflow, security/audit, WAL backup/startup recovery,
 same-backend/no-CDN hosting, CI, and release documentation described above. The final
 software gate passes 563 backend and 201 frontend tests, static/schema/dependency gates,
 52 isolation tests, and 1440×960/390×844/850/830 browser acceptance with console `[]`.
-The independent audit closes P1=0/P2=0 after 74 focused tests. Stage 8 Git delivery is
-recorded separately in the Stage report. Every physical field
+The independent audit closes P1=0/P2=0 after 74 focused tests. Stage 8 commit
+`4f7a75606aacb3fc93128445d7487ff196ce9efb` is pushed; the Draft PR is recorded in the
+Stage report. Every physical field
 item, Feetech adapter verification, verified V1/V2 kinematics, live camera, and Real
 motion result remains pending.

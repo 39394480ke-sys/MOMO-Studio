@@ -1,16 +1,15 @@
 # Release candidate checklist
 
-Status: Stage 8 software gates, complete Dry Run browser acceptance, and final independent
-audit pass. The dedicated commit, push, clean-worktree check, and Draft PR disposition are
-**pending root-task Git delivery**. Checkboxes are evidence gates, not implementation
-claims.
+Status: Stage 8 software gates, complete Dry Run browser acceptance, final independent
+audit, dedicated commit/push, and Draft PR creation pass. Checkboxes are evidence gates,
+not implementation claims.
 Every field item in `real-hardware-acceptance.md` must remain unchecked during autonomous
 work.
 
 ## Source and identity
 
 - [x] Branch is `codex/v1-autonomous-completion`; `main` was not merged or modified.
-- [ ] Stage 3–8 commits exist in order and the worktree is clean.
+- [x] Stage 3–8 commits exist in order; the final report-finalization worktree is clean.
 - [x] Version is `0.1.0-rc1` in Python, frontend, lockfiles, defaults, API metadata, and UI.
 - [x] Release status is `FIELD_ACCEPTANCE_REQUIRED`; UI says Dry Run validated and Real
   hardware field acceptance pending.
@@ -93,4 +92,6 @@ work.
 - Desktop/mobile/breakpoint browser workflow and console result: PASS at 1440×960,
   390×844, 850, and 830; no horizontal overflow; console warning/error `[]`.
 - Final independent audit P1/P2 result: PASS; P1=0/P2=0 after 74 focused tests.
-- Stage 8 commit/push/PR result: `PENDING_ROOT_GIT`
+- Stage 8 commit/push/PR result: PASS —
+  `4f7a75606aacb3fc93128445d7487ff196ce9efb` pushed; Draft PR
+  [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) open against `main`.

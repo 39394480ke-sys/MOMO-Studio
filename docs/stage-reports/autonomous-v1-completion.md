@@ -3,13 +3,12 @@
 - Repository: `/Users/ke/Library/Mobile Documents/com~apple~CloudDocs/Code/MOMO-Studio`
 - Task starting commit: `32d0163431e229cb3c2e01a285e7e851124ce9c1`
 - Working branch: `codex/v1-autonomous-completion`
-- Report status: **Stages 3-7 complete and pushed; Stage 8 software, Dry Run browser,
-  and independent audit GREEN P1=0/P2=0; Stage 8 Git delivery and Real field acceptance
-  remain pending**
-- Final commit: `PENDING_ROOT_STAGE8_COMMIT`
-- Remote branch: `origin/codex/v1-autonomous-completion` pushed through
-  `dedbdabb9a35aefea01df05f0652214428305a93`
-- Draft PR: `PENDING_ROOT_GIT`
+- Report status: **Stages 3-8 complete and pushed; software, Dry Run browser, and
+  independent audit GREEN P1=0/P2=0; Real field acceptance remains pending**
+- Stage 8 software commit: `4f7a75606aacb3fc93128445d7487ff196ce9efb`
+- Remote branch: `origin/codex/v1-autonomous-completion` contains the Stage 8 software
+  commit
+- Draft PR: [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1), open against `main`
 
 This is the cumulative evidence ledger for the Stage 3-8 autonomous task. It is updated
 after each Stage implementation and again after final verification. `Pending` means the
@@ -24,7 +23,7 @@ operation has not yet been truthfully recorded; it never means pass.
 | 5 - Trajectory and Playback | `837369a0e3c43b756dfbaacc3bd21e5b1ae13d3b` | `114f2a579df236b4824b23c9a0aae320a83a9a07` | Complete / GREEN; audit PASS P1=0/P2=0 | Pass: backend 352; frontend 85/8 files; focused isolation/integration 128 | Pass: preflight/preview/play/pause/resume/stop and responsive acceptance | Pass: Dry Run only; hardware accessed false | Process-local prepared cache/status; provisional Kinematics; Real blocked |
 | 6 - Studio | `114f2a579df236b4824b23c9a0aae320a83a9a07` | `37783bdf8c01146d3a312980dbe4a25716e5468c` | Complete / GREEN; audit PASS P1=0/P2=0 | Backend PASS: 393; focused 36; frontend PASS: 174/12 files; focused 89 | Pass: isolated desktop/mobile plus real-backend conflict retention | Pass: Dry Run/Fake only; console `[]` | Local/single-process Draft persistence |
 | 7 - Vision Following | `37783bdf8c01146d3a312980dbe4a25716e5468c` | `dedbdabb9a35aefea01df05f0652214428305a93` | Complete / GREEN; audit PASS P1=0/P2=0 | Backend PASS: 432; focused 34; frontend PASS: 190/14 files; focused 16/2 | Pass: 1440×960 + 390×844 Synthetic Select/Detect/Follow/Stop | Pass: Dry Run/Fake only; no camera open/enumeration; console `[]` | Synthetic fixture only; OpenCV absent; live camera/Real Follow blocked |
-| 8 - Release Hardening | `dedbdabb9a35aefea01df05f0652214428305a93` | `PENDING_ROOT_STAGE8_COMMIT` | Software/Dry Run GREEN; audit PASS P1=0/P2=0; Git delivery pending | Backend 563; frontend 201/17 files; isolation 52; audit focused 74 | Pass: complete 1440×960/390×844 V2 workflow plus 850/830 boundary | Pass: Dry Run/Synthetic/Fake only; console `[]`; no physical access | Feetech/physical geometry/Calibration/Stop remain adapter and field-acceptance gated |
+| 8 - Release Hardening | `dedbdabb9a35aefea01df05f0652214428305a93` | `4f7a75606aacb3fc93128445d7487ff196ce9efb` | Complete / software and Dry Run GREEN; audit PASS P1=0/P2=0; pushed; Draft PR open | Backend 563; frontend 201/17 files; isolation 52; audit focused 74 | Pass: complete 1440×960/390×844 V2 workflow plus 850/830 boundary | Pass: Dry Run/Synthetic/Fake only; console `[]`; no physical access | Feetech/physical geometry/Calibration/Stop remain adapter and field-acceptance gated |
 
 ## Commit ledger
 
@@ -37,7 +36,7 @@ operation has not yet been truthfully recorded; it never means pass.
 | Stage 5 | `114f2a579df236b4824b23c9a0aae320a83a9a07` | `feat: add trajectory compiler and playback engine` | GREEN; pushed to `origin/codex/v1-autonomous-completion` |
 | Stage 6 | `37783bdf8c01146d3a312980dbe4a25716e5468c` | `feat: add studio timeline authoring` | GREEN; pushed to `origin/codex/v1-autonomous-completion` |
 | Stage 7 | `dedbdabb9a35aefea01df05f0652214428305a93` | `feat: add safe vision following` | GREEN; pushed to `origin/codex/v1-autonomous-completion` |
-| Stage 8 | `PENDING_ROOT_STAGE8_COMMIT` | `feat: harden real-hardware boundary and v1 release` | `PENDING_ROOT_GIT` |
+| Stage 8 | `4f7a75606aacb3fc93128445d7487ff196ce9efb` | `feat: harden real-hardware boundary and v1 release` | GREEN; pushed to `origin/codex/v1-autonomous-completion`; Draft PR [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) |
 
 No Stage row may receive an ending SHA until that Stage's required tests, documentation,
 browser/safety evidence, review, and dedicated commit are complete.
@@ -459,12 +458,12 @@ unrun item with reason, never converted into a pass.
 | 5 | `docs/stage-reports/stage-05-trajectory-and-playback.md` (GREEN / complete) |
 | 6 | `docs/stage-reports/stage-06-studio-timeline.md` (complete in pushed `37783bdf8c01146d3a312980dbe4a25716e5468c`) |
 | 7 | `docs/stage-reports/stage-07-vision-following.md` (GREEN; pushed `dedbdabb9a35aefea01df05f0652214428305a93`) |
-| 8 | `docs/stage-reports/stage-08-release-hardening.md` (software/Dry Run GREEN; Git delivery pending) |
+| 8 | `docs/stage-reports/stage-08-release-hardening.md` (software/Dry Run GREEN; pushed; Draft PR open) |
 
 ## Unresolved items
 
-1. Create and push the dedicated Stage 8 commit, record the clean final SHA/remote state,
-   and create a Draft PR or record the exact failure.
+1. Keep Draft PR [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) unmerged until
+   human review; do not infer physical acceptance from merge eligibility.
 2. Keep every Real-hardware checklist item unchecked until independent physical field
    acceptance verifies the exact V1/V2 device, Profile, Calibration, Kinematics, modes,
    limits, Stop/E-stop behavior, and operator procedures.
@@ -488,12 +487,14 @@ unrun item with reason, never converted into a pass.
 - Stage 6 remote branch: `origin/codex/v1-autonomous-completion` (pushed)
 - Stage 7 remote tip: `dedbdabb9a35aefea01df05f0652214428305a93`
 - Stage 7 remote branch: `origin/codex/v1-autonomous-completion` (pushed)
-- Final worktree status: Stage 8 changes intentionally uncommitted until the dedicated
-  closeout commit
-- Stage 8/final commit: `PENDING_ROOT_STAGE8_COMMIT`
-- Stage 3-8 commit count: five dedicated commits pushed; Stage 8 is the pending sixth
-- Stage 8 push/remote branch state: `PENDING_ROOT_GIT`
-- Draft PR URL/reason: `PENDING_ROOT_GIT`
+- Final worktree status: clean after the permitted pure-documentation report-finalization
+  commit
+- Stage 8 software commit: `4f7a75606aacb3fc93128445d7487ff196ce9efb`
+- Stage 3-8 commit count: six dedicated commits pushed
+- Stage 8 push/remote branch state: PASS —
+  `origin/codex/v1-autonomous-completion` contains the Stage 8 commit
+- Draft PR URL: [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1), open as Draft
+  against `main`
 
 ## Safety evidence status
 

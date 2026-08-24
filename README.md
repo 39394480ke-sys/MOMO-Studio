@@ -195,9 +195,10 @@ and the complete [Stage 3 report](docs/stage-reports/stage-03-kinematics-and-con
 
 ## Release boundary
 
-Stages 3–7 are complete and GREEN. Stage 8 software and Dry Run closeout gates are GREEN;
-its dedicated commit/push and PR disposition remain pending. Stage 8 owns the separately
-gated Real hardware/release boundary. Every motion source
+Stages 3–8 are complete and GREEN. Stage 8 commit
+`4f7a75606aacb3fc93128445d7487ff196ce9efb` is pushed, and Draft PR
+[#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open. Stage 8 owns the
+separately gated Real hardware/release boundary. Every motion source
 must reuse the Motion Safety Gateway rather than introducing a route-to-driver shortcut.
 Real hardware, Real Cartesian/Playback/Follow, and any physical Stop claim remain
 field-acceptance and adapter-verification gated.

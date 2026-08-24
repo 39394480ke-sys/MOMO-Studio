@@ -7,8 +7,8 @@ hardware field acceptance remains required. V1 and V2 are physical variants, not
 software versions.
 
 The Stage 8 software gate, Dry Run browser acceptance, and final P1=0/P2=0 independent
-audit pass; its dedicated commit/push remain pending. Do not treat the release banner as
-evidence that any field item or Feetech adapter behavior has passed.
+audit pass; its dedicated commit is pushed and Draft PR #1 is open. Do not treat the
+release banner as evidence that any field item or Feetech adapter behavior has passed.
 
 The safe repository defaults are:
 

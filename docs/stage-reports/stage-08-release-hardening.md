@@ -5,7 +5,7 @@
 - Baseline: `dedbdabb9a35aefea01df05f0652214428305a93`
 - Target version: `0.1.0-rc1`
 - Release status: `FIELD_ACCEPTANCE_REQUIRED`
-- Stage commit: `PENDING_ROOT_STAGE8_COMMIT`
+- Stage commit: `4f7a75606aacb3fc93128445d7487ff196ce9efb`
 
 ## Outcome
 
@@ -28,8 +28,8 @@ product, and the third is a mandatory unresolved physical release gate. V1 and V
 hardware variants, never software versions.
 
 Final combined automated gates, desktop/mobile/breakpoint browser acceptance, and the
-independent audit are complete and recorded below. The dedicated Stage commit/push and
-Draft PR disposition remain root-task Git delivery work.
+independent audit are complete and recorded below. The dedicated Stage commit is pushed,
+and Draft PR [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open.
 
 ## Real-hardware authorization boundary
 
@@ -196,8 +196,8 @@ distribution gates.
 | Mobile 390×844 workflow | PASS — responsive navigation/content, no page horizontal overflow |
 | Breakpoint/error/offline/console acceptance | PASS — 850/830 widths, offline/stale and fail-closed Real/Calibration states observed; warning/error console `[]` |
 | Final independent integrated audit | PASS — P1=0/P2=0; 74 focused tests |
-| Stage 8 commit and push | `PENDING_ROOT_GIT` |
-| Draft PR | `PENDING_ROOT_GIT` |
+| Stage 8 commit and push | PASS — `4f7a75606aacb3fc93128445d7487ff196ce9efb` on `origin/codex/v1-autonomous-completion` |
+| Draft PR | PASS — [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1), open as Draft against `main` |
 
 The desktop workflow selected V2, connected only the Dry Run robot, exercised Joint jog,
 Move Joints, FK, Cartesian jog, unreachable and reachable IK, Move Pose, and captured Pose
