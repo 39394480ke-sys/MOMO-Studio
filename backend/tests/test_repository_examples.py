@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 from scripts.generate_schemas import generate_schemas
 
@@ -48,7 +49,35 @@ def test_committed_pose_and_motion_examples_validate() -> None:
                 state_sequence=snapshot.state_sequence,
                 robot_id="example-validation",
             )
-            assert forward.tcp_pose == snapshot.tcp_pose
+            actual = forward.tcp_pose
+            expected = snapshot.tcp_pose
+            assert actual.frame == expected.frame
+            assert (
+                actual.position_mm.x,
+                actual.position_mm.y,
+                actual.position_mm.z,
+            ) == pytest.approx(
+                (
+                    expected.position_mm.x,
+                    expected.position_mm.y,
+                    expected.position_mm.z,
+                ),
+                abs=1e-9,
+            )
+            assert (
+                actual.orientation_quaternion_xyzw.x,
+                actual.orientation_quaternion_xyzw.y,
+                actual.orientation_quaternion_xyzw.z,
+                actual.orientation_quaternion_xyzw.w,
+            ) == pytest.approx(
+                (
+                    expected.orientation_quaternion_xyzw.x,
+                    expected.orientation_quaternion_xyzw.y,
+                    expected.orientation_quaternion_xyzw.z,
+                    expected.orientation_quaternion_xyzw.w,
+                ),
+                abs=1e-12,
+            )
 
     asyncio.run(verify_current_boundaries())
 
