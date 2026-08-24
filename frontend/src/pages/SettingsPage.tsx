@@ -34,13 +34,16 @@ export function SettingsPage() {
     robot,
     profile,
     calibration,
+    controlMode,
     diagnostics,
     error,
+    hardwareAccessPolicy,
     pendingAction,
     switchVariant,
   } = useRuntimeStatus();
   const switchingDisabled =
-    backend !== 'connected' || robot?.connected === true || pendingAction !== null;
+    backend !== 'connected' || robot?.connected === true || pendingAction !== null ||
+    controlMode !== 'DRY RUN' || hardwareAccessPolicy !== 'DISABLED';
   const activeVariant = robot?.variant ?? profile?.profile.variant ?? 'V2';
 
   return (

@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
-from momo.api.dependencies import get_vision_service
+from momo.api.dependencies import authorize_real_vision_follow_request, get_vision_service
 from momo.api.security import (
     authorize_control_request,
     authorize_priority_stop_request,
@@ -294,7 +294,10 @@ async def reset_tracking(service: VisionServiceDependency) -> VisionStatusRespon
 @router.post(
     "/follow/start",
     response_model=VisionFollowLeaseResponse,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_vision_follow_request),
+    ],
 )
 async def start_follow(
     request: VisionFollowStartRequest,
@@ -322,7 +325,10 @@ async def start_follow(
 @router.post(
     "/follow/{lease_id}/heartbeat",
     response_model=VisionFollowLeaseResponse,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_vision_follow_request),
+    ],
 )
 async def heartbeat_follow(
     lease_id: UUID,

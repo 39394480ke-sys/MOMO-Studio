@@ -10,8 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from momo.domain.enums import HardwareAccessPolicy, RobotVariant
 from momo.domain.real_hardware import (
+    FieldAcceptanceEvidenceState,
     FieldAcceptanceStatus,
     HardwareDependencyState,
+    OperatorSessionPurpose,
+    OperatorSessionScope,
     RealHardwareReadinessState,
     RealStopResult,
 )
@@ -25,11 +28,16 @@ class HardwareConfirmationResponse(BaseModel):
     profile_fingerprint: str | None
     calibration_fingerprint: str | None
     kinematics_fingerprint: str | None
+    field_acceptance_evidence_id: UUID | None
     masked_serial_port: str | None
     masked_servo_ids: list[str]
     protocol: str | None
+    session_purpose: OperatorSessionPurpose
     physical_estop_required: Literal[True]
-    required_confirmation_text: Literal["I UNDERSTAND REAL HARDWARE CAN MOVE"]
+    required_confirmation_text: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=200),
+    ]
 
 
 class OperatorSessionStatusResponse(BaseModel):
@@ -38,11 +46,15 @@ class OperatorSessionStatusResponse(BaseModel):
     active: bool
     session_id: UUID | None
     expires_at: datetime | None
+    purpose: OperatorSessionPurpose | None
+    scopes: list[OperatorSessionScope]
 
 
 class RealHardwareCapabilityReadinessResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    commissioning_diagnostics_ready: bool
+    calibration_capture_ready: bool
     real_joint_motion_ready: bool
     real_cartesian_motion_ready: bool
     real_playback_ready: bool
@@ -55,16 +67,20 @@ class RealHardwareReadinessResponse(BaseModel):
     state: RealHardwareReadinessState
     ready: bool
     session_authorizable: bool
+    commissioning_session_authorizable: bool
+    motion_session_authorizable: bool
     blocking_reasons: list[str]
     capabilities: RealHardwareCapabilityReadinessResponse
     confirmation: HardwareConfirmationResponse
     session: OperatorSessionStatusResponse | None
+    calibration_configured: bool
     connected: bool
 
 
 class OperatorSessionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    purpose: OperatorSessionPurpose
     confirmation_text: Annotated[
         str,
         StringConstraints(min_length=1, max_length=200),
@@ -82,7 +98,39 @@ class OperatorSessionCreateResponse(BaseModel):
     session_id: UUID
     issued_at: datetime
     expires_at: datetime
+    purpose: OperatorSessionPurpose
+    scopes: list[OperatorSessionScope]
     evidence: HardwareConfirmationResponse
+
+
+class FieldAcceptanceCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    checklist_version: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    ]
+    confirmation_text: Literal["I CONFIRM THE FIELD ACCEPTANCE CHECKLIST IS COMPLETE"]
+    accepted_by: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+        ]
+        | None
+    ) = None
+
+
+class FieldAcceptanceStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: FieldAcceptanceEvidenceState
+    effective_status: FieldAcceptanceStatus
+    checklist_version: str
+    stale_fields: list[str]
+    evidence_id: UUID | None
+    accepted_at: datetime | None
+    accepted_by: str | None
+    required_confirmation_text: Literal["I CONFIRM THE FIELD ACCEPTANCE CHECKLIST IS COMPLETE"]
 
 
 class HardwareDependencyResponse(BaseModel):
@@ -113,8 +161,8 @@ class ServoDiagnosticResponse(BaseModel):
     ping_responded: bool
     operating_mode: str
     present_raw: int
-    logical_value: float
-    raw_bounds: tuple[int, int]
+    logical_value: float | None
+    raw_bounds: tuple[int, int] | None
     torque_enabled: bool | None
 
 

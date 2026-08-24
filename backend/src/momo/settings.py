@@ -26,6 +26,7 @@ _STORAGE_DIRECTORY_FIELDS = (
     "profile_directory",
     "calibration_directory",
     "real_calibration_directory",
+    "field_acceptance_directory",
     "kinematics_model_directory",
     "pose_directory",
     "motion_library_directory",
@@ -103,6 +104,11 @@ class Settings(BaseSettings):
     profile_directory: str = "robot_profiles"
     calibration_directory: str = "calibration/examples"
     real_calibration_directory: str = "data/calibration"
+    field_acceptance_directory: str = "data/field-acceptance"
+    field_acceptance_checklist_version: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    ] = "1"
     kinematics_model_directory: str = "kinematics_models"
     pose_directory: str = "data/poses"
     motion_library_directory: str = "data/motions"

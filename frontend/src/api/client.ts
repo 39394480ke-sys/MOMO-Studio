@@ -14,6 +14,7 @@ import type {
   EntityPage,
   ErrorResponse,
   ForwardKinematicsResponse,
+  FieldAcceptanceStatusResponse,
   ForkMotionDraftRequest,
   GotoPoseRequest,
   GotoMotionDraftKeyframeRequest,
@@ -77,12 +78,17 @@ import type {
   DeviceServoDiagnostic,
   DeviceStopResponse,
   OperatorSessionResponse,
+  OperatorSessionPurpose,
+  OperatorSessionScope,
   RealStopOutcome,
   SecuritySessionResponse,
   SecuritySurface,
   CalibrationJointPreview,
+  CalibrationDraft,
+  CalibrationJointDraft,
   CalibrationRevisionSummary,
   CalibrationSavePreview,
+  CalibrationWorkflowSource,
   CalibrationWorkflowState,
   CalibrationWorkflowStatus,
 } from './types';
@@ -1240,6 +1246,78 @@ function nullableString(value: unknown, field: string): string | null {
   return parsed ?? null;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function nullableUuid(value: unknown, field: string): string | null {
+  const parsed = nullableString(value, field);
+  if (parsed !== null && !UUID_PATTERN.test(parsed)) {
+    throw new TypeError(`Backend returned an invalid ${field}`);
+  }
+  return parsed;
+}
+
+const OPERATOR_SESSION_PURPOSES = new Set<OperatorSessionPurpose>([
+  'COMMISSIONING_READ_ONLY',
+  'REAL_MOTION',
+]);
+
+const OPERATOR_SESSION_SCOPES = new Set<OperatorSessionScope>([
+  'DIAGNOSTICS_READ',
+  'CALIBRATION_CAPTURE',
+  'REAL_JOINT_MOTION',
+  'REAL_CARTESIAN_MOTION',
+  'REAL_PLAYBACK',
+  'REAL_VISION_FOLLOW',
+]);
+
+function operatorSessionPurpose(value: unknown, field: string): OperatorSessionPurpose {
+  if (typeof value !== 'string' || !OPERATOR_SESSION_PURPOSES.has(value as OperatorSessionPurpose)) {
+    throw new TypeError(`Backend returned an invalid ${field}`);
+  }
+  return value as OperatorSessionPurpose;
+}
+
+function operatorSessionScopes(value: unknown): OperatorSessionScope[] {
+  const scopes = boundedArray(value, 'Operator Session scopes', OPERATOR_SESSION_SCOPES.size)
+    .map((scope) => {
+      if (typeof scope !== 'string' || !OPERATOR_SESSION_SCOPES.has(scope as OperatorSessionScope)) {
+        throw new TypeError('Backend returned an invalid Operator Session scope');
+      }
+      return scope as OperatorSessionScope;
+    });
+  if (scopes.length === 0 || new Set(scopes).size !== scopes.length) {
+    throw new TypeError('Backend returned incoherent Operator Session scopes');
+  }
+  return scopes;
+}
+
+function validateOperatorSessionScopes(
+  purpose: OperatorSessionPurpose,
+  scopes: OperatorSessionScope[],
+): void {
+  const actual = new Set(scopes);
+  const commissioning = new Set<OperatorSessionScope>([
+    'DIAGNOSTICS_READ',
+    'CALIBRATION_CAPTURE',
+  ]);
+  const jointOnly = new Set<OperatorSessionScope>(['REAL_JOINT_MOTION']);
+  const fullMotion = new Set<OperatorSessionScope>([
+    'REAL_JOINT_MOTION',
+    'REAL_CARTESIAN_MOTION',
+    'REAL_PLAYBACK',
+    'REAL_VISION_FOLLOW',
+  ]);
+  const exact = (expected: Set<OperatorSessionScope>) => (
+    actual.size === expected.size && [...actual].every((scope) => expected.has(scope))
+  );
+  const valid = purpose === 'COMMISSIONING_READ_ONLY'
+    ? exact(commissioning)
+    : exact(jointOnly) || exact(fullMotion);
+  if (!valid) {
+    throw new TypeError('Backend returned scopes incoherent with Operator Session purpose');
+  }
+}
+
 function deviceConfirmation(value: unknown): DeviceConfirmationEvidence {
   if (!isRecord(value) || value.physical_estop_required !== true) {
     throw new TypeError('Backend returned invalid device confirmation evidence');
@@ -1264,6 +1342,11 @@ function deviceConfirmation(value: unknown): DeviceConfirmationEvidence {
       return parsed;
     }),
     protocol: nullableString(value.protocol, 'device protocol'),
+    session_purpose: operatorSessionPurpose(value.session_purpose, 'confirmation purpose'),
+    field_acceptance_evidence_id: nullableUuid(
+      value.field_acceptance_evidence_id,
+      'Field Acceptance evidence ID',
+    ),
     physical_estop_required: true,
     required_confirmation_text: requiredText,
   };
@@ -1272,6 +1355,9 @@ function deviceConfirmation(value: unknown): DeviceConfirmationEvidence {
 export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
   if (!isRecord(value) || typeof value.ready !== 'boolean' ||
     typeof value.session_authorizable !== 'boolean' || typeof value.connected !== 'boolean' ||
+    typeof value.calibration_configured !== 'boolean' ||
+    typeof value.commissioning_session_authorizable !== 'boolean' ||
+    typeof value.motion_session_authorizable !== 'boolean' ||
     !isRecord(value.capabilities)) {
     throw new TypeError('Backend returned invalid Real readiness');
   }
@@ -1291,15 +1377,31 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
     const sessionId = stringValue(value.session.session_id);
     const expiresAt = stringValue(value.session.expires_at);
     if (!sessionId || !expiresAt) throw new TypeError('Operator Session status is incomplete');
-    session = { active: value.session.active, session_id: sessionId, expires_at: expiresAt };
+    const purpose = operatorSessionPurpose(value.session.purpose, 'Operator Session purpose');
+    const scopes = operatorSessionScopes(value.session.scopes);
+    validateOperatorSessionScopes(purpose, scopes);
+    session = {
+      active: value.session.active,
+      session_id: sessionId,
+      expires_at: expiresAt,
+      purpose,
+      scopes,
+    };
   }
   if (value.ready && (!session?.active || blockingReasons.length > 0)) {
     throw new TypeError('Backend claimed Real readiness without a valid session');
   }
-  if (value.session_authorizable && value.ready) {
+  if (value.session_authorizable !== (
+    value.commissioning_session_authorizable || value.motion_session_authorizable
+  )) {
+    throw new TypeError('Backend returned incoherent purpose-specific session readiness');
+  }
+  if (value.session_authorizable && (value.ready || session !== null)) {
     throw new TypeError('Backend returned incoherent Operator Session readiness');
   }
   const capabilities = {
+    commissioning_diagnostics_ready: value.capabilities.commissioning_diagnostics_ready,
+    calibration_capture_ready: value.capabilities.calibration_capture_ready,
     real_joint_motion_ready: value.capabilities.real_joint_motion_ready,
     real_cartesian_motion_ready: value.capabilities.real_cartesian_motion_ready,
     real_playback_ready: value.capabilities.real_playback_ready,
@@ -1308,17 +1410,31 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
   if (Object.values(capabilities).some((item) => typeof item !== 'boolean')) {
     throw new TypeError('Backend returned invalid Real capability readiness');
   }
-  if (value.ready && !Object.values(capabilities).every(Boolean)) {
+  const motionCapabilities = [
+    capabilities.real_joint_motion_ready,
+    capabilities.real_cartesian_motion_ready,
+    capabilities.real_playback_ready,
+    capabilities.real_vision_follow_ready,
+  ];
+  if (value.ready && !motionCapabilities.every(Boolean)) {
     throw new TypeError('Backend claimed Real readiness without every capability');
+  }
+  if (value.commissioning_session_authorizable && !(
+    capabilities.commissioning_diagnostics_ready && capabilities.calibration_capture_ready
+  )) {
+    throw new TypeError('Backend claimed Commissioning authorization without read-only capabilities');
   }
   return {
     state,
     ready: value.ready,
     session_authorizable: value.session_authorizable,
+    commissioning_session_authorizable: value.commissioning_session_authorizable,
+    motion_session_authorizable: value.motion_session_authorizable,
     blocking_reasons: blockingReasons,
     capabilities: capabilities as DeviceReadiness['capabilities'],
     confirmation: deviceConfirmation(value.confirmation),
     session,
+    calibration_configured: value.calibration_configured,
     connected: value.connected,
   };
 }
@@ -1392,7 +1508,8 @@ export function normalizeDeviceDiagnostics(value: unknown): DeviceDiagnostics {
   const hardwarePolicy = stringValue(value.hardware_policy);
   const fieldAcceptance = stringValue(value.field_acceptance);
   const readiness = stringValue(value.readiness);
-  if (!capturedAt || !adapterId || !licenseStatus || !notice || !hardwarePolicy ||
+  if (!capturedAt || !adapterId || !licenseStatus || !notice ||
+    !['DISABLED', 'READ_ONLY', 'FULL'].includes(hardwarePolicy ?? '') ||
     !fieldAcceptance || !readiness || !['AVAILABLE', 'UNAVAILABLE', 'PENDING_ADAPTER_VERIFICATION'].includes(dependencyState ?? '')) {
     throw new TypeError('Backend returned incomplete device diagnostics');
   }
@@ -1406,7 +1523,7 @@ export function normalizeDeviceDiagnostics(value: unknown): DeviceDiagnostics {
       license_status: licenseStatus,
       notice,
     },
-    hardware_policy: hardwarePolicy,
+    hardware_policy: hardwarePolicy as DeviceDiagnostics['hardware_policy'],
     masked_serial_port: nullableString(value.masked_serial_port, 'diagnostic serial port'),
     masked_servo_ids: boundedArray(value.masked_servo_ids, 'diagnostic Servo IDs', 32).map((item) => {
       const parsed = stringValue(item);
@@ -1433,12 +1550,21 @@ function operatorSession(value: unknown): OperatorSessionResponse {
   if (!sessionToken || !sessionId || !issuedAt || !expiresAt) {
     throw new TypeError('Backend returned incomplete Operator Session');
   }
+  const purpose = operatorSessionPurpose(value.purpose, 'Operator Session purpose');
+  const scopes = operatorSessionScopes(value.scopes);
+  const evidence = deviceConfirmation(value.evidence);
+  validateOperatorSessionScopes(purpose, scopes);
+  if (evidence.session_purpose !== purpose) {
+    throw new TypeError('Backend returned Operator Session evidence for another purpose');
+  }
   return {
     session_token: sessionToken,
     session_id: sessionId,
     issued_at: issuedAt,
     expires_at: expiresAt,
-    evidence: deviceConfirmation(value.evidence),
+    purpose,
+    scopes,
+    evidence,
   };
 }
 
@@ -1491,11 +1617,65 @@ export async function getDeviceReadiness(signal?: AbortSignal): Promise<DeviceRe
   return normalizeDeviceReadiness(await requestJson<unknown>('/device/readiness', { signal }));
 }
 
+export function normalizeFieldAcceptanceStatus(value: unknown): FieldAcceptanceStatusResponse {
+  if (!isRecord(value)) throw new TypeError('Backend returned invalid Field Acceptance status');
+  const states = ['MISSING', 'STALE', 'VALID'] as const;
+  const statuses = ['NOT_REQUIRED', 'PENDING', 'PASSED', 'FAILED'] as const;
+  const state = stringValue(value.state);
+  const effectiveStatus = stringValue(value.effective_status);
+  const checklistVersion = stringValue(value.checklist_version);
+  const requiredText = stringValue(value.required_confirmation_text);
+  if (
+    !state || !states.includes(state as typeof states[number]) ||
+    !effectiveStatus || !statuses.includes(effectiveStatus as typeof statuses[number]) ||
+    !checklistVersion || checklistVersion.length > 64 || !requiredText || requiredText.length > 200
+  ) {
+    throw new TypeError('Backend returned incomplete Field Acceptance status');
+  }
+  const staleFields = boundedArray(value.stale_fields, 'Field Acceptance stale fields', 16)
+    .map((field) => {
+      const parsed = stringValue(field);
+      if (!parsed || parsed.length > 128) {
+        throw new TypeError('Backend returned an invalid Field Acceptance stale field');
+      }
+      return parsed;
+    });
+  if (new Set(staleFields).size !== staleFields.length) {
+    throw new TypeError('Backend returned duplicate Field Acceptance stale fields');
+  }
+  const acceptedAt = nullableString(value.accepted_at, 'Field Acceptance time');
+  const acceptedBy = nullableString(value.accepted_by, 'Field Acceptance operator');
+  if ((acceptedAt?.length ?? 0) > 64 || (acceptedBy?.length ?? 0) > 128) {
+    throw new TypeError('Backend returned oversized Field Acceptance evidence');
+  }
+  return {
+    state: state as FieldAcceptanceStatusResponse['state'],
+    effective_status: effectiveStatus as FieldAcceptanceStatusResponse['effective_status'],
+    checklist_version: checklistVersion,
+    stale_fields: staleFields,
+    evidence_id: nullableUuid(value.evidence_id, 'Field Acceptance evidence ID'),
+    accepted_at: acceptedAt,
+    accepted_by: acceptedBy,
+    required_confirmation_text: requiredText,
+  };
+}
+
+export async function getFieldAcceptanceStatus(
+  signal?: AbortSignal,
+): Promise<FieldAcceptanceStatusResponse> {
+  return normalizeFieldAcceptanceStatus(await requestJson<unknown>(
+    '/device/field-acceptance',
+    { signal },
+  ));
+}
+
 export async function createOperatorSession(
+  purpose: OperatorSessionPurpose,
   confirmationText: string,
   physicalEstopConfirmed: boolean,
 ): Promise<OperatorSessionResponse> {
   return operatorSession(await postJson<unknown>('/device/operator-session', {
+    purpose,
     confirmation_text: confirmationText,
     physical_estop_confirmed: physicalEstopConfirmed,
   }));
@@ -1560,6 +1740,93 @@ function fingerprint(value: unknown, field: string): string {
     throw new TypeError(`Backend returned an invalid ${field}`);
   }
   return parsed;
+}
+
+function nullableFingerprint(value: unknown, field: string): string | null {
+  return value === null ? null : fingerprint(value, field);
+}
+
+function nullableRevision(value: unknown, field: string): number | null {
+  return value === null ? null : integerValue(value, field, 1);
+}
+
+function calibrationWorkflowSource(value: unknown): CalibrationWorkflowSource {
+  if (value !== 'EXISTING_REAL' && value !== 'EXPLICIT_LEGACY_IMPORT') {
+    throw new TypeError('Backend returned an invalid calibration source');
+  }
+  return value;
+}
+
+function nullableDraftInteger(value: unknown, field: string): number | null {
+  return value === null
+    ? null
+    : integerValue(value, field, Number.MIN_SAFE_INTEGER);
+}
+
+function calibrationJointDraft(value: unknown): CalibrationJointDraft {
+  if (!isRecord(value)) throw new TypeError('Backend returned an invalid calibration joint draft');
+  const jointId = stringValue(value.joint_id);
+  if (!jointId) throw new TypeError('Backend returned a calibration joint draft without identity');
+  let rawBounds: [number, number] | null = null;
+  if (value.raw_bounds !== null) {
+    const bounds = arrayValue(value.raw_bounds, 'calibration draft raw bounds');
+    if (bounds.length !== 2) throw new TypeError('Backend returned invalid calibration draft bounds');
+    const lower = integerValue(bounds[0], 'calibration draft lower bound', Number.MIN_SAFE_INTEGER);
+    const upper = integerValue(bounds[1], 'calibration draft upper bound', Number.MIN_SAFE_INTEGER);
+    if (lower >= upper) throw new TypeError('Backend returned reversed calibration draft bounds');
+    rawBounds = [lower, upper];
+  }
+  if (value.direction !== null && value.direction !== -1 && value.direction !== 1) {
+    throw new TypeError('Backend returned an invalid calibration draft direction');
+  }
+  return {
+    joint_id: jointId,
+    servo_id: integerValue(value.servo_id, 'calibration draft Servo ID', 1),
+    present_raw: nullableDraftInteger(value.present_raw, 'calibration draft present raw'),
+    logical_value: value.logical_value === null
+      ? null
+      : signedFiniteNumber(value.logical_value, 'calibration draft logical value'),
+    direction: value.direction,
+    phase: nullableDraftInteger(value.phase, 'calibration draft phase'),
+    raw_bounds: rawBounds,
+    operating_mode: nullableString(value.operating_mode, 'calibration draft operating mode'),
+  };
+}
+
+function calibrationDraft(value: unknown): CalibrationDraft {
+  if (!isRecord(value) || (value.robot_variant !== 'V1' && value.robot_variant !== 'V2')) {
+    throw new TypeError('Backend returned an invalid calibration draft');
+  }
+  const createdAt = stringValue(value.created_at);
+  if (!createdAt) throw new TypeError('Backend returned a calibration draft without creation time');
+  const enabledJoints = boundedArray(value.enabled_joints, 'calibration draft joints', 32)
+    .map((jointId) => {
+      const parsed = stringValue(jointId);
+      if (!parsed) throw new TypeError('Backend returned an invalid calibration draft joint ID');
+      return parsed;
+    });
+  const joints = boundedArray(value.joints, 'calibration joint drafts', 32)
+    .map(calibrationJointDraft);
+  if (
+    enabledJoints.length === 0 ||
+    new Set(enabledJoints).size !== enabledJoints.length ||
+    joints.length !== enabledJoints.length ||
+    joints.some((joint, index) => joint.joint_id !== enabledJoints[index])
+  ) {
+    throw new TypeError('Backend returned incoherent calibration draft joints');
+  }
+  return {
+    robot_variant: value.robot_variant,
+    profile_fingerprint: fingerprint(value.profile_fingerprint, 'calibration draft Profile fingerprint'),
+    enabled_joints: enabledJoints,
+    created_at: createdAt,
+    base_revision: nullableRevision(value.base_revision, 'calibration draft base revision'),
+    base_calibration_fingerprint: nullableFingerprint(
+      value.base_calibration_fingerprint,
+      'calibration draft base fingerprint',
+    ),
+    joints,
+  };
 }
 
 function calibrationJointPreview(value: unknown): CalibrationJointPreview {
@@ -1642,11 +1909,12 @@ function calibrationSavePreview(value: unknown): CalibrationSavePreview {
   });
   return {
     session_id: sessionId,
-    base_revision: integerValue(value.base_revision, 'save preview base revision', 1),
-    base_calibration_fingerprint: fingerprint(
+    base_revision: nullableRevision(value.base_revision, 'save preview base revision'),
+    base_calibration_fingerprint: nullableFingerprint(
       value.base_calibration_fingerprint,
       'save preview base calibration fingerprint',
     ),
+    source: calibrationWorkflowSource(value.source),
     proposed_calibration_fingerprint: fingerprint(
       value.proposed_calibration_fingerprint,
       'proposed calibration fingerprint',
@@ -1658,10 +1926,12 @@ function calibrationSavePreview(value: unknown): CalibrationSavePreview {
 export function normalizeCalibrationWorkflowStatus(value: unknown): CalibrationWorkflowStatus {
   if (!isRecord(value)) throw new TypeError('Backend returned an invalid calibration session');
   const sessionId = stringValue(value.session_id);
+  const authorizationSessionId = stringValue(value.authorization_session_id);
   const robotId = stringValue(value.robot_id);
   const state = stringValue(value.state);
   const updatedAt = stringValue(value.updated_at);
-  if (!sessionId || !robotId || !state || !CALIBRATION_STATES.has(state as CalibrationWorkflowState) ||
+  if (!sessionId || !authorizationSessionId || !robotId || !state ||
+    !CALIBRATION_STATES.has(state as CalibrationWorkflowState) ||
     !updatedAt || (value.variant !== 'V1' && value.variant !== 'V2')) {
     throw new TypeError('Backend returned an incomplete calibration session');
   }
@@ -1682,6 +1952,13 @@ export function normalizeCalibrationWorkflowStatus(value: unknown): CalibrationW
     throw new TypeError('Backend returned incoherent calibration joint sets');
   }
   const selected = nullableString(value.selected_joint_id, 'selected calibration joint');
+  const draft = calibrationDraft(value.draft);
+  const source = calibrationWorkflowSource(value.source);
+  const baseRevision = nullableRevision(value.base_revision, 'calibration base revision');
+  const baseFingerprint = nullableFingerprint(
+    value.base_calibration_fingerprint,
+    'base calibration fingerprint',
+  );
   const preview = value.preview === null ? null : calibrationJointPreview(value.preview);
   const savePreview = value.save_preview === null
     ? null
@@ -1698,14 +1975,14 @@ export function normalizeCalibrationWorkflowStatus(value: unknown): CalibrationW
   }
   return {
     session_id: sessionId,
+    authorization_session_id: authorizationSessionId,
     robot_id: robotId,
     variant: value.variant,
     profile_fingerprint: fingerprint(value.profile_fingerprint, 'calibration Profile fingerprint'),
-    base_revision: integerValue(value.base_revision, 'calibration base revision', 1),
-    base_calibration_fingerprint: fingerprint(
-      value.base_calibration_fingerprint,
-      'base calibration fingerprint',
-    ),
+    base_revision: baseRevision,
+    base_calibration_fingerprint: baseFingerprint,
+    draft,
+    source,
     state: state as CalibrationWorkflowState,
     required_joint_ids: required,
     confirmed_joint_ids: confirmed,

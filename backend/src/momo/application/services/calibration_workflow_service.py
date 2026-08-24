@@ -8,12 +8,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import isfinite
-from typing import Protocol
+from typing import Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from momo.domain.calibration import CalibrationDocument, CalibrationJoint
 from momo.domain.calibration_workflow import (
     CalibrationAuthorization,
+    CalibrationDraft,
+    CalibrationJointDraft,
     CalibrationJointPreview,
     CalibrationRevisionRecord,
     CalibrationSavePreview,
@@ -34,7 +36,7 @@ from momo.domain.hardware_mapping import (
 from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
 from momo.domain.robot import JointDefinition, RobotProfile
 from momo.ports.clock import Clock
-from momo.ports.servo_bus import ServoBus
+from momo.ports.servo_bus import ReadOnlyServoBus, ReadOnlyServoBusFacade
 
 CALIBRATION_JOINT_CONFIRMATION = "CONFIRM CALIBRATION JOINT"
 LEGACY_IMPORT_CONFIRMATION = "IMPORT LEGACY CALIBRATION"
@@ -70,9 +72,9 @@ class _CalibrationSession:
     session_id: UUID
     authorization: CalibrationAuthorization
     profile: RobotProfile
-    base_record: CalibrationRevisionRecord
+    base_record: CalibrationRevisionRecord | None
     source: CalibrationWorkflowSource
-    seed_calibration: CalibrationDocument
+    draft: CalibrationDraft
     state: CalibrationWorkflowState
     updated_at: datetime
     generation: int = 0
@@ -95,11 +97,11 @@ class CalibrationWorkflowService:
     def __init__(
         self,
         repository: CalibrationWorkflowRepository,
-        servo_bus: ServoBus,
+        servo_bus: ReadOnlyServoBus,
         clock: Clock,
     ) -> None:
         self.repository = repository
-        self.servo_bus = servo_bus
+        self.servo_bus: ReadOnlyServoBus = ReadOnlyServoBusFacade(servo_bus)
         self.clock = clock
         self._guard = asyncio.Lock()
         self._bus_guard = asyncio.Lock()
@@ -118,19 +120,18 @@ class CalibrationWorkflowService:
         now = self.clock.now()
         self._validate_authorization(authorization, profile, now)
         base = self.repository.get_revision(profile.variant)
-        if base is None:
-            raise CalibrationWorkflowError(
-                "CALIBRATION_NOT_CONFIGURED",
-                "A current non-template calibration revision is required",
-            )
-        self._validate_calibration(base.calibration, profile)
-        if base.calibration_fingerprint != authorization.calibration_fingerprint:
+        if base is not None:
+            self._validate_calibration(base.calibration, profile)
+        if (base is None and authorization.calibration_fingerprint is not None) or (
+            base is not None
+            and base.calibration_fingerprint != authorization.calibration_fingerprint
+        ):
             raise CalibrationWorkflowError(
                 "CALIBRATION_AUTHORIZATION_MISMATCH",
                 "Authorization is bound to a different calibration fingerprint",
             )
 
-        seed = base.calibration
+        seed = base.calibration if base is not None else None
         if source is CalibrationWorkflowSource.EXPLICIT_LEGACY_IMPORT:
             if not secrets.compare_digest(
                 legacy_confirmation or "",
@@ -167,7 +168,7 @@ class CalibrationWorkflowService:
                 profile=profile,
                 base_record=base,
                 source=source,
-                seed_calibration=seed,
+                draft=self._build_draft(profile, now, base=base, seed=seed),
                 state=CalibrationWorkflowState.ACTIVE,
                 updated_at=now,
             )
@@ -233,6 +234,11 @@ class CalibrationWorkflowService:
                     "A newer calibration selection superseded this read",
                 )
             session.observed_raw = observed
+            session.draft = self._replace_draft_joint(
+                session.draft,
+                joint_id,
+                present_raw=observed,
+            )
             session.updated_at = self.clock.now()
             return self._status_locked(session)
 
@@ -271,14 +277,14 @@ class CalibrationWorkflowService:
                     "CALIBRATION_LOGICAL_VALUE_OUT_OF_RANGE",
                     "Logical value is outside the reviewed profile limits",
                 )
-            seed = session.seed_calibration.joints_by_id[joint_id]
-            resolved_direction = seed.direction if direction is None else direction
+            draft_joint = session.draft.joints_by_id[joint_id]
+            resolved_direction = draft_joint.direction if direction is None else direction
             if resolved_direction not in {-1, 1}:
                 raise CalibrationWorkflowError(
                     "CALIBRATION_DIRECTION_INVALID",
                     "Direction must be -1 or 1",
                 )
-            resolved_phase = seed.phase if phase is None else phase
+            resolved_phase = draft_joint.phase if phase is None else phase
             if (
                 definition.operating_mode is CalibrationOperatingMode.MULTI_TURN
                 and resolved_phase is None
@@ -287,7 +293,7 @@ class CalibrationWorkflowService:
                     "CALIBRATION_PHASE_REQUIRED",
                     "Multi-turn calibration requires an explicit phase",
                 )
-            resolved_bounds = raw_bounds or seed.raw_bounds or definition.raw_bounds
+            resolved_bounds = raw_bounds or draft_joint.raw_bounds
             self._validate_selected_bounds(definition, resolved_bounds)
             assert resolved_bounds is not None
             observed = session.observed_raw
@@ -346,6 +352,16 @@ class CalibrationWorkflowService:
             )
             session.generation += 1
             session.preview = preview
+            session.draft = self._replace_draft_joint(
+                session.draft,
+                joint_id,
+                present_raw=observed,
+                logical_value=resolved_logical,
+                direction=resolved_direction,
+                phase=resolved_phase,
+                raw_bounds=resolved_bounds,
+                operating_mode=definition.operating_mode,
+            )
             session.save_preview = None
             session.confirmed.pop(joint_id, None)
             session.state = CalibrationWorkflowState.ACTIVE
@@ -432,10 +448,14 @@ class CalibrationWorkflowService:
                     "Save confirmation does not match the complete proposed calibration",
                 )
             current = self.repository.get_revision(session.profile.variant)
-            if (
-                current is None
-                or current.revision != session.base_record.revision
-                or current.calibration_fingerprint != session.base_record.calibration_fingerprint
+            base = session.base_record
+            if (base is None and current is not None) or (
+                base is not None
+                and (
+                    current is None
+                    or current.revision != base.revision
+                    or current.calibration_fingerprint != base.calibration_fingerprint
+                )
             ):
                 raise CalibrationWorkflowError(
                     "CALIBRATION_REVISION_CONFLICT",
@@ -447,7 +467,7 @@ class CalibrationWorkflowService:
                 before_persist()
             record = self.repository.save_new(
                 calibration,
-                expected_revision=session.base_record.revision,
+                expected_revision=base.revision if base is not None else None,
                 source=session.source,
                 created_at=created_at,
             )
@@ -471,11 +491,15 @@ class CalibrationWorkflowService:
                     "Calibration workflow session was not found",
                 )
             self._require_matching_authorization(session, authorization)
-            if session.state in {
+            active = session.state in {
                 CalibrationWorkflowState.ACTIVE,
                 CalibrationWorkflowState.READY_TO_SAVE,
-            } and not authorization.active(self.clock.now()):
-                self._expire_locked(session)
+            }
+            if active:
+                if not authorization.active(self.clock.now()):
+                    self._expire_locked(session)
+                else:
+                    self._require_base_unchanged(session)
             return self._status_locked(session)
 
     async def cancel(
@@ -585,7 +609,31 @@ class CalibrationWorkflowService:
                 "CALIBRATION_AUTHORIZATION_EXPIRED",
                 "Calibration authorization expired",
             )
+        self._require_base_unchanged(session)
         return session
+
+    def _require_base_unchanged(self, session: _CalibrationSession) -> None:
+        """Fail every active step when the repository identity drifts.
+
+        The coordinator separately re-authorizes the current hardware context on
+        each call. This repository check closes the other race: an external
+        calibration replacement cannot leave a still-active draft operating on a
+        stale base and will also be rejected atomically at persistence time.
+        """
+
+        current = self.repository.get_revision(session.profile.variant)
+        base = session.base_record
+        unchanged = (base is None and current is None) or (
+            base is not None
+            and current is not None
+            and current.revision == base.revision
+            and current.calibration_fingerprint == base.calibration_fingerprint
+        )
+        if not unchanged:
+            raise CalibrationWorkflowError(
+                "CALIBRATION_REVISION_CONFLICT",
+                "Calibration changed while the workflow was active",
+            )
 
     @staticmethod
     def _require_matching_authorization(
@@ -655,8 +703,8 @@ class CalibrationWorkflowService:
             or authorization.profile_fingerprint != profile.fingerprint
             or authorization.allowed_servo_ids != expected_ids
             or authorization.physical_estop_confirmed is not True
-            or authorization.purpose is not RealHardwareAuthorizationPurpose.DIAGNOSTICS
-            or not authorization.capabilities.real_joint_motion_ready
+            or authorization.purpose is not RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE
+            or not authorization.capabilities.calibration_capture_ready
         ):
             raise CalibrationWorkflowError(
                 "CALIBRATION_AUTHORIZATION_MISMATCH",
@@ -753,14 +801,18 @@ class CalibrationWorkflowService:
     @staticmethod
     def _status_locked(session: _CalibrationSession) -> CalibrationWorkflowStatus:
         saved = session.saved_record
+        base = session.base_record
         return CalibrationWorkflowStatus(
             session_id=session.session_id,
             authorization_session_id=session.authorization.session_id,
             robot_id=session.authorization.robot_id,
             variant=session.profile.variant,
             profile_fingerprint=session.profile.fingerprint,
-            base_revision=session.base_record.revision,
-            base_calibration_fingerprint=session.base_record.calibration_fingerprint,
+            base_revision=base.revision if base is not None else None,
+            base_calibration_fingerprint=(
+                base.calibration_fingerprint if base is not None else None
+            ),
+            draft=session.draft,
             source=session.source,
             state=session.state,
             required_joint_ids=tuple(session.profile.enabled_joints),
@@ -805,13 +857,72 @@ class CalibrationWorkflowService:
             ),
             joints=[session.confirmed[joint_id] for joint_id in session.profile.enabled_joints],
         )
+        base = session.base_record
         return CalibrationSavePreview(
             session_id=session.session_id,
-            base_revision=session.base_record.revision,
-            base_calibration_fingerprint=session.base_record.calibration_fingerprint,
+            base_revision=base.revision if base is not None else None,
+            base_calibration_fingerprint=(
+                base.calibration_fingerprint if base is not None else None
+            ),
             source=session.source,
             proposed_calibration=proposed,
             proposed_calibration_fingerprint=calibration_document_fingerprint(proposed),
+        )
+
+    @staticmethod
+    def _build_draft(
+        profile: RobotProfile,
+        created_at: datetime,
+        *,
+        base: CalibrationRevisionRecord | None,
+        seed: CalibrationDocument | None,
+    ) -> CalibrationDraft:
+        seed_by_id = seed.joints_by_id if seed is not None else {}
+        joints: list[CalibrationJointDraft] = []
+        for joint_id in profile.enabled_joints:
+            definition = profile.definitions_by_id[joint_id]
+            servo_id = CalibrationWorkflowService._servo_id(definition)
+            seed_joint = seed_by_id.get(joint_id)
+            joints.append(
+                CalibrationJointDraft(
+                    joint_id=joint_id,
+                    servo_id=servo_id,
+                    present_raw=None,
+                    logical_value=None,
+                    direction=(
+                        cast(Literal[-1, 1], seed_joint.direction)
+                        if seed_joint is not None
+                        else None
+                    ),
+                    phase=seed_joint.phase if seed_joint is not None else None,
+                    raw_bounds=seed_joint.raw_bounds if seed_joint is not None else None,
+                    operating_mode=(seed_joint.operating_mode if seed_joint is not None else None),
+                )
+            )
+        return CalibrationDraft(
+            robot_variant=profile.variant,
+            profile_fingerprint=profile.fingerprint,
+            enabled_joints=tuple(profile.enabled_joints),
+            created_at=created_at,
+            base_revision=base.revision if base is not None else None,
+            base_calibration_fingerprint=(
+                base.calibration_fingerprint if base is not None else None
+            ),
+            joints=tuple(joints),
+        )
+
+    @staticmethod
+    def _replace_draft_joint(
+        draft: CalibrationDraft,
+        joint_id: str,
+        **updates: object,
+    ) -> CalibrationDraft:
+        joints = tuple(
+            joint.model_copy(update=updates) if joint.joint_id == joint_id else joint
+            for joint in draft.joints
+        )
+        return CalibrationDraft.model_validate(
+            draft.model_copy(update={"joints": joints}).model_dump()
         )
 
 

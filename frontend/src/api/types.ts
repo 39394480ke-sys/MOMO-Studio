@@ -2,6 +2,8 @@ export type ProductStage = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type RobotVariant = 'V1' | 'V2';
 export type DomainUnit = 'mm' | 'deg';
 export type CartesianFrame = 'BASE' | 'TOOL';
+export type ControlMode = 'DRY_RUN' | 'REAL';
+export type HardwareAccessPolicy = 'DISABLED' | 'READ_ONLY' | 'FULL';
 export type ConnectionState =
   | 'DISCONNECTED'
   | 'CONNECTING'
@@ -14,8 +16,8 @@ export interface HealthResponse {
   product: string;
   version: string;
   stage: ProductStage;
-  control_mode: 'DRY_RUN' | 'REAL';
-  hardware_access_policy: 'DISABLED' | 'READ_ONLY' | 'FULL';
+  control_mode: ControlMode;
+  hardware_access_policy: HardwareAccessPolicy;
   real_motion_enabled: boolean;
 }
 
@@ -26,9 +28,9 @@ export interface MetaResponse {
   stage: ProductStage;
   active_robot_variant: RobotVariant;
   supported_robot_variants: RobotVariant[];
-  supported_control_modes: Array<'DRY_RUN' | 'REAL'>;
-  active_control_mode: 'DRY_RUN' | 'REAL';
-  hardware_access_policy: 'DISABLED' | 'READ_ONLY' | 'FULL';
+  supported_control_modes: ControlMode[];
+  active_control_mode: ControlMode;
+  hardware_access_policy: HardwareAccessPolicy;
   real_motion_enabled: boolean;
   release_status: 'FIELD_ACCEPTANCE_REQUIRED';
   dry_run_validated: true;
@@ -890,17 +892,33 @@ export interface DeviceConfirmationEvidence {
   masked_serial_port: string | null;
   masked_servo_ids: string[];
   protocol: string | null;
+  session_purpose: OperatorSessionPurpose;
+  field_acceptance_evidence_id: string | null;
   physical_estop_required: true;
   required_confirmation_text: string;
 }
+
+export type OperatorSessionPurpose = 'COMMISSIONING_READ_ONLY' | 'REAL_MOTION';
+
+export type OperatorSessionScope =
+  | 'DIAGNOSTICS_READ'
+  | 'CALIBRATION_CAPTURE'
+  | 'REAL_JOINT_MOTION'
+  | 'REAL_CARTESIAN_MOTION'
+  | 'REAL_PLAYBACK'
+  | 'REAL_VISION_FOLLOW';
 
 export interface DeviceSessionSummary {
   active: boolean;
   session_id: string;
   expires_at: string;
+  purpose: OperatorSessionPurpose;
+  scopes: OperatorSessionScope[];
 }
 
 export interface DeviceCapabilityReadiness {
+  commissioning_diagnostics_ready: boolean;
+  calibration_capture_ready: boolean;
   real_joint_motion_ready: boolean;
   real_cartesian_motion_ready: boolean;
   real_playback_ready: boolean;
@@ -911,10 +929,13 @@ export interface DeviceReadiness {
   state: string;
   ready: boolean;
   session_authorizable: boolean;
+  commissioning_session_authorizable: boolean;
+  motion_session_authorizable: boolean;
   blocking_reasons: string[];
   capabilities: DeviceCapabilityReadiness;
   confirmation: DeviceConfirmationEvidence;
   session: DeviceSessionSummary | null;
+  calibration_configured: boolean;
   connected: boolean;
 }
 
@@ -923,7 +944,23 @@ export interface OperatorSessionResponse {
   session_id: string;
   issued_at: string;
   expires_at: string;
+  purpose: OperatorSessionPurpose;
+  scopes: OperatorSessionScope[];
   evidence: DeviceConfirmationEvidence;
+}
+
+export type FieldAcceptanceEvidenceState = 'MISSING' | 'STALE' | 'VALID';
+export type FieldAcceptanceStatus = 'NOT_REQUIRED' | 'PENDING' | 'PASSED' | 'FAILED';
+
+export interface FieldAcceptanceStatusResponse {
+  state: FieldAcceptanceEvidenceState;
+  effective_status: FieldAcceptanceStatus;
+  checklist_version: string;
+  stale_fields: string[];
+  evidence_id: string | null;
+  accepted_at: string | null;
+  accepted_by: string | null;
+  required_confirmation_text: string;
 }
 
 export type SecuritySurface = 'REST' | 'CONTROL' | 'WEBSOCKET' | 'VISION';
@@ -966,7 +1003,7 @@ export interface DeviceDiagnostics {
   connected: boolean;
   captured_at: string;
   dependency: DeviceDependencyStatus;
-  hardware_policy: string;
+  hardware_policy: HardwareAccessPolicy;
   masked_serial_port: string | null;
   masked_servo_ids: string[];
   protocol: string | null;
@@ -1029,19 +1066,46 @@ export interface CalibrationAggregateJoint {
 
 export interface CalibrationSavePreview {
   session_id: string;
-  base_revision: number;
-  base_calibration_fingerprint: string;
+  base_revision: number | null;
+  base_calibration_fingerprint: string | null;
+  source: CalibrationWorkflowSource;
   proposed_calibration_fingerprint: string;
   joints: CalibrationAggregateJoint[];
 }
 
+export type CalibrationWorkflowSource = 'EXISTING_REAL' | 'EXPLICIT_LEGACY_IMPORT';
+
+export interface CalibrationJointDraft {
+  joint_id: string;
+  servo_id: number;
+  present_raw: number | null;
+  logical_value: number | null;
+  direction: -1 | 1 | null;
+  phase: number | null;
+  raw_bounds: [number, number] | null;
+  operating_mode: string | null;
+}
+
+export interface CalibrationDraft {
+  robot_variant: RobotVariant;
+  profile_fingerprint: string;
+  enabled_joints: string[];
+  created_at: string;
+  base_revision: number | null;
+  base_calibration_fingerprint: string | null;
+  joints: CalibrationJointDraft[];
+}
+
 export interface CalibrationWorkflowStatus {
   session_id: string;
+  authorization_session_id: string;
   robot_id: string;
   variant: RobotVariant;
   profile_fingerprint: string;
-  base_revision: number;
-  base_calibration_fingerprint: string;
+  base_revision: number | null;
+  base_calibration_fingerprint: string | null;
+  draft: CalibrationDraft;
+  source: CalibrationWorkflowSource;
   state: CalibrationWorkflowState;
   required_joint_ids: string[];
   confirmed_joint_ids: string[];

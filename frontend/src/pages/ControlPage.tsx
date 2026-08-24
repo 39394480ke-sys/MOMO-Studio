@@ -63,6 +63,9 @@ function definitionsFor(
 
 function availabilityFor(options: {
   backendOnline: boolean;
+  controlMode: ReturnType<typeof useRuntimeStatus>['controlMode'];
+  hardwareAccessPolicy: ReturnType<typeof useRuntimeStatus>['hardwareAccessPolicy'];
+  realMotionEnabled: boolean;
   stale: boolean;
   robot: ReturnType<typeof useRuntimeStatus>['robot'];
   hasCompleteProfile: boolean;
@@ -70,6 +73,18 @@ function availabilityFor(options: {
   expectedStateSequence: number | null;
 }): MotionAvailability {
   if (!options.backendOnline) return { allowed: false, reason: '后端不可用' };
+  if (
+    options.controlMode !== 'DRY RUN' ||
+    options.hardwareAccessPolicy !== 'DISABLED' ||
+    options.realMotionEnabled
+  ) {
+    return {
+      allowed: false,
+      reason: options.hardwareAccessPolicy === 'READ_ONLY'
+        ? 'Commissioning READ ONLY · 禁止运动'
+        : '缺少 REAL_MOTION Operator Session · 运动已禁用',
+    };
+  }
   if (options.stale) return { allowed: false, reason: '后端状态已过期' };
   if (!options.robot) return { allowed: false, reason: '等待机器人状态' };
   if (!options.robot.connected) {
@@ -96,7 +111,11 @@ function availabilityFor(options: {
 export function ControlPage() {
   const runtime = useRuntimeStatus();
   const backendOnline = runtime.backend === 'connected';
-  const socket = useRobotSocket(backendOnline && !runtime.stale);
+  const dryRunWorkspace =
+    runtime.controlMode === 'DRY RUN' &&
+    runtime.hardwareAccessPolicy === 'DISABLED' &&
+    runtime.realMotionEnabled === false;
+  const socket = useRobotSocket(backendOnline && !runtime.stale && dryRunWorkspace);
   const liveSocket = socket.connectionState === 'open' ? socket.snapshot : null;
   const robot = liveSocket?.robot ?? runtime.robot;
   const effectiveStale = runtime.stale || robot?.stale !== false;
@@ -106,7 +125,7 @@ export function ControlPage() {
   );
   const stateSequence = liveSocket?.stateSequence ?? robot?.state_sequence ?? null;
   const kinematics = useForwardKinematics({
-    enabled: backendOnline && !effectiveStale && robot !== null,
+    enabled: backendOnline && !effectiveStale && robot !== null && dryRunWorkspace,
     stateSequence: liveSocket?.tcpPose ? null : stateSequence,
     socketTcpPose: liveSocket?.tcpPose ?? null,
     socketStateSequence: liveSocket?.stateSequence ?? null,
@@ -124,6 +143,9 @@ export function ControlPage() {
         ? { allowed: false, reason: '机器人生命周期操作进行中 · 运动已禁用' }
       : availabilityFor({
           backendOnline,
+          controlMode: runtime.controlMode,
+          hardwareAccessPolicy: runtime.hardwareAccessPolicy,
+          realMotionEnabled: runtime.realMotionEnabled,
           stale: effectiveStale,
           robot,
           hasCompleteProfile:
@@ -138,6 +160,9 @@ export function ControlPage() {
       robot,
       runtime.profile,
       runtime.pendingAction,
+      runtime.controlMode,
+      runtime.hardwareAccessPolicy,
+      runtime.realMotionEnabled,
       effectiveStale,
       stateSequence,
       commands.stopUncertain,
@@ -353,6 +378,12 @@ export function ControlPage() {
         availability={availability}
         backendOnline={backendOnline}
         lifecyclePending={runtime.pendingAction}
+        dryRunLifecycleAllowed={dryRunWorkspace}
+        modeLabel={runtime.hardwareAccessPolicy === 'READ_ONLY'
+          ? 'READ ONLY'
+          : runtime.controlMode === 'DRY RUN'
+            ? 'DRY RUN'
+            : 'REAL MOTION LOCKED'}
         motionPending={commands.pending}
         onConnect={runtime.connect}
         onDisconnect={runtime.disconnect}

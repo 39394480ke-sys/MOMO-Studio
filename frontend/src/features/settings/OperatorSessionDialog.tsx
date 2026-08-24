@@ -34,6 +34,7 @@ export function OperatorSessionDialog({
     confirmationText === evidence.required_confirmation_text &&
     physicalEstopConfirmed &&
     !pending;
+  const commissioning = evidence.session_purpose === 'COMMISSIONING_READ_ONLY';
 
   return (
     <div className="real-dialog-backdrop" role="presentation">
@@ -46,8 +47,10 @@ export function OperatorSessionDialog({
       >
         <div className="real-dialog__header">
           <div>
-            <p className="section-kicker">Short-lived authorization</p>
-            <h2 id="operator-session-title">Open Operator Session</h2>
+            <p className="section-kicker">Short-lived authorization · {evidence.session_purpose}</p>
+            <h2 id="operator-session-title">
+              {commissioning ? 'Open READ ONLY Commissioning Session' : 'Open Real Motion Session'}
+            </h2>
           </div>
           <button
             aria-label="Close Operator Session dialog"
@@ -63,13 +66,15 @@ export function OperatorSessionDialog({
         <div className="real-dialog__warning" id="operator-session-description">
           <ShieldAlert aria-hidden="true" />
           <p>
-            This is software authorization, not a physical emergency stop. Keep the
-            physical E-stop reachable and the robot workspace clear.
+            {commissioning
+              ? 'This session can read only the configured Servo IDs for diagnostics and calibration. It cannot move, Home, scan, change torque, or write registers.'
+              : 'This is software motion authorization, not a physical emergency stop. Keep the physical E-stop reachable and the robot workspace clear.'}
           </p>
         </div>
 
         <dl className="real-evidence-grid">
           <div><dt>Robot</dt><dd><EvidenceValue value={evidence.robot_id} /></dd></div>
+          <div><dt>Purpose</dt><dd>{evidence.session_purpose}</dd></div>
           <div><dt>Variant</dt><dd>{evidence.variant ?? 'Not configured'}</dd></div>
           <div><dt>Profile</dt><dd><EvidenceValue value={evidence.profile_fingerprint} /></dd></div>
           <div><dt>Calibration</dt><dd><EvidenceValue value={evidence.calibration_fingerprint} /></dd></div>
@@ -114,7 +119,11 @@ export function OperatorSessionDialog({
             onClick={() => onConfirm(confirmationText, physicalEstopConfirmed)}
             type="button"
           >
-            {pending ? 'Authorizing…' : 'Authorize for this session'}
+            {pending
+              ? 'Authorizing…'
+              : commissioning
+                ? 'Authorize READ ONLY session'
+                : 'Authorize Real Motion session'}
           </button>
         </div>
       </section>

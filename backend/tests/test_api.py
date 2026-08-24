@@ -114,6 +114,7 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
         "/api/v1/device/calibration/sessions/{session_id}/read": frozenset({"post"}),
         "/api/v1/device/diagnostics": frozenset({"post"}),
         "/api/v1/device/disconnect": frozenset({"post"}),
+        "/api/v1/device/field-acceptance": frozenset({"get", "post"}),
         "/api/v1/device/operator-session": frozenset({"post", "delete"}),
         "/api/v1/device/readiness": frozenset({"get"}),
         "/api/v1/device/stop": frozenset({"post"}),

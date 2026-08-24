@@ -18,8 +18,10 @@ from momo.adapters.hardware.feetech_servo_bus import (
 from momo.application.services.operator_session_service import OperatorSessionService
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
 from momo.domain.real_hardware import (
+    REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
     REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
     HardwareDependencyState,
+    OperatorSessionPurpose,
     RealHardwareAccessGrant,
     RealHardwareAuthorizationPurpose,
     RealHardwareGateInput,
@@ -29,19 +31,33 @@ from momo.domain.real_hardware import (
 )
 from momo.ports.servo_bus import ServoBus
 from tests.stage3_helpers import FakeClock
-from tests.stage8_hardware_helpers import fake_bus, real_context
+from tests.stage8_hardware_helpers import commissioning_context, fake_bus, real_context
 
 
 async def authorized_grant(
     purpose: RealHardwareAuthorizationPurpose = RealHardwareAuthorizationPurpose.DIAGNOSTICS,
 ) -> RealHardwareAccessGrant:
-    context = real_context()
+    commissioning = purpose in {
+        RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+        RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
+    }
+    context = commissioning_context() if commissioning else real_context()
+    session_purpose = (
+        OperatorSessionPurpose.COMMISSIONING_READ_ONLY
+        if commissioning
+        else OperatorSessionPurpose.REAL_MOTION
+    )
     clock = FakeClock()
     authorization = RealHardwareAuthorization()
     sessions = OperatorSessionService(clock, authorization, ttl_s=60.0)
     issued = await sessions.issue(
         context,
-        confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+        purpose=session_purpose,
+        confirmation_text=(
+            REQUIRED_COMMISSIONING_CONFIRMATION_TEXT
+            if commissioning
+            else REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT
+        ),
         physical_estop_confirmed=True,
     )
     evidence = await sessions.authorize(
@@ -211,7 +227,7 @@ def test_pending_feetech_factory_never_imports_or_instantiates() -> None:
     asyncio.run(scenario())
 
 
-def test_feetech_shell_is_explicit_read_only_and_stop_is_uncertain() -> None:
+def test_feetech_shell_read_only_grant_cannot_reach_goal_or_stop_writes() -> None:
     async def scenario() -> None:
         grant = (await authorized_grant()).model_copy(
             update={"adapter_id": "feetech-servo-bus-shell"}
@@ -237,11 +253,10 @@ def test_feetech_shell_is_explicit_read_only_and_stop_is_uncertain() -> None:
             await bus.read_present_positions((unallowed_id,))
         with pytest.raises(PermissionError, match="exactly match"):
             await bus.stop_or_hold(selected_ids)
-        with pytest.raises(PermissionError, match="read-only diagnostics"):
+        with pytest.raises(PermissionError, match="read-only commissioning"):
             await bus.write_goal_positions({servo_id: 0 for servo_id in allowed_ids})
-        stop = await bus.stop_or_hold(allowed_ids)
-        assert stop.result is RealStopResult.SAFETY_STATE_UNCERTAIN
-        assert stop.safety_state_known is False
+        with pytest.raises(PermissionError, match="read-only commissioning"):
+            await bus.stop_or_hold(allowed_ids)
         assert all(event[0] not in {"scan", "stop", "hold"} for event in bridge.events)
         await bus.close()
 

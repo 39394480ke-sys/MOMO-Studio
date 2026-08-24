@@ -1,6 +1,8 @@
 import { vi } from 'vitest';
 
 import type {
+  ControlMode,
+  HardwareAccessPolicy,
   NormalizedBoundingBox,
   VisionStatus,
   VisionTrackingState,
@@ -26,10 +28,18 @@ interface Stage7Options {
   frameWidthPx?: number;
   pollStatusGate?: Promise<void>;
   startGate?: Promise<void>;
+  controlMode?: ControlMode;
+  hardwareAccessPolicy?: HardwareAccessPolicy;
+  realMotionEnabled?: boolean;
 }
 
 export function mockStage7Backend(options: Stage7Options = {}) {
-  const base = mockStage3Backend({ connected: options.connected ?? true });
+  const base = mockStage3Backend({
+    connected: options.connected ?? true,
+    controlMode: options.controlMode,
+    hardwareAccessPolicy: options.hardwareAccessPolicy,
+    realMotionEnabled: options.realMotionEnabled,
+  });
   let selection: { frame_id: string; bounding_box: NormalizedBoundingBox } | null = null;
   let trackingState: VisionTrackingState | null = null;
   let followActive = false;

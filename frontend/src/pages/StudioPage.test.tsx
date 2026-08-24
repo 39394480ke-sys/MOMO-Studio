@@ -787,7 +787,7 @@ function mockStudioBackend(options: BackendOptions = {}) {
   };
 }
 
-function runtime(): RuntimeStatus {
+function runtime(overrides: Partial<RuntimeStatus> = {}): RuntimeStatus {
   return {
     ...SAFE_RUNTIME_STATUS,
     backend: 'connected' as const,
@@ -799,13 +799,18 @@ function runtime(): RuntimeStatus {
       kinematics_fingerprint: stage3Ids.kinematicsFingerprint,
       real_eligible: false as const,
     },
+    ...overrides,
   };
 }
 
-function renderStudio(path = `/studio?draft=${DRAFT_ID}`, strict = false) {
+function renderStudio(
+  path = `/studio?draft=${DRAFT_ID}`,
+  strict = false,
+  status = runtime(),
+) {
   const content: ReactNode = (
     <MemoryRouter initialEntries={[path]}>
-      <RuntimeStatusContext.Provider value={runtime()}>
+      <RuntimeStatusContext.Provider value={status}>
         <StudioPage />
         <LocationProbe />
       </RuntimeStatusContext.Provider>
@@ -848,6 +853,25 @@ afterEach(() => {
 });
 
 describe('Stage 6 Studio workspace', () => {
+  it('blocks Goto, capture, and Playback in Commissioning READ ONLY', async () => {
+    const backend = mockStudioBackend();
+    renderStudio(`/studio?draft=${DRAFT_ID}`, false, runtime({
+      controlMode: 'REAL',
+      hardwareAccessPolicy: 'READ_ONLY',
+      realMotionEnabled: false,
+    }));
+
+    await screen.findByLabelText('Motion name');
+    expect(screen.getByRole('button', { name: 'Dry Run Goto' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Capture current/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Prepare playback' })).toBeDisabled();
+    expect(screen.getAllByText(/unsafe runtime policy/).length).toBeGreaterThan(0);
+    expect(backend.requests.some((request) => request.path.includes('/goto'))).toBe(false);
+    expect(backend.requests.some((request) =>
+      request.path.endsWith('/play') && request.method === 'POST'
+    )).toBe(false);
+  });
+
   it('starts blank, captures current state, adds a Pose, and autosaves two playable frames', async () => {
     const user = userEvent.setup();
     const backend = mockStudioBackend({ draft: draft(0) });

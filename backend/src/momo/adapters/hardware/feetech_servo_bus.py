@@ -361,6 +361,7 @@ class FeetechServoBus:
     async def stop_or_hold(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
         _validate_explicit_ids(servo_ids)
         self._require_full_granted_ids(servo_ids)
+        self._require_hardware_write_authorization()
         if not self._connected:
             return RealStopOutcome(
                 result=RealStopResult.NOT_CONNECTED,
@@ -398,9 +399,15 @@ class FeetechServoBus:
             raise PermissionError("write/Stop IDs must exactly match the authorized allowlist")
 
     def _require_goal_write_authorization(self) -> None:
+        self._require_hardware_write_authorization()
+
+    def _require_hardware_write_authorization(self) -> None:
         purpose = self._authorization.purpose
-        if purpose is RealHardwareAuthorizationPurpose.DIAGNOSTICS:
-            raise PermissionError("a read-only diagnostics grant cannot write goal positions")
+        if purpose in {
+            RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
+        }:
+            raise PermissionError("a read-only commissioning grant cannot perform hardware writes")
 
 
 def _require_complete_grant(authorization: RealHardwareAccessGrant) -> None:
@@ -411,7 +418,10 @@ def _require_complete_grant(authorization: RealHardwareAccessGrant) -> None:
         raise FeetechAdapterPendingError("Real hardware authorization is incomplete")
     purpose_ready = {
         RealHardwareAuthorizationPurpose.DIAGNOSTICS: (
-            authorization.capabilities.real_joint_motion_ready
+            authorization.capabilities.commissioning_diagnostics_ready
+        ),
+        RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE: (
+            authorization.capabilities.calibration_capture_ready
         ),
         RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: (
             authorization.capabilities.real_joint_motion_ready

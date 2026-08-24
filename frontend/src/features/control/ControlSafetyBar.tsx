@@ -8,6 +8,8 @@ interface ControlSafetyBarProps {
   stale: boolean;
   robot: RobotStatus | null;
   lifecyclePending: 'connect' | 'disconnect' | 'stop' | 'switch' | null;
+  dryRunLifecycleAllowed: boolean;
+  modeLabel: 'DRY RUN' | 'READ ONLY' | 'REAL MOTION LOCKED';
   motionPending: string | null;
   availability: MotionAvailability;
   socketState: RobotWebSocketState;
@@ -21,6 +23,8 @@ export function ControlSafetyBar({
   stale,
   robot,
   lifecyclePending,
+  dryRunLifecycleAllowed,
+  modeLabel,
   motionPending,
   availability,
   socketState,
@@ -29,18 +33,18 @@ export function ControlSafetyBar({
   onStop,
 }: ControlSafetyBarProps) {
   const lifecycleBusy = lifecyclePending !== null;
-  const stopDisabled = !backendOnline || stale || motionPending === 'stop';
+  const stopDisabled = !dryRunLifecycleAllowed || !backendOnline || stale || motionPending === 'stop';
   return (
     <section className="control-safety-bar" aria-label="仿真运行安全控制">
       <div className="control-safety-bar__status">
-        <span className="dry-run-badge">DRY RUN</span>
+        <span className="dry-run-badge">{modeLabel}</span>
         <span>{availability.allowed ? '运动已就绪' : availability.reason}</span>
         <span>实时状态：{socketState === 'open' ? 'WebSocket' : 'REST 备用通道'}</span>
       </div>
       <div className="command-bar">
         <button
           className="command-button command-button--primary"
-          disabled={!backendOnline || stale || lifecycleBusy || robot?.connected === true}
+          disabled={!dryRunLifecycleAllowed || !backendOnline || stale || lifecycleBusy || robot?.connected === true}
           onClick={() => void onConnect()}
           type="button"
         >
@@ -49,7 +53,7 @@ export function ControlSafetyBar({
         </button>
         <button
           className="command-button"
-          disabled={!backendOnline || stale || lifecycleBusy || robot?.connected !== true}
+          disabled={!dryRunLifecycleAllowed || !backendOnline || stale || lifecycleBusy || robot?.connected !== true}
           onClick={() => void onDisconnect()}
           type="button"
         >

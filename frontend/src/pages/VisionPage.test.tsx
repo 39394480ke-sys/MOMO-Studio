@@ -35,6 +35,21 @@ afterEach(() => {
 });
 
 describe('Stage 7 Vision workspace', () => {
+  it('keeps Vision Follow blocked in REAL / READ_ONLY commissioning', async () => {
+    const backend = mockStage7Backend({
+      controlMode: 'REAL',
+      hardwareAccessPolicy: 'READ_ONLY',
+      realMotionEnabled: false,
+    });
+    backend.selectDefaultTarget();
+    renderVision();
+
+    expect((await screen.findAllByText('READ ONLY')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
+    expect(screen.getByText(/Commissioning READ ONLY permits no Follow/)).toBeVisible();
+    expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
+  });
+
   it('renders an honest Synthetic-only provider workspace with no capture or director tools', async () => {
     mockStage7Backend();
     const view = renderVision();

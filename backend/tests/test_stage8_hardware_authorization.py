@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -10,12 +11,12 @@ from pydantic import ValidationError
 from momo.application.services.operator_session_service import (
     OperatorConfirmationError,
     OperatorSessionPrerequisiteError,
+    OperatorSessionScopeError,
     OperatorSessionService,
     OperatorSessionTokenError,
 )
 from momo.application.services.real_hardware_authorization import (
     RealHardwareAuthorization,
-    RealHardwareAuthorizationError,
 )
 from momo.domain.enums import (
     ControlMode,
@@ -24,10 +25,12 @@ from momo.domain.enums import (
     ProfileVerificationStatus,
 )
 from momo.domain.real_hardware import (
+    REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
     REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
     ExplicitServoDevice,
     FieldAcceptanceStatus,
     HardwareDependencyState,
+    OperatorSessionPurpose,
     RealHardwareAuthorizationPurpose,
     RealHardwareBlocker,
     RealHardwareContext,
@@ -80,7 +83,7 @@ def test_safe_defaults_are_not_session_authorizable() -> None:
     [
         ({"control_mode": ControlMode.DRY_RUN}, RealHardwareBlocker.CONTROL_MODE_MUST_BE_REAL),
         (
-            {"hardware_access_policy": HardwareAccessPolicy.READ_ONLY},
+            {"hardware_access_policy": HardwareAccessPolicy.DISABLED},
             RealHardwareBlocker.HARDWARE_POLICY_MUST_BE_FULL,
         ),
         ({"real_motion_enabled": False}, RealHardwareBlocker.REAL_MOTION_NOT_ENABLED),
@@ -200,6 +203,79 @@ def test_all_nonoperator_gates_yield_exact_authorizable_state_and_confirmation()
     assert all(str(servo_id) not in report.confirmation.masked_servo_ids for servo_id in (1, 2))
 
 
+def test_fresh_robot_commissioning_is_read_only_without_calibration_or_acceptance() -> None:
+    async def scenario() -> None:
+        base = real_context()
+        assert base.kinematics is not None
+        context = base.model_copy(
+            update={
+                "hardware_access_policy": HardwareAccessPolicy.READ_ONLY,
+                "real_motion_enabled": False,
+                "calibration": None,
+                "kinematics": base.kinematics.model_copy(
+                    update={
+                        "verification_status": (KinematicsVerificationStatus.PROVISIONAL_DRY_RUN)
+                    }
+                ),
+                "field_acceptance_status": FieldAcceptanceStatus.PENDING,
+                "field_acceptance_evidence": None,
+            }
+        )
+        clock = FakeClock()
+        authorization = RealHardwareAuthorization()
+        before = evaluate(context, clock)
+
+        assert before.commissioning_session_authorizable is True
+        assert before.motion_session_authorizable is False
+        assert before.capabilities.commissioning_diagnostics_ready is True
+        assert before.capabilities.calibration_capture_ready is True
+        assert before.capabilities.real_joint_motion_ready is False
+        assert before.capabilities.real_cartesian_motion_ready is False
+        assert before.capabilities.real_playback_ready is False
+        assert before.capabilities.real_vision_follow_ready is False
+
+        sessions = OperatorSessionService(clock, authorization, ttl_s=60.0)
+        issued = await sessions.issue(
+            context,
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        token = issued.session_token.get_secret_value()
+        assert issued.evidence.purpose is OperatorSessionPurpose.COMMISSIONING_READ_ONLY
+        assert issued.evidence.calibration_fingerprint is None
+        assert issued.evidence.kinematics_fingerprint is None
+        assert issued.evidence.device_fingerprint
+        await sessions.authorize(
+            token,
+            context,
+            purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+        )
+        with pytest.raises(OperatorSessionScopeError):
+            await sessions.authorize(
+                token,
+                context,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            )
+
+        # Later artifacts cannot upgrade the immutable commissioning scope.
+        with pytest.raises(OperatorSessionScopeError):
+            await sessions.authorize(
+                token,
+                real_context(),
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            )
+        clock.elapse(61.0)
+        with pytest.raises(OperatorSessionTokenError, match="expired"):
+            await sessions.authorize(
+                token,
+                context,
+                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            )
+
+    asyncio.run(scenario())
+
+
 def test_operator_confirmation_must_be_exact_and_estop_explicit() -> None:
     async def scenario() -> None:
         context = real_context()
@@ -252,6 +328,11 @@ def test_token_is_in_memory_single_active_short_lived_and_never_in_evidence() ->
         assert first_token not in first.model_dump_json()
         assert first.evidence.control_mode is ControlMode.REAL
         assert first.evidence.hardware_access_policy is HardwareAccessPolicy.FULL
+        assert first.evidence.field_acceptance_evidence_id == (
+            context.field_acceptance_evidence.evidence_id
+            if context.field_acceptance_evidence is not None
+            else None
+        )
 
         second = await sessions.issue(
             context,
@@ -264,13 +345,13 @@ def test_token_is_in_memory_single_active_short_lived_and_never_in_evidence() ->
             await sessions.authorize(
                 first_token,
                 context,
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             )
 
         evidence = await sessions.authorize(
             second_token,
             context,
-            purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
         )
         report = authorization.evaluate(
             RealHardwareGateInput(
@@ -288,7 +369,7 @@ def test_token_is_in_memory_single_active_short_lived_and_never_in_evidence() ->
             await restarted.authorize(
                 second_token,
                 context,
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             )
 
         clock.elapse(61.0)
@@ -305,7 +386,7 @@ def test_token_is_in_memory_single_active_short_lived_and_never_in_evidence() ->
             await sessions.authorize(
                 second_token,
                 context,
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             )
 
     asyncio.run(scenario())
@@ -337,11 +418,11 @@ def test_context_drift_revokes_effective_authorization() -> None:
             )
         )
         assert RealHardwareBlocker.OPERATOR_SESSION_MISMATCH in mismatch.blocking_reasons
-        with pytest.raises(RealHardwareAuthorizationError):
+        with pytest.raises(OperatorSessionTokenError, match="context changed"):
             await sessions.authorize(
                 token,
                 changed_context,
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             )
 
         assert context.device is not None
@@ -354,17 +435,39 @@ def test_context_drift_revokes_effective_authorization() -> None:
             await sessions.authorize(
                 token,
                 port_drift,
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             )
         assert await sessions.current_evidence(port_drift) is None
 
-        with pytest.raises(RealHardwareAuthorizationError):
+        assert context.field_acceptance_evidence is not None
+        replacement_acceptance = context.field_acceptance_evidence.model_copy(
+            update={"evidence_id": uuid4()}
+        )
+        acceptance_drift = context.model_copy(
+            update={"field_acceptance_evidence": replacement_acceptance}
+        )
+        mismatch = RealHardwareAuthorization().evaluate(
+            RealHardwareGateInput(
+                context=acceptance_drift,
+                evaluated_at=clock.now(),
+                operator_session=issued.evidence,
+            )
+        )
+        assert RealHardwareBlocker.OPERATOR_SESSION_MISMATCH in mismatch.blocking_reasons
+        with pytest.raises(OperatorSessionTokenError, match="context changed"):
+            await sessions.authorize(
+                token,
+                acceptance_drift,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            )
+
+        with pytest.raises(OperatorSessionTokenError, match="context changed"):
             await sessions.authorize(
                 token,
                 context.model_copy(
                     update={"field_acceptance_status": FieldAcceptanceStatus.FAILED}
                 ),
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             )
 
     asyncio.run(scenario())
@@ -412,14 +515,14 @@ def test_provisional_kinematics_allows_joint_only_but_blocks_geometry_capabiliti
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
             RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
         ):
-            with pytest.raises(RealHardwareAuthorizationError):
+            with pytest.raises(OperatorSessionScopeError):
                 await sessions.authorize(token, context, purpose=purpose)
 
         upgraded_kinematics = provisional.model_copy(
             update={"verification_status": KinematicsVerificationStatus.VERIFIED_FOR_REAL}
         )
         upgraded_context = context.model_copy(update={"kinematics": upgraded_kinematics})
-        with pytest.raises(OperatorSessionTokenError, match="context changed"):
+        with pytest.raises(OperatorSessionScopeError):
             await sessions.authorize(
                 token,
                 upgraded_context,

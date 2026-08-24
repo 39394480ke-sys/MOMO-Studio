@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 
 from momo.api.real_hardware_schemas import (
     DeviceDiagnosticsResponse,
+    FieldAcceptanceCreateRequest,
+    FieldAcceptanceStatusResponse,
     HardwareArtifactResponse,
     HardwareConfirmationResponse,
     HardwareDependencyResponse,
@@ -21,8 +23,10 @@ from momo.api.real_hardware_schemas import (
 )
 from momo.api.security import authorize_control_request, authorize_priority_stop_request
 from momo.application.services.device_diagnostics_service import DeviceDiagnosticsService
+from momo.application.services.field_acceptance_service import FieldAcceptanceService
 from momo.domain.real_hardware import (
     DeviceDiagnosticsSnapshot,
+    FieldAcceptanceEvidenceStatus,
     HardwareConfirmationEvidence,
     RealHardwareReadinessReport,
     RealStopOutcome,
@@ -37,9 +41,17 @@ def get_device_diagnostics_service(request: Request) -> DeviceDiagnosticsService
     return cast(DeviceDiagnosticsService, request.app.state.device_diagnostics_service)
 
 
+def get_field_acceptance_service(request: Request) -> FieldAcceptanceService:
+    return cast(FieldAcceptanceService, request.app.state.field_acceptance_service)
+
+
 DeviceServiceDependency = Annotated[
     DeviceDiagnosticsService,
     Depends(get_device_diagnostics_service),
+]
+FieldAcceptanceServiceDependency = Annotated[
+    FieldAcceptanceService,
+    Depends(get_field_acceptance_service),
 ]
 OperatorToken = Annotated[
     str,
@@ -58,9 +70,11 @@ def _confirmation(value: HardwareConfirmationEvidence) -> HardwareConfirmationRe
         profile_fingerprint=value.profile_fingerprint,
         calibration_fingerprint=value.calibration_fingerprint,
         kinematics_fingerprint=value.kinematics_fingerprint,
+        field_acceptance_evidence_id=value.field_acceptance_evidence_id,
         masked_serial_port=value.masked_serial_port,
         masked_servo_ids=list(value.masked_servo_ids),
         protocol=value.protocol,
+        session_purpose=value.session_purpose,
         physical_estop_required=True,
         required_confirmation_text=value.required_confirmation_text,
     )
@@ -69,6 +83,7 @@ def _confirmation(value: HardwareConfirmationEvidence) -> HardwareConfirmationRe
 def _readiness(
     report: RealHardwareReadinessReport,
     *,
+    calibration_configured: bool,
     connected: bool,
 ) -> RealHardwareReadinessResponse:
     session = report.session
@@ -76,6 +91,8 @@ def _readiness(
         state=report.state,
         ready=report.ready,
         session_authorizable=report.session_authorizable,
+        commissioning_session_authorizable=(report.commissioning_session_authorizable),
+        motion_session_authorizable=report.motion_session_authorizable,
         blocking_reasons=[item.value for item in report.blocking_reasons],
         capabilities=RealHardwareCapabilityReadinessResponse.model_validate(
             report.capabilities.model_dump(mode="python")
@@ -86,10 +103,13 @@ def _readiness(
                 active=session.active,
                 session_id=session.session_id,
                 expires_at=session.expires_at,
+                purpose=session.purpose,
+                scopes=sorted(session.scopes, key=lambda item: item.value),
             )
             if session is not None
             else None
         ),
+        calibration_configured=calibration_configured,
         connected=connected,
     )
 
@@ -142,9 +162,28 @@ def _stop(value: RealStopOutcome) -> RealStopOutcomeResponse:
     )
 
 
+def _field_acceptance(
+    value: FieldAcceptanceEvidenceStatus,
+) -> FieldAcceptanceStatusResponse:
+    return FieldAcceptanceStatusResponse(
+        state=value.state,
+        effective_status=value.effective_status,
+        checklist_version=value.checklist_version,
+        stale_fields=list(value.stale_fields),
+        evidence_id=value.evidence_id,
+        accepted_at=value.accepted_at,
+        accepted_by=value.accepted_by,
+        required_confirmation_text=value.required_confirmation_text,
+    )
+
+
 @router.get("/readiness", response_model=RealHardwareReadinessResponse)
 async def readiness(service: DeviceServiceDependency) -> RealHardwareReadinessResponse:
-    return _readiness(await service.readiness(), connected=service.connected)
+    return _readiness(
+        await service.readiness(),
+        calibration_configured=service.context.calibration is not None,
+        connected=service.connected,
+    )
 
 
 @router.post("/operator-session", response_model=OperatorSessionCreateResponse)
@@ -155,17 +194,50 @@ async def create_operator_session(
 ) -> OperatorSessionCreateResponse:
     response.headers["Cache-Control"] = "no-store"
     issued = await service.issue_operator_session(
+        purpose=request.purpose,
         confirmation_text=request.confirmation_text,
         physical_estop_confirmed=request.physical_estop_confirmed,
     )
     evidence = issued.evidence
-    confirmation = service.authorization.confirmation_for(service.context)
+    confirmation = service.authorization.confirmation_for(
+        service.context,
+        purpose=evidence.purpose,
+    )
     return OperatorSessionCreateResponse(
         session_token=issued.session_token.get_secret_value(),
         session_id=evidence.session_id,
         issued_at=evidence.issued_at,
         expires_at=evidence.expires_at,
+        purpose=evidence.purpose,
+        scopes=sorted(evidence.scopes, key=lambda item: item.value),
         evidence=_confirmation(confirmation),
+    )
+
+
+@router.get("/field-acceptance", response_model=FieldAcceptanceStatusResponse)
+async def field_acceptance_status(
+    service: FieldAcceptanceServiceDependency,
+) -> FieldAcceptanceStatusResponse:
+    return _field_acceptance(service.status())
+
+
+@router.post(
+    "/field-acceptance",
+    response_model=FieldAcceptanceStatusResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
+async def accept_field_acceptance(
+    request: FieldAcceptanceCreateRequest,
+    service: FieldAcceptanceServiceDependency,
+    token: OperatorToken,
+) -> FieldAcceptanceStatusResponse:
+    return _field_acceptance(
+        await service.accept(
+            token,
+            checklist_version=request.checklist_version,
+            confirmation_text=request.confirmation_text,
+            accepted_by=request.accepted_by,
+        )
     )
 
 
@@ -175,7 +247,11 @@ async def revoke_operator_session(
     token: OperatorToken,
 ) -> RealHardwareReadinessResponse:
     await service.revoke_operator_session(token)
-    return _readiness(await service.readiness(), connected=service.connected)
+    return _readiness(
+        await service.readiness(),
+        calibration_configured=service.context.calibration is not None,
+        connected=service.connected,
+    )
 
 
 @router.post(

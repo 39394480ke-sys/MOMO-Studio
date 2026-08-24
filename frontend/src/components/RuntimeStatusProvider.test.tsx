@@ -103,6 +103,8 @@ function RuntimeProbe() {
       <output>{runtime.robot?.connection_state ?? 'NO_STATUS'}</output>
       <output>{runtime.backend === 'connected' ? 'BACKEND_CONNECTED' : 'BACKEND_UNAVAILABLE'}</output>
       <output>{runtime.stale ? 'STALE' : 'FRESH'}</output>
+      <output>{runtime.controlMode}</output>
+      <output>{runtime.hardwareAccessPolicy}</output>
       <button type="button" onClick={() => void runtime.connect()}>
         Connect probe
       </button>
@@ -123,6 +125,32 @@ afterEach(() => {
 });
 
 describe('RuntimeStatusProvider refresh lifecycle', () => {
+  it('shows coherent REAL / READ_ONLY state but never reuses the Dry Run lifecycle API', async () => {
+    const commissioning = bootstrap(false);
+    commissioning.health = {
+      ...commissioning.health,
+      control_mode: 'REAL',
+      hardware_access_policy: 'READ_ONLY',
+    };
+    commissioning.meta = {
+      ...commissioning.meta,
+      active_control_mode: 'REAL',
+      hardware_access_policy: 'READ_ONLY',
+    };
+    vi.mocked(getBootstrapData).mockResolvedValue(commissioning);
+
+    render(
+      <RuntimeStatusProvider>
+        <RuntimeProbe />
+      </RuntimeStatusProvider>,
+    );
+
+    expect(await screen.findByText('REAL')).toBeVisible();
+    expect(screen.getByText('READ_ONLY')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect probe' }));
+    expect(connectRobot).not.toHaveBeenCalled();
+  });
+
   it('does not let a deferred bootstrap overwrite a newer Connect response', async () => {
     const oldBootstrap = deferred<BootstrapResponse>();
     vi.mocked(getBootstrapData).mockReturnValue(oldBootstrap.promise);

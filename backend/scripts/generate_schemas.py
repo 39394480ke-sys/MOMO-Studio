@@ -15,6 +15,7 @@ from momo.domain.kinematics.model import KinematicsModel
 from momo.domain.motion import Motion
 from momo.domain.motion_draft import MotionDraft, motion_draft_persisted_json_schema
 from momo.domain.pose import Pose
+from momo.domain.real_hardware import FieldAcceptanceEvidence
 from momo.domain.robot import RobotProfile
 from momo.domain.runtime import RobotStatus, RuntimeState
 from momo.domain.vision import FrameMetadata, TrackingResult
@@ -25,6 +26,7 @@ SCHEMAS: dict[str, type[BaseModel]] = {
     "backup-restore-transaction.schema.json": BackupRestoreTransaction,
     "calibration.schema.json": CalibrationDocument,
     "calibration-revision.schema.json": CalibrationRevisionRecord,
+    "field-acceptance-evidence.schema.json": FieldAcceptanceEvidence,
     "kinematics-model.schema.json": KinematicsModel,
     "motion.schema.json": Motion,
     "motion-draft.schema.json": MotionDraft,

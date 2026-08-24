@@ -42,8 +42,8 @@ function renderControl() {
 }
 
 async function waitForMotionReady() {
-  expect(await screen.findByText('Motion ready')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Move all joints' })).toBeEnabled();
+  expect(await screen.findByText('运动已就绪')).toBeVisible();
+  expect(screen.getByRole('button', { name: '移动全部关节' })).toBeEnabled();
 }
 
 afterEach(() => {
@@ -53,6 +53,29 @@ afterEach(() => {
 });
 
 describe('Stage 3 Control workspace', () => {
+  it('never reuses Dry Run motion or lifecycle routes in REAL / READ_ONLY commissioning', async () => {
+    const backend = mockStage3Backend({
+      controlMode: 'REAL',
+      hardwareAccessPolicy: 'READ_ONLY',
+      realMotionEnabled: false,
+    });
+    renderControl();
+
+    expect((await screen.findAllByText('Commissioning READ ONLY · 禁止运动')).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText('READ ONLY').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '连接' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '断开连接' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '停止运动' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
+    expect(backend.requestsFor('/robot/connect')).toHaveLength(0);
+    expect(backend.requestsFor('/motion/joints')).toHaveLength(0);
+    expect(backend.requestsFor('/motion/home')).toHaveLength(0);
+  });
+
   it('renders responsive keyed V2 controls with J10 in millimetres and no unrelated tools', async () => {
     mockStage3Backend();
     const view = renderControl();
@@ -75,7 +98,7 @@ describe('Stage 3 Control workspace', () => {
     const j10 = screen.getByLabelText('J10 target (mm)');
     await user.clear(j10);
     await user.type(j10, '42.5');
-    await user.click(screen.getByRole('button', { name: 'Move all joints' }));
+    await user.click(screen.getByRole('button', { name: '移动全部关节' }));
     await waitFor(() => expect(backend.requestsFor('/motion/joints')).toHaveLength(1));
     expect(backend.lastBody('/motion/joints')).toEqual(expect.objectContaining({
       source: 'CONTROL',
@@ -110,7 +133,7 @@ describe('Stage 3 Control workspace', () => {
       duration_s: 1,
     }));
 
-    await user.click(screen.getByRole('button', { name: 'Check IK' }));
+    await user.click(screen.getByRole('button', { name: '检查逆解' }));
     await waitFor(() => expect(backend.requestsFor('/kinematics/ik')).toHaveLength(1));
     expect(backend.lastBody('/kinematics/ik')).toEqual({
       target_pose: {
@@ -127,9 +150,9 @@ describe('Stage 3 Control workspace', () => {
       position_only: false,
       maximum_iterations: 200,
     });
-    expect(await screen.findByText('IK reachable')).toBeVisible();
+    expect(await screen.findByText('逆解可达')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: 'Move Pose' }));
+    await user.click(screen.getByRole('button', { name: '移动到位姿' }));
     await waitFor(() => expect(backend.requestsFor('/motion/pose')).toHaveLength(1));
     expect(backend.lastBody('/motion/pose')).toEqual(expect.objectContaining({
       target_pose: expect.objectContaining({ frame: 'base' }),
@@ -138,19 +161,19 @@ describe('Stage 3 Control workspace', () => {
       duration_s: 1,
     }));
 
-    await user.click(screen.getByRole('button', { name: 'Home robot' }));
+    await user.click(screen.getByRole('button', { name: '机器人回零' }));
     expect(backend.requestsFor('/motion/home')).toHaveLength(0);
-    expect(screen.getByRole('alertdialog', { name: 'Confirm Home' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Cancel Home' }));
-    expect(screen.queryByRole('alertdialog', { name: 'Confirm Home' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Home robot' }));
-    await user.click(screen.getByRole('button', { name: 'Confirm Home' }));
+    expect(screen.getByRole('alertdialog', { name: '确认回零' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '取消回零' }));
+    expect(screen.queryByRole('alertdialog', { name: '确认回零' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '机器人回零' }));
+    await user.click(screen.getByRole('button', { name: '确认回零' }));
     await waitFor(() => expect(backend.requestsFor('/motion/home')).toHaveLength(1));
     expect(backend.lastBody('/motion/home')).toEqual(expect.objectContaining({
       confirm: 'HOME', duration_s: 1,
     }));
 
-    expect(screen.getByText('Preflight accepted')).toBeVisible();
+    expect(screen.getByText('预检通过')).toBeVisible();
     expect(screen.getByText('operator_intent')).toBeVisible();
   });
 
@@ -158,13 +181,13 @@ describe('Stage 3 Control workspace', () => {
     mockStage3Backend({ connected: false });
     renderControl();
     expect(await screen.findByText('DISCONNECTED')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Connect' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '连接' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J10 positive' })).toBeDisabled();
     expect(screen.getByLabelText('J10 target (mm)')).toBeDisabled();
-    expect(screen.getByLabelText('Joint step (deg)')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Check IK' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Home robot' })).toBeDisabled();
+    expect(screen.getByLabelText('关节单步 (deg)')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '检查逆解' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
   });
 
   it('fails motion closed immediately while Disconnect is pending', async () => {
@@ -177,16 +200,16 @@ describe('Stage 3 Control workspace', () => {
     renderControl();
     await waitForMotionReady();
 
-    await user.click(screen.getByRole('button', { name: /^Disconnect$/ }));
+    await user.click(screen.getByRole('button', { name: /^断开连接$/ }));
 
-    expect((await screen.findAllByText('Robot lifecycle action pending · motion disabled')).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled();
+    expect((await screen.findAllByText('机器人生命周期操作进行中 · 运动已禁用')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Hold J11 positive jog' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Check IK' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Move Pose' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Home robot' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'STOP MOTION' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '检查逆解' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '停止运动' })).toBeEnabled();
 
     releaseDisconnect();
     expect(await screen.findByText('DISCONNECTED')).toBeVisible();
@@ -196,11 +219,11 @@ describe('Stage 3 Control workspace', () => {
     mockStage3Backend({ robotStale: true });
     renderControl();
 
-    expect(await screen.findByText('Robot state stale · motion disabled')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled();
+    expect(await screen.findByText('机器人状态已过期 · 运动已禁用')).toBeVisible();
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J10 positive' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Check IK' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'STOP MOTION' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '检查逆解' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '停止运动' })).toBeDisabled();
   });
 
   it('immediately disables motion when a live WebSocket RobotStatus becomes stale', async () => {
@@ -226,8 +249,8 @@ describe('Stage 3 Control workspace', () => {
       }));
     });
 
-    expect(await screen.findByText('Robot state stale · motion disabled')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled();
+    expect(await screen.findByText('机器人状态已过期 · 运动已禁用')).toBeVisible();
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeDisabled();
   });
 
@@ -236,8 +259,8 @@ describe('Stage 3 Control workspace', () => {
     mockStage3Backend({ ikSuccess: false });
     const first = renderControl();
     await waitForMotionReady();
-    await user.click(screen.getByRole('button', { name: 'Check IK' }));
-    expect(await screen.findByText('IK not reachable')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '检查逆解' }));
+    expect(await screen.findByText('逆解不可达')).toBeVisible();
     expect(screen.getByText('UNREACHABLE')).toBeVisible();
     expect(screen.getByText('No solution within limits')).toBeVisible();
 
@@ -245,7 +268,7 @@ describe('Stage 3 Control workspace', () => {
     mockStage3Backend({ ikError: true });
     renderControl();
     await waitForMotionReady();
-    await user.click(screen.getByRole('button', { name: 'Check IK' }));
+    await user.click(screen.getByRole('button', { name: '检查逆解' }));
     expect(await screen.findByText(/IK_INVALID_TARGET: IK target is outside/)).toBeVisible();
   });
 
@@ -256,7 +279,7 @@ describe('Stage 3 Control workspace', () => {
     await waitForMotionReady();
     await user.click(screen.getByRole('button', { name: 'Step J11 positive' }));
 
-    expect(await screen.findByText('Preflight rejected')).toBeVisible();
+    expect(await screen.findByText('预检未通过')).toBeVisible();
     expect(screen.getByText('workspace_bounds')).toBeVisible();
     expect(screen.getByText(/Target Z exceeds provisional bounds/)).toBeVisible();
     expect(screen.getByText(/MOTION_PREFLIGHT_REJECTED/)).toBeVisible();
@@ -307,7 +330,7 @@ describe('Stage 3 Control workspace', () => {
     expect(backend.requestsFor('/robot/fk')).toHaveLength(fkRequestsWhileOpen);
 
     act(() => webSocket?.emit('close'));
-    await waitFor(() => expect(screen.getByText(/Live status: REST fallback/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/实时状态：REST 备用通道/)).toBeVisible());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: 'Step J11 positive' }));
     await waitFor(() => expect(backend.requestsFor('/motion/jog-step')).toHaveLength(1));
@@ -326,20 +349,20 @@ describe('Stage 3 Control workspace', () => {
     await waitForMotionReady();
 
     await user.click(screen.getByRole('button', { name: 'Step J11 positive' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled());
-    expect(screen.getByRole('button', { name: 'Move Pose' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Home robot' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'STOP MOTION' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '停止运动' })).toBeEnabled();
 
     expect(await screen.findByText(/35%/, {}, { timeout: 1200 })).toBeVisible();
     await waitFor(() => expect(backend.requestsFor(`/motion/commands/${stage3Ids.commandId}`).length).toBeGreaterThan(1), {
       timeout: 1500,
     });
 
-    await user.click(screen.getByRole('button', { name: 'STOP MOTION' }));
+    await user.click(screen.getByRole('button', { name: '停止运动' }));
     await waitFor(() => expect(backend.requestsFor('/motion/stop')).toHaveLength(1));
     expect(await screen.findByText('CANCELLED')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Move all joints' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeEnabled();
   });
 
   it.each(['FAILED', 'SAFETY_STATE_UNCERTAIN'] as const)(
@@ -355,15 +378,15 @@ describe('Stage 3 Control workspace', () => {
       await waitForMotionReady();
 
       await user.click(screen.getByRole('button', { name: 'Step J11 positive' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled());
-      await user.click(screen.getByRole('button', { name: 'STOP MOTION' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled());
+      await user.click(screen.getByRole('button', { name: '停止运动' }));
 
       expect(await screen.findByText('CANCELLED')).toBeVisible();
       expect(await screen.findByText(new RegExp(`Motion Stop returned ${stopResult}`))).toBeVisible();
-      expect(screen.getAllByText(/Motion safety state is uncertain/).length).toBeGreaterThan(0);
-      expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Move Pose' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'STOP MOTION' })).toBeEnabled();
+      expect(screen.getAllByText(/运动安全状态不确定/).length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '停止运动' })).toBeEnabled();
       expect(backend.requestsFor(`/motion/commands/${stage3Ids.commandId}`).length).toBeGreaterThan(0);
     },
   );
@@ -378,7 +401,7 @@ describe('Stage 3 Control workspace', () => {
     await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
     await waitFor(() => expect(hold).toHaveAttribute('aria-pressed', 'true'));
     expect(hold).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     await waitFor(
       () => expect(backend.requestsFor(`/motion/jog/${stage3Ids.jogSessionId}/heartbeat`).length).toBeGreaterThan(0),
       { timeout: 600 },

@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe('MOMO Studio Stage 8 release-candidate shell', () => {
   it.each([
-    ['/control', 'Control'],
+    ['/control', '控制'],
     ['/studio', 'Studio'],
     ['/library', 'Library'],
     ['/vision', 'Vision'],
@@ -31,8 +31,8 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     renderRoute(path);
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeVisible();
     expect(screen.getByText('MOMO Studio 0.1.0-rc1')).toBeVisible();
-    expect(screen.getByText('Dry Run validated')).toBeVisible();
-    expect(screen.getByText('Real hardware field acceptance pending')).toBeVisible();
+    expect(screen.getByText('仿真运行已验证')).toBeVisible();
+    expect(screen.getByText('真实硬件现场验收待完成')).toBeVisible();
   });
 
   it('opens the active Studio timeline authoring workspace', async () => {
@@ -70,10 +70,10 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     renderRoute('/control');
     expect(await screen.findByText('DISCONNECTED')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: 'Connect' }));
+    await user.click(screen.getByRole('button', { name: '连接' }));
     expect(await screen.findByText('CONNECTED')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'STOP MOTION' }));
-    await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+    await user.click(screen.getByRole('button', { name: '停止运动' }));
+    await user.click(screen.getByRole('button', { name: '断开连接' }));
     expect(await screen.findByText('DISCONNECTED')).toBeVisible();
 
     expect(backend.requestsFor('/robot/connect')).toHaveLength(1);
@@ -86,7 +86,7 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     mockStage3Backend({ connected: false, connectError: true });
     renderRoute('/control');
     await screen.findByText('DISCONNECTED');
-    await user.click(screen.getByRole('button', { name: 'Connect' }));
+    await user.click(screen.getByRole('button', { name: '连接' }));
     expect(await screen.findByText(/The active Dry Run robot is already connected/)).toBeVisible();
   });
 
@@ -96,21 +96,21 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     expect(await screen.findByLabelText('J10 target (mm)')).toBeEnabled();
     backend.goOffline();
     await waitFor(
-      () => expect(screen.getByText('Backend unavailable · showing stale state')).toBeVisible(),
+      () => expect(screen.getByText('后端不可用 · 正在显示过期状态')).toBeVisible(),
       { timeout: 1800 },
     );
     expect(screen.getByLabelText('J10 target (mm)')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Move all joints' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
   });
 
   it('uses a truthful safe fallback and disables all motion when initially offline', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     vi.stubGlobal('WebSocket', undefined);
     renderRoute('/control');
-    expect((await screen.findAllByText('Backend unavailable')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('后端不可用')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('DRY RUN').length).toBeGreaterThan(0);
-    expect(screen.getByText('Real motion disabled')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'STOP MOTION' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Move Pose' })).toBeDisabled();
+    expect(screen.getByText('真实运动已禁用')).toBeVisible();
+    expect(screen.getByRole('button', { name: '停止运动' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
   });
 });

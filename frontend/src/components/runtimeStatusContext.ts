@@ -3,6 +3,7 @@ import { createContext, useContext } from 'react';
 import type {
   CalibrationStatus,
   DiagnosticsResponse,
+  HardwareAccessPolicy,
   MetaResponse,
   ProfileResponse,
   RobotStatus,
@@ -11,8 +12,9 @@ import type {
 export interface RuntimeStatus {
   backend: 'connected' | 'unavailable';
   stale: boolean;
-  controlMode: 'DRY RUN';
-  realMotionEnabled: false;
+  controlMode: 'DRY RUN' | 'REAL';
+  hardwareAccessPolicy: HardwareAccessPolicy;
+  realMotionEnabled: boolean;
   meta: MetaResponse | null;
   robot: RobotStatus | null;
   profile: ProfileResponse | null;
@@ -31,6 +33,7 @@ export const SAFE_RUNTIME_STATUS: RuntimeStatus = {
   backend: 'unavailable',
   stale: false,
   controlMode: 'DRY RUN',
+  hardwareAccessPolicy: 'DISABLED',
   realMotionEnabled: false,
   meta: null,
   robot: null,

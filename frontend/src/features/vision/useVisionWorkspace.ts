@@ -41,6 +41,11 @@ function errorMessage(error: unknown): string {
 }
 
 function followMapping(runtime: RuntimeStatus): VisionFollowMapping | null {
+  if (
+    runtime.controlMode !== 'DRY RUN' ||
+    runtime.hardwareAccessPolicy !== 'DISABLED' ||
+    runtime.realMotionEnabled
+  ) return null;
   const definitions = runtime.profile?.profile.joint_definitions ?? [];
   const enabled = new Set(runtime.profile?.profile.enabled_joints ?? []);
   const angular = definitions.filter(
@@ -74,6 +79,10 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
 
   const mapping = useMemo(() => followMapping(runtime), [runtime]);
   const online = runtime.backend === 'connected' && !runtime.stale;
+  const dryRunFollowAllowed =
+    runtime.controlMode === 'DRY RUN' &&
+    runtime.hardwareAccessPolicy === 'DISABLED' &&
+    runtime.realMotionEnabled === false;
 
   const refreshStatus = useCallback(async (signal?: AbortSignal) => {
     const generation = requestGenerationRef.current;
@@ -261,6 +270,12 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
   }, []);
 
   const startFollow = useCallback(async () => {
+    if (!dryRunFollowAllowed) {
+      setError(runtime.hardwareAccessPolicy === 'READ_ONLY'
+        ? 'Commissioning READ ONLY permits no Vision Follow.'
+        : 'A REAL_MOTION Operator Session is required for real Vision Follow.');
+      return;
+    }
     if (!mapping) {
       setError('The active Profile does not provide two enabled angular joints for Follow mapping.');
       return;
@@ -287,7 +302,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     } finally {
       if (mountedRef.current) setBusy((current) => current === 'start-follow' ? null : current);
     }
-  }, [configuration, mapping]);
+  }, [configuration, dryRunFollowAllowed, mapping, runtime.hardwareAccessPolicy]);
 
   const stopFollow = useCallback(async () => {
     priorityEpochRef.current += 1;
@@ -317,9 +332,12 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     configuration,
     detect,
     detections,
+    dryRunFollowAllowed,
     error,
     mapping,
     online,
+    runtimeMode: runtime.controlMode,
+    runtimePolicy: runtime.hardwareAccessPolicy,
     resetTracking,
     selectTarget,
     setConfiguration,

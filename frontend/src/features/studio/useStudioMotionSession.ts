@@ -56,7 +56,11 @@ function motionDisabledReason(runtime: RuntimeStatus): string | null {
   if (!runtime.robot?.connected) return 'connect the Dry Run robot';
   if (runtime.robot.stale || runtime.stale) return 'robot state is stale';
   if (!runtime.profile) return 'robot profile unavailable';
-  if (runtime.controlMode !== 'DRY RUN' || runtime.realMotionEnabled !== false) {
+  if (
+    runtime.controlMode !== 'DRY RUN' ||
+    runtime.hardwareAccessPolicy !== 'DISABLED' ||
+    runtime.realMotionEnabled !== false
+  ) {
     return 'unsafe runtime policy';
   }
   return null;

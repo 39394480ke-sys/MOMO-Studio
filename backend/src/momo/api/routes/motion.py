@@ -5,7 +5,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
 
-from momo.api.dependencies import get_jog_service, get_motion_service
+from momo.api.dependencies import (
+    authorize_real_cartesian_motion_request,
+    authorize_real_joint_motion_request,
+    get_jog_service,
+    get_motion_service,
+)
 from momo.api.motion_schemas import (
     CartesianJogRequest,
     ContinuousJogStartRequest,
@@ -69,7 +74,10 @@ async def _submit_motion(
     "/joints",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_joint_motion_request),
+    ],
 )
 async def move_joints(
     request: MoveJointsRequest,
@@ -83,7 +91,10 @@ async def move_joints(
     "/jog-step",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_joint_motion_request),
+    ],
 )
 async def joint_jog_step(
     request: JointJogStepRequest,
@@ -97,7 +108,10 @@ async def joint_jog_step(
     "/cartesian-jog",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_cartesian_motion_request),
+    ],
 )
 async def cartesian_jog(
     request: CartesianJogRequest,
@@ -111,7 +125,10 @@ async def cartesian_jog(
     "/pose",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_cartesian_motion_request),
+    ],
 )
 async def move_pose(
     request: MovePoseRequest,
@@ -125,7 +142,10 @@ async def move_pose(
     "/home",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_joint_motion_request),
+    ],
 )
 async def home(
     request: HomeRequest,
@@ -139,7 +159,10 @@ async def home(
     "/jog/start",
     response_model=JogLeaseResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_joint_motion_request),
+    ],
 )
 async def start_continuous_jog(
     request: ContinuousJogStartRequest,
@@ -166,7 +189,10 @@ async def start_continuous_jog(
 @router.post(
     "/jog/{session_id}/heartbeat",
     response_model=JogLeaseResponse,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_joint_motion_request),
+    ],
 )
 async def heartbeat_continuous_jog(
     session_id: UUID,

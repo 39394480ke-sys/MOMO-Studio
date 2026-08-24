@@ -1,6 +1,12 @@
 import { vi } from 'vitest';
 
-import type { MotionCommandState, MotionStopResponse, RobotVariant } from '../api/types';
+import type {
+  ControlMode,
+  HardwareAccessPolicy,
+  MotionCommandState,
+  MotionStopResponse,
+  RobotVariant,
+} from '../api/types';
 
 const PROFILE_FINGERPRINT = 'a'.repeat(64);
 const KINEMATICS_FINGERPRINT = 'b'.repeat(64);
@@ -110,6 +116,9 @@ interface MockBackendOptions {
   preflightReject?: boolean;
   robotStale?: boolean;
   stopResult?: MotionStopResponse['result'];
+  controlMode?: ControlMode;
+  hardwareAccessPolicy?: HardwareAccessPolicy;
+  realMotionEnabled?: boolean;
 }
 
 interface RecordedRequest {
@@ -119,6 +128,9 @@ interface RecordedRequest {
 }
 
 export function mockStage3Backend(options: MockBackendOptions = {}) {
+  const controlMode = options.controlMode ?? 'DRY_RUN';
+  const hardwareAccessPolicy = options.hardwareAccessPolicy ?? 'DISABLED';
+  const realMotionEnabled = options.realMotionEnabled ?? false;
   let variant = options.variant ?? 'V2';
   let currentRobot = robotFor(variant, options.connected ?? true);
   if (options.robotStale !== undefined) {
@@ -142,7 +154,8 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
     if (path === '/health') {
       return jsonResponse({
         status: 'ok', product: 'MOMO Studio', version: '0.1.0-rc1', stage: 8,
-        control_mode: 'DRY_RUN', hardware_access_policy: 'DISABLED', real_motion_enabled: false,
+        control_mode: controlMode, hardware_access_policy: hardwareAccessPolicy,
+        real_motion_enabled: realMotionEnabled,
       });
     }
     if (path === '/meta') {
@@ -151,8 +164,8 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         release_status: 'FIELD_ACCEPTANCE_REQUIRED', dry_run_validated: true,
         real_hardware_field_acceptance: 'PENDING',
         active_robot_variant: variant, supported_robot_variants: ['V1', 'V2'],
-        supported_control_modes: ['DRY_RUN', 'REAL'], active_control_mode: 'DRY_RUN',
-        hardware_access_policy: 'DISABLED', real_motion_enabled: false,
+        supported_control_modes: ['DRY_RUN', 'REAL'], active_control_mode: controlMode,
+        hardware_access_policy: hardwareAccessPolicy, real_motion_enabled: realMotionEnabled,
       });
     }
     if (path === '/robot/profile') {

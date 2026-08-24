@@ -32,14 +32,18 @@ function integerOrNull(value: string): number | null {
 
 interface CalibrationWizardProps {
   connected: boolean;
+  initiallyConfigured: boolean;
   operatorToken: string;
   onSessionInvalidated?: () => void;
+  onStatusChange?: (status: 'NOT_CONFIGURED' | 'DRAFT' | 'CONFIGURED') => void;
 }
 
 export function CalibrationWizard({
   connected,
+  initiallyConfigured,
   operatorToken,
   onSessionInvalidated,
+  onStatusChange,
 }: CalibrationWizardProps) {
   const [status, setStatus] = useState<CalibrationWorkflowStatus | null>(null);
   const [selectedJoint, setSelectedJoint] = useState('');
@@ -80,12 +84,25 @@ export function CalibrationWizard({
     }
   };
 
+  const selectDraftJoint = (next: CalibrationWorkflowStatus, jointId: string) => {
+    const draft = next.draft.joints.find((joint) => joint.joint_id === jointId);
+    setSelectedJoint(jointId);
+    setLogicalValue(draft?.logical_value === null || draft?.logical_value === undefined
+      ? ''
+      : String(draft.logical_value));
+    setDirection(draft?.direction ?? 1);
+    setPhase(draft?.phase === null || draft?.phase === undefined ? '' : String(draft.phase));
+    setRawLower(draft?.raw_bounds ? String(draft.raw_bounds[0]) : '');
+    setRawUpper(draft?.raw_bounds ? String(draft.raw_bounds[1]) : '');
+  };
+
   const start = () => run('start', async () => {
     const next = await startCalibrationSession(operatorToken);
     setStatus(next);
-    setSelectedJoint(next.required_joint_ids[0] ?? '');
+    selectDraftJoint(next, next.required_joint_ids[0] ?? '');
     setPreview(null);
     setSaved(null);
+    onStatusChange?.('DRAFT');
   });
 
   const read = () => run('read', async () => {
@@ -138,6 +155,7 @@ export function CalibrationWizard({
     setSaved(revision);
     setStatus(null);
     setPreview(null);
+    onStatusChange?.('CONFIGURED');
     onSessionInvalidated?.();
   });
 
@@ -146,6 +164,7 @@ export function CalibrationWizard({
     setStatus(null);
     setPreview(null);
     setSaveConfirmation('');
+    onStatusChange?.(initiallyConfigured ? 'CONFIGURED' : 'NOT_CONFIGURED');
   });
 
   if (saved) {
@@ -156,6 +175,7 @@ export function CalibrationWizard({
           <div>
             <h3 id="calibration-wizard-title">Calibration revision saved</h3>
             <p>Revision {saved.revision} · {saved.variant}</p>
+            <p>Calibration configured · Field acceptance pending · Real motion blocked</p>
             <code>{saved.calibration_fingerprint}</code>
           </div>
         </div>
@@ -172,6 +192,7 @@ export function CalibrationWizard({
         <div>
           <p className="section-kicker">Protected · selected-joint reads only</p>
           <h3 id="calibration-wizard-title">Current-angle Calibration Wizard</h3>
+          <strong>{initiallyConfigured ? 'Calibration configured' : 'Not configured'}</strong>
           <p>
             The wizard never moves a joint, writes a servo, changes mode, scans IDs, or
             promotes an example calibration. It requires the current explicit connection.
@@ -183,7 +204,7 @@ export function CalibrationWizard({
           onClick={() => void start()}
           type="button"
         >
-          Start protected calibration
+          {initiallyConfigured ? 'Start protected recalibration' : 'Start initial calibration'}
         </button>
         {!connected && <small>Explicitly connect and verify diagnostics first.</small>}
         {error && <p className="real-inline-error" role="alert">{error}</p>}
@@ -195,7 +216,11 @@ export function CalibrationWizard({
     <section className="calibration-wizard" aria-labelledby="calibration-wizard-title">
       <div className="settings-section__heading settings-section__heading--inline">
         <div>
-          <p className="section-kicker">Revision {status.base_revision} · {status.state}</p>
+          <p className="section-kicker">
+            Draft · {status.base_revision === null
+              ? 'Initial calibration → Revision 1'
+              : `Revision ${status.base_revision} → ${status.base_revision + 1}`}
+          </p>
           <h3 id="calibration-wizard-title">Current-angle Calibration Wizard</h3>
         </div>
         <button className="command-button" disabled={pending !== null} onClick={() => void cancel()} type="button">
@@ -224,7 +249,7 @@ export function CalibrationWizard({
           <select
             disabled={pending !== null}
             onChange={(event) => {
-              setSelectedJoint(event.target.value);
+              selectDraftJoint(status, event.target.value);
               setStatus((current) => current ? {
                 ...current,
                 selected_joint_id: null,

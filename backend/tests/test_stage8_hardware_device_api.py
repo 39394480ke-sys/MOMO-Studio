@@ -31,8 +31,9 @@ from momo.application.services.real_hardware_authorization import RealHardwareAu
 from momo.application.services.security_service import SecurityService
 from momo.domain.enums import KinematicsVerificationStatus
 from momo.domain.real_hardware import (
-    REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+    REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
     DeviceDiagnosticsSnapshot,
+    OperatorSessionPurpose,
     RealHardwareAccessGrant,
     RealHardwareBlocker,
     RealHardwareContext,
@@ -41,13 +42,24 @@ from momo.domain.real_hardware import (
     ServoPingResult,
 )
 from momo.domain.security import NetworkSecurityPolicy
+from momo.ports.servo_bus import ReadOnlyServoBus
 from tests.stage3_helpers import FakeClock
-from tests.stage8_hardware_helpers import device_service, fake_bus, real_context
+from tests.stage8_hardware_helpers import (
+    commissioning_context as real_context,
+)
+from tests.stage8_hardware_helpers import (
+    device_service,
+    fake_bus,
+    real_calibration,
+    recalibration_context,
+    write_bomb_bus,
+)
 
 
 async def issue_token(service: DeviceDiagnosticsService) -> str:
     issued = await service.issue_operator_session(
-        confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+        purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+        confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
         physical_estop_confirmed=True,
     )
     return issued.session_token.get_secret_value()
@@ -111,7 +123,11 @@ def test_connect_sequence_is_read_only_exact_id_and_diagnostics_is_explicit() ->
         coordinated_bus, coordinated_evidence = await service.require_authorized_connected_bus(
             token
         )
-        assert coordinated_bus is bus
+        assert coordinated_bus is not bus
+        assert isinstance(coordinated_bus, ReadOnlyServoBus)
+        assert not hasattr(coordinated_bus, "write_goal_positions")
+        assert not hasattr(coordinated_bus, "stop_or_hold")
+        assert not hasattr(coordinated_bus, "scan")
         assert coordinated_evidence.session_id == factory.grants[0].session.session_id
         selected_ids = (context.device.servo_ids[0],)
         assert set(await bus.ping_explicit_ids(selected_ids)) == set(selected_ids)
@@ -125,7 +141,9 @@ def test_connect_sequence_is_read_only_exact_id_and_diagnostics_is_explicit() ->
             await bus.read_present_positions((unallowed_id,))
         with pytest.raises(PermissionError, match="exactly match"):
             await bus.stop_or_hold(selected_ids)
-        with pytest.raises(PermissionError, match="read-only diagnostics"):
+        with pytest.raises(PermissionError, match="read-only commissioning"):
+            await bus.stop_or_hold(context.device.servo_ids)
+        with pytest.raises(PermissionError, match="read-only commissioning"):
             await bus.write_goal_positions({servo_id: 0 for servo_id in context.device.servo_ids})
 
         snapshot = await service.diagnostics(token)
@@ -142,12 +160,30 @@ def test_connect_sequence_is_read_only_exact_id_and_diagnostics_is_explicit() ->
         )
 
         stopped = await service.stop()
-        assert stopped.result is RealStopResult.STOPPED_AND_VERIFIED
-        assert stopped.safety_state_known is True
+        assert stopped.result is RealStopResult.SAFETY_STATE_UNCERTAIN
+        assert stopped.safety_state_known is False
+        assert all(event[0] != "stop_or_hold" for event in bus.events)
         disconnected = await service.disconnect(token)
         assert disconnected.connected is False
         assert bus.connected is False
         assert (await service.sessions.status()).active is False
+
+    asyncio.run(scenario())
+
+
+def test_read_only_device_flow_cannot_reach_write_bomb() -> None:
+    async def scenario() -> None:
+        context = real_context()
+        bus = write_bomb_bus(context)
+        service, _, _ = device_service(context, bus=bus)
+        token = await issue_token(service)
+
+        await service.connect(token)
+        await service.diagnostics(token)
+        await service.disconnect(token)
+
+        assert bus.write_attempts == []
+        assert all(event[0] != "write_goal_positions" for event in bus.events)
 
     asyncio.run(scenario())
 
@@ -165,7 +201,8 @@ def test_connected_bus_coordination_rejects_replaced_session_without_reopening()
             await issue_token(service)
         replacement = await service.sessions.issue(
             context,
-            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
             physical_estop_confirmed=True,
         )
         second_token = replacement.session_token.get_secret_value()
@@ -181,7 +218,7 @@ def test_connected_bus_coordination_rejects_replaced_session_without_reopening()
     asyncio.run(scenario())
 
 
-def test_calibration_change_invalidation_closes_bus_and_blocks_stale_fingerprint() -> None:
+def test_calibration_change_invalidation_closes_bus_and_requires_fresh_commissioning() -> None:
     async def scenario() -> None:
         context = real_context()
         bus = fake_bus(context)
@@ -196,12 +233,12 @@ def test_calibration_change_invalidation_closes_bus_and_blocks_stale_fingerprint
         assert service.context.calibration is None
         assert (await service.sessions.status()).active is False
         report = await service.readiness()
-        assert RealHardwareBlocker.CALIBRATION_MISSING in report.blocking_reasons
-        assert report.session_authorizable is False
+        assert RealHardwareBlocker.CALIBRATION_MISSING not in report.blocking_reasons
+        assert report.commissioning_session_authorizable is True
         with pytest.raises(OperatorSessionTokenError):
             await service.require_authorized_connected_bus(token)
-        with pytest.raises(OperatorSessionPrerequisiteError):
-            await issue_token(service)
+        replacement = await issue_token(service)
+        assert replacement != token
 
     asyncio.run(scenario())
 
@@ -351,7 +388,8 @@ def test_cancelled_connection_closes_partial_bus_and_revokes_token() -> None:
         task = asyncio.create_task(service.connect(token))
         await bus.ping_started.wait()
         stopped = await service.stop()
-        assert stopped.result is RealStopResult.STOPPED_AND_VERIFIED
+        assert stopped.result is RealStopResult.SAFETY_STATE_UNCERTAIN
+        assert all(event[0] != "stop_or_hold" for event in bus.events)
         assert (
             RealHardwareBlocker.DEVICE_SAFETY_STATE_UNCERTAIN
             in (await service.readiness()).blocking_reasons
@@ -443,7 +481,8 @@ def test_priority_stop_reaches_bus_during_slow_close() -> None:
             in (await service.readiness()).blocking_reasons
         )
         stopped = await asyncio.wait_for(service.stop(), timeout=0.5)
-        assert stopped.result is RealStopResult.STOPPED_AND_VERIFIED
+        assert stopped.result is RealStopResult.SAFETY_STATE_UNCERTAIN
+        assert all(event[0] != "stop_or_hold" for event in bus.events)
 
         bus.release_close.set()
         disconnected = await disconnect_task
@@ -557,7 +596,9 @@ def test_failed_partial_close_remains_stoppable_and_blocks_reauthorization() -> 
 
 def test_connect_rejects_raw_position_outside_profile_logical_limits() -> None:
     async def scenario() -> None:
-        context = real_context()
+        initial = real_context()
+        assert initial.profile is not None
+        context = real_context(calibration=real_calibration(initial.profile))
         assert context.device is not None
         template = fake_bus(context)
         positions = template.positions
@@ -591,7 +632,8 @@ def test_priority_stop_does_not_queue_behind_slow_diagnostics() -> None:
         diagnostics_task = asyncio.create_task(service.diagnostics(token))
         await bus.read_started.wait()
         stopped = await asyncio.wait_for(service.stop(), timeout=0.5)
-        assert stopped.result is RealStopResult.STOPPED_AND_VERIFIED
+        assert stopped.result is RealStopResult.SAFETY_STATE_UNCERTAIN
+        assert all(event[0] != "stop_or_hold" for event in bus.events)
         assert diagnostics_task.done() is False
 
         bus.release_read.set()
@@ -615,6 +657,35 @@ def test_connected_session_expiry_closes_bus_and_allows_fresh_confirmation() -> 
         assert factory.bus.connected is False
         replacement = await issue_token(service)
         assert replacement != token
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_profile_fingerprint_drift_denies_diagnostics_before_another_bus_read() -> None:
+    async def scenario() -> None:
+        context = real_context()
+        bus = write_bomb_bus(context)
+        service, _, _ = device_service(context, bus=bus)
+        token = await issue_token(service)
+        await service.connect(token)
+        event_count = len(bus.events)
+
+        profile = service.context.profile
+        assert profile is not None
+        definitions = list(profile.joint_definitions)
+        first = definitions[0]
+        definitions[0] = first.model_copy(update={"minimum": first.minimum - 1.0})
+        changed_profile = type(profile).model_validate(
+            profile.model_copy(update={"joint_definitions": definitions}).model_dump()
+        )
+        assert changed_profile.fingerprint != profile.fingerprint
+        service.context = service.context.model_copy(update={"profile": changed_profile})
+
+        with pytest.raises(OperatorSessionTokenError, match="context changed"):
+            await service.diagnostics(token)
+        assert len(bus.events) == event_count
+        assert bus.write_attempts == []
         await service.shutdown()
 
     asyncio.run(scenario())
@@ -660,8 +731,11 @@ def test_default_device_api_is_blocked_and_never_touches_a_bus() -> None:
         body = readiness.json()
         assert body["ready"] is False
         assert body["session_authorizable"] is False
+        assert body["calibration_configured"] is False
         assert body["connected"] is False
         assert body["capabilities"] == {
+            "commissioning_diagnostics_ready": False,
+            "calibration_capture_ready": False,
             "real_joint_motion_ready": False,
             "real_cartesian_motion_ready": False,
             "real_playback_ready": False,
@@ -699,16 +773,17 @@ def test_pending_feetech_dependency_cannot_claim_readiness_or_issue_session() ->
         assert RealHardwareBlocker.SERVO_BUS_DEPENDENCY_UNAVAILABLE in (report.blocking_reasons)
         with pytest.raises(OperatorSessionPrerequisiteError):
             await service.issue_operator_session(
-                confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+                purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+                confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
                 physical_estop_confirmed=True,
             )
 
     asyncio.run(scenario())
 
 
-def test_device_api_returns_one_time_token_full_confirmation_and_redacted_diagnostics() -> None:
+def test_device_api_returns_commissioning_token_and_redacted_raw_diagnostics() -> None:
     async def scenario() -> None:
-        context = real_context()
+        context = recalibration_context()
         assert context.device is not None
         service, _, _ = device_service(context)
         app = isolated_app(service)
@@ -718,6 +793,7 @@ def test_device_api_returns_one_time_token_full_confirmation_and_redacted_diagno
         before_body = before.json()
         assert before_body["state"] == "AWAITING_OPERATOR_SESSION"
         assert before_body["session_authorizable"] is True
+        assert before_body["calibration_configured"] is True
         required_text = before_body["confirmation"]["required_confirmation_text"]
 
         wrong = await request(
@@ -725,6 +801,7 @@ def test_device_api_returns_one_time_token_full_confirmation_and_redacted_diagno
             "POST",
             "/api/v1/device/operator-session",
             json_data={
+                "purpose": "COMMISSIONING_READ_ONLY",
                 "confirmation_text": required_text.lower(),
                 "physical_estop_confirmed": True,
             },
@@ -735,6 +812,7 @@ def test_device_api_returns_one_time_token_full_confirmation_and_redacted_diagno
             "POST",
             "/api/v1/device/operator-session",
             json_data={
+                "purpose": "COMMISSIONING_READ_ONLY",
                 "confirmation_text": required_text,
                 "physical_estop_confirmed": True,
             },
@@ -747,14 +825,18 @@ def test_device_api_returns_one_time_token_full_confirmation_and_redacted_diagno
             "session_id",
             "issued_at",
             "expires_at",
+            "purpose",
+            "scopes",
             "evidence",
         }
         token = issued_body["session_token"]
         evidence = issued_body["evidence"]
+        assert issued_body["purpose"] == "COMMISSIONING_READ_ONLY"
+        assert set(issued_body["scopes"]) == {"DIAGNOSTICS_READ", "CALIBRATION_CAPTURE"}
         assert evidence["variant"] == "V2"
         assert evidence["profile_fingerprint"]
-        assert evidence["calibration_fingerprint"]
-        assert evidence["kinematics_fingerprint"]
+        assert evidence["calibration_fingerprint"] is None
+        assert evidence["kinematics_fingerprint"] is None
         assert evidence["masked_serial_port"] != context.device.serial_port
         assert evidence["masked_servo_ids"] == list(context.device.masked_servo_ids)
         assert evidence["protocol"] == context.device.protocol
@@ -789,15 +871,17 @@ def test_device_api_returns_one_time_token_full_confirmation_and_redacted_diagno
         assert token not in readiness.text
         assert readiness.json()["session"]["active"] is True
         assert readiness.json()["capabilities"] == {
-            "real_joint_motion_ready": True,
-            "real_cartesian_motion_ready": True,
-            "real_playback_ready": True,
-            "real_vision_follow_ready": True,
+            "commissioning_diagnostics_ready": True,
+            "calibration_capture_ready": True,
+            "real_joint_motion_ready": False,
+            "real_cartesian_motion_ready": False,
+            "real_playback_ready": False,
+            "real_vision_follow_ready": False,
         }
 
         stopped = await request(app, "POST", "/api/v1/device/stop")
         assert stopped.status_code == 200
-        assert stopped.json()["result"] == "STOPPED_AND_VERIFIED"
+        assert stopped.json()["result"] == "SAFETY_STATE_UNCERTAIN"
         disconnected = await request(
             app,
             "POST",
@@ -810,7 +894,7 @@ def test_device_api_returns_one_time_token_full_confirmation_and_redacted_diagno
     asyncio.run(scenario())
 
 
-def test_api_exposes_joint_only_capability_for_provisional_kinematics() -> None:
+def test_provisional_kinematics_does_not_block_commissioning_or_enable_motion() -> None:
     async def scenario() -> None:
         context = real_context()
         assert context.kinematics is not None
@@ -823,11 +907,13 @@ def test_api_exposes_joint_only_capability_for_provisional_kinematics() -> None:
         before = (await request(app, "GET", "/api/v1/device/readiness")).json()
         assert before["state"] == "AWAITING_OPERATOR_SESSION"
         assert before["session_authorizable"] is True
+        assert before["calibration_configured"] is False
         issued = await request(
             app,
             "POST",
             "/api/v1/device/operator-session",
             json_data={
+                "purpose": "COMMISSIONING_READ_ONLY",
                 "confirmation_text": before["confirmation"]["required_confirmation_text"],
                 "physical_estop_confirmed": True,
             },
@@ -837,9 +923,11 @@ def test_api_exposes_joint_only_capability_for_provisional_kinematics() -> None:
 
         after = (await request(app, "GET", "/api/v1/device/readiness")).json()
         assert after["ready"] is False
-        assert after["state"] == "BLOCKED_BY_KINEMATICS"
+        assert after["state"] == "COMMISSIONING_READY"
         assert after["capabilities"] == {
-            "real_joint_motion_ready": True,
+            "commissioning_diagnostics_ready": True,
+            "calibration_capture_ready": True,
+            "real_joint_motion_ready": False,
             "real_cartesian_motion_ready": False,
             "real_playback_ready": False,
             "real_vision_follow_ready": False,

@@ -95,6 +95,15 @@ function gotoDisabledReason(
   runtime: ReturnType<typeof useRuntimeStatus>,
 ): string | null {
   if (runtime.backend !== 'connected') return 'backend offline';
+  if (
+    runtime.controlMode !== 'DRY RUN' ||
+    runtime.hardwareAccessPolicy !== 'DISABLED' ||
+    runtime.realMotionEnabled
+  ) {
+    return runtime.hardwareAccessPolicy === 'READ_ONLY'
+      ? 'Commissioning READ ONLY permits diagnostics and calibration only'
+      : 'a REAL_MOTION Operator Session is not available in this workspace';
+  }
   if (runtime.stale || runtime.robot?.stale !== false) return 'robot state is stale';
   if (!runtime.robot?.connected) return 'Dry Run robot is disconnected';
   if (runtime.pendingAction !== null) return 'robot lifecycle action is pending';
@@ -127,6 +136,15 @@ function playbackDisabledReason(
   runtime: ReturnType<typeof useRuntimeStatus>,
 ): string | null {
   if (runtime.backend !== 'connected') return 'backend offline';
+  if (
+    runtime.controlMode !== 'DRY RUN' ||
+    runtime.hardwareAccessPolicy !== 'DISABLED' ||
+    runtime.realMotionEnabled
+  ) {
+    return runtime.hardwareAccessPolicy === 'READ_ONLY'
+      ? 'Commissioning READ ONLY permits no playback'
+      : 'a REAL_MOTION Operator Session is required';
+  }
   if (runtime.stale || runtime.robot?.stale !== false) return 'robot state is stale';
   if (!runtime.robot?.connected) return 'Dry Run robot is disconnected';
   if (runtime.pendingAction !== null) return 'robot lifecycle action is pending';

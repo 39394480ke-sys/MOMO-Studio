@@ -90,6 +90,8 @@ def create_app(
     app.state.security_service = release.security
     app.state.backup_service = release.backup
     app.state.device_diagnostics_service = release.device
+    app.state.field_acceptance_service = release.field_acceptance
+    app.state.field_acceptance_repository = release.field_acceptance_evidence
     app.state.calibration_workflow_coordinator = release.calibration
     app.state.real_calibration_repository = release.real_calibrations
     app.add_middleware(

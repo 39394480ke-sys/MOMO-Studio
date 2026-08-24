@@ -10,16 +10,23 @@ from uuid import UUID
 
 from momo.application.services.operator_session_service import OperatorSessionService
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
-from momo.domain.enums import ProfileVerificationStatus
+from momo.domain.calibration import CalibrationDocument
+from momo.domain.enums import (
+    HardwareAccessPolicy,
+    KinematicsVerificationStatus,
+    ProfileVerificationStatus,
+)
 from momo.domain.errors import HardwareMappingError, RobotApplicationError
 from momo.domain.hardware_mapping import effective_raw_bounds, goal_raw_to_logical
 from momo.domain.real_hardware import (
     DeviceDiagnosticsSnapshot,
+    FieldAcceptanceEvidence,
     HardwareArtifactStatus,
     HardwareDependencyState,
     HardwareDependencyStatus,
     IssuedOperatorSession,
     OperatorSessionEvidence,
+    OperatorSessionPurpose,
     RealHardwareAuthorizationPurpose,
     RealHardwareBlocker,
     RealHardwareCapabilityReadiness,
@@ -32,9 +39,16 @@ from momo.domain.real_hardware import (
     ServoDiagnosticRecord,
     ServoPingResult,
     calibration_fingerprint,
+    effective_field_acceptance_status,
+    field_acceptance_evidence_state,
 )
 from momo.ports.clock import Clock
-from momo.ports.servo_bus import ServoBus, ServoBusFactory
+from momo.ports.servo_bus import (
+    ReadOnlyServoBus,
+    ReadOnlyServoBusFacade,
+    ServoBus,
+    ServoBusFactory,
+)
 
 _T = TypeVar("_T")
 
@@ -100,6 +114,7 @@ class DeviceDiagnosticsService:
         self.clock = clock
         self._guard = asyncio.Lock()
         self._bus: ServoBus | None = None
+        self._read_only_bus: ReadOnlyServoBus | None = None
         # Candidate exists after the inert factory returns and before validation
         # commits Connected state. Priority Stop must still be able to reach it.
         self._candidate_bus: ServoBus | None = None
@@ -146,6 +161,7 @@ class DeviceDiagnosticsService:
     async def issue_operator_session(
         self,
         *,
+        purpose: OperatorSessionPurpose | None = None,
         confirmation_text: str,
         physical_estop_confirmed: bool,
     ) -> IssuedOperatorSession:
@@ -156,9 +172,20 @@ class DeviceDiagnosticsService:
                 )
             return await self.sessions.issue(
                 self.context,
+                purpose=purpose,
                 confirmation_text=confirmation_text,
                 physical_estop_confirmed=physical_estop_confirmed,
             )
+
+    async def authorize_operator_purpose(
+        self,
+        token: str,
+        *,
+        purpose: RealHardwareAuthorizationPurpose,
+    ) -> OperatorSessionEvidence:
+        """Authorize an API capability without exposing the session store."""
+
+        return await self.sessions.authorize(token, self.context, purpose=purpose)
 
     async def revoke_operator_session(self, token: str) -> None:
         async with self._guard:
@@ -203,6 +230,7 @@ class DeviceDiagnosticsService:
                     details={"reason": "DEPENDENCY_UNAVAILABLE"},
                 )
             bus: ServoBus | None = None
+            read_only_bus: ReadOnlyServoBus | None = None
             try:
                 # Gate -> factory -> open -> explicit ping -> modes -> positions ->
                 # validation. No torque write/read, move, scan, or Home occurs here.
@@ -220,12 +248,13 @@ class DeviceDiagnosticsService:
                 if create_cancellation is not None:
                     raise create_cancellation
                 self._candidate_bus = bus
-                await bus.open(device.serial_port, device.protocol)
-                ping = await bus.ping_explicit_ids(device.servo_ids)
+                read_only_bus = ReadOnlyServoBusFacade(bus)
+                await read_only_bus.open(device.serial_port, device.protocol)
+                ping = await read_only_bus.ping_explicit_ids(device.servo_ids)
                 self._validate_ping(device.servo_ids, ping)
-                modes = await bus.read_operating_modes(device.servo_ids)
+                modes = await read_only_bus.read_operating_modes(device.servo_ids)
                 self._validate_exact_mapping(device.servo_ids, modes, "operating modes")
-                positions = await bus.read_present_positions(device.servo_ids)
+                positions = await read_only_bus.read_present_positions(device.servo_ids)
                 self._validate_exact_mapping(device.servo_ids, positions, "present positions")
                 records = self._validated_records(ping, modes, positions, torque=None)
                 # A short session can expire or be replaced while read-only I/O is
@@ -264,6 +293,7 @@ class DeviceDiagnosticsService:
                     details={"reason": type(error).__name__},
                 ) from error
             self._bus = bus
+            self._read_only_bus = read_only_bus
             self._candidate_bus = None
             self._connected_session_id = evidence.session_id
             self._records = records
@@ -291,7 +321,7 @@ class DeviceDiagnosticsService:
                 self.context,
                 purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
             )
-            bus = self._bus
+            bus = self._read_only_bus
             device = self.context.device
             if bus is None or device is None:
                 raise DeviceNotConnectedError("The explicit ServoBus is not connected")
@@ -336,7 +366,9 @@ class DeviceDiagnosticsService:
     async def require_authorized_connected_bus(
         self,
         token: str,
-    ) -> tuple[ServoBus, OperatorSessionEvidence]:
+        *,
+        purpose: RealHardwareAuthorizationPurpose = RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+    ) -> tuple[ReadOnlyServoBus, OperatorSessionEvidence]:
         """Return the existing read-only-grant bus for a same-session coordinator.
 
         This never creates or opens a bus. The caller must hold the application-level
@@ -344,18 +376,23 @@ class DeviceDiagnosticsService:
         priority Stop may still make an in-flight read fail closed.
         """
 
+        if purpose not in {
+            RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
+        }:
+            raise ValueError("the connected read-only bus supports commissioning purposes only")
         await self.sessions.authorize(
             token,
             self.context,
-            purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            purpose=purpose,
         )
         async with self._guard:
             evidence = await self.sessions.authorize(
                 token,
                 self.context,
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=purpose,
             )
-            bus = self._bus
+            bus = self._read_only_bus
             if bus is None:
                 raise DeviceNotConnectedError("The explicit ServoBus is not connected")
             if self._connected_session_id != evidence.session_id:
@@ -364,13 +401,52 @@ class DeviceDiagnosticsService:
                 )
             return bus, evidence
 
-    async def invalidate_calibration_authorization(self) -> None:
-        """Revoke hardware authority after calibration persistence may have changed.
+    async def invalidate_calibration_authorization(
+        self,
+        persisted_calibration: CalibrationDocument | None = None,
+    ) -> None:
+        """Revoke stale authority and optionally publish an exact persisted revision.
 
-        This closes the owned bus and deliberately removes the in-memory
-        calibration instead of guessing which revision was persisted. Composition
-        must load and validate the exact persisted document before constructing a
-        new service/context and issuing another operator session.
+        Successful workflow persistence supplies the returned, fully validated
+        document. It is installed only after the old session is revoked and its
+        read-only bus is closed, so the commissioning token can never be upgraded.
+        An uncertain persistence outcome supplies ``None`` and clears the loaded
+        calibration fail-closed until composition reloads durable state.
+        """
+
+        prospective = self.context.model_copy(update={"calibration": persisted_calibration})
+        calibration_blockers = (
+            self.authorization.calibration_blockers(prospective)
+            if persisted_calibration is not None
+            else ()
+        )
+
+        async with self._guard:
+            await self.sessions.invalidate()
+            try:
+                await self._close_connected_bus_unlocked()
+            finally:
+                self.context = self.context.model_copy(
+                    update={
+                        "calibration": (persisted_calibration if not calibration_blockers else None)
+                    }
+                )
+                self._records = ()
+                await self.sessions.invalidate()
+        if calibration_blockers:
+            raise ValueError(
+                "persisted calibration does not match the current hardware context: "
+                + ", ".join(item.value for item in calibration_blockers)
+            )
+
+    async def invalidate_profile_authorization(self) -> None:
+        """Revoke old hardware identity before the active robot Profile can change.
+
+        Profile/variant switching is a cross-service operation. Clearing every
+        profile-derived hardware input before the Robot service mutates prevents an
+        old Motion token from authorizing a request against the new active robot.
+        Existing acceptance evidence is retained only so it is visibly STALE; with
+        Profile, Calibration, Kinematics, and Device absent it cannot grant access.
         """
 
         async with self._guard:
@@ -378,7 +454,41 @@ class DeviceDiagnosticsService:
             try:
                 await self._close_connected_bus_unlocked()
             finally:
-                self.context = self.context.model_copy(update={"calibration": None})
+                self.context = self.context.model_copy(
+                    update={
+                        "profile": None,
+                        "calibration": None,
+                        "kinematics": None,
+                        "expected_kinematics_fingerprint": None,
+                        "device": None,
+                    }
+                )
+                self._records = ()
+                await self.sessions.invalidate()
+
+    async def apply_field_acceptance_evidence(
+        self,
+        evidence: FieldAcceptanceEvidence,
+    ) -> None:
+        """Publish only evidence that is valid for the exact current context.
+
+        Acceptance changes authorization context. Any existing read-only session is
+        ended and its bus is closed; a later motion session must be newly confirmed.
+        """
+
+        prospective = self.context.model_copy(update={"field_acceptance_evidence": evidence})
+        _, stale_fields = field_acceptance_evidence_state(prospective)
+        if stale_fields:
+            raise ValueError(
+                "field acceptance evidence does not match the current context: "
+                + ", ".join(stale_fields)
+            )
+        async with self._guard:
+            await self.sessions.invalidate()
+            try:
+                await self._close_connected_bus_unlocked()
+            finally:
+                self.context = prospective
                 self._records = ()
                 await self.sessions.invalidate()
 
@@ -408,6 +518,18 @@ class DeviceDiagnosticsService:
                 connected=False,
                 safety_state_known=False,
                 detail="No explicit ServoBus is connected",
+            )
+        if self.context.hardware_access_policy is HardwareAccessPolicy.READ_ONLY:
+            return RealStopOutcome(
+                result=RealStopResult.SAFETY_STATE_UNCERTAIN,
+                requested_ids=requested,
+                affected_ids=(),
+                connected=True,
+                safety_state_known=False,
+                detail=(
+                    "READ_ONLY commissioning forbids software Stop/Hold writes; "
+                    "use the physical E-stop"
+                ),
             )
         try:
             outcome = await bus.stop_or_hold(requested)
@@ -446,6 +568,7 @@ class DeviceDiagnosticsService:
         await self._cancel_expiry_watchdog_unlocked()
         bus = self._bus or self._candidate_bus or self._uncertain_bus
         self._bus = None
+        self._read_only_bus = None
         self._candidate_bus = None
         self._connected_session_id = None
         self._records = ()
@@ -573,9 +696,17 @@ class DeviceDiagnosticsService:
         profile = self.context.profile
         calibration = self.context.calibration
         device = self.context.device
-        if profile is None or calibration is None or device is None:
+        if profile is None or device is None:
             raise ValueError("device validation artifacts are incomplete")
-        calibration_by_servo = {joint.servo_id: joint for joint in calibration.joints}
+        calibration_by_servo = (
+            {joint.servo_id: joint for joint in calibration.joints}
+            if calibration is not None
+            and calibration.robot_variant is profile.variant
+            and calibration.profile_fingerprint == profile.fingerprint
+            and tuple(joint.joint_id for joint in calibration.joints)
+            == tuple(profile.enabled_joints)
+            else {}
+        )
         definition_by_servo = {
             definition.servo_id: definition
             for definition in profile.joint_definitions
@@ -585,27 +716,35 @@ class DeviceDiagnosticsService:
         for index, servo_id in enumerate(device.servo_ids):
             definition = definition_by_servo.get(servo_id)
             calibration_joint = calibration_by_servo.get(servo_id)
-            if definition is None or calibration_joint is None:
-                raise ValueError("explicit servo ID has no matching Profile/calibration joint")
+            if definition is None:
+                raise ValueError("explicit servo ID has no matching Profile joint")
             mode = modes[servo_id]
-            if not isinstance(mode, str) or mode != calibration_joint.operating_mode.value:
-                raise ValueError("operating mode does not match calibration")
+            if not isinstance(mode, str) or mode != definition.operating_mode.value:
+                raise ValueError("operating mode does not match the reviewed Profile")
             raw = positions[servo_id]
             if isinstance(raw, bool) or not isinstance(raw, int):
                 raise ValueError("present raw position must be an integer")
-            lower, upper = effective_raw_bounds(definition, calibration_joint)
-            if not lower <= raw <= upper:
-                raise HardwareMappingError("present raw position is outside reviewed bounds")
-            logical = goal_raw_to_logical(
-                definition.joint_id,
-                raw,
-                profile,
-                calibration_joint,
-            )
-            if not definition.minimum <= logical <= definition.maximum:
-                raise HardwareMappingError(
-                    "present raw position maps outside reviewed logical limits"
+            logical: float | None = None
+            raw_bounds: tuple[int, int] | None = None
+            if (
+                calibration_joint is not None
+                and calibration_joint.joint_id == definition.joint_id
+                and calibration_joint.operating_mode is definition.operating_mode
+            ):
+                lower, upper = effective_raw_bounds(definition, calibration_joint)
+                if not lower <= raw <= upper:
+                    raise HardwareMappingError("present raw position is outside reviewed bounds")
+                logical = goal_raw_to_logical(
+                    definition.joint_id,
+                    raw,
+                    profile,
+                    calibration_joint,
                 )
+                if not definition.minimum <= logical <= definition.maximum:
+                    raise HardwareMappingError(
+                        "present raw position maps outside reviewed logical limits"
+                    )
+                raw_bounds = (lower, upper)
             records.append(
                 ServoDiagnosticRecord(
                     joint_id=definition.joint_id,
@@ -615,7 +754,7 @@ class DeviceDiagnosticsService:
                     operating_mode=mode,
                     present_raw=raw,
                     logical_value=logical,
-                    raw_bounds=(lower, upper),
+                    raw_bounds=raw_bounds,
                     torque_enabled=torque[servo_id] if torque is not None else None,
                 )
             )
@@ -648,10 +787,19 @@ class DeviceDiagnosticsService:
             and profile is not None
             and calibration is not None
         )
-        kinematics_ready = (
-            not any(item.name.startswith("KINEMATICS_") for item in report.blocking_reasons)
+        kinematics_ready = bool(
+            profile is not None
             and kinematics is not None
+            and kinematics.verification_status is KinematicsVerificationStatus.VERIFIED_FOR_REAL
+            and self.context.expected_kinematics_fingerprint is not None
+            and kinematics.fingerprint == self.context.expected_kinematics_fingerprint
         )
+        if kinematics_ready:
+            assert profile is not None and kinematics is not None
+            try:
+                kinematics.validate_against_profile(profile)
+            except ValueError:
+                kinematics_ready = False
         return DeviceDiagnosticsSnapshot(
             connected=self.connected if connected is None else connected,
             captured_at=self.clock.now(),
@@ -691,7 +839,7 @@ class DeviceDiagnosticsService:
                 template=None,
                 ready_for_real=kinematics_ready,
             ),
-            field_acceptance=self.context.field_acceptance_status,
+            field_acceptance=effective_field_acceptance_status(self.context),
             readiness=report.state,
             records=records,
             last_error=self._last_error,

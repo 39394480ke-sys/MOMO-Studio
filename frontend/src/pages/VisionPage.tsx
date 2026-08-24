@@ -25,7 +25,7 @@ export function VisionPage() {
       <div className="vision-safety-strip" role="status">
         <span>{sourceMode}</span>
         <span>{workspace.capabilities?.camera_access_policy ?? 'POLICY PENDING'}</span>
-        <span>DRY RUN</span>
+        <span>{workspace.runtimePolicy === 'READ_ONLY' ? 'READ ONLY' : workspace.runtimeMode}</span>
         <span>REAL FOLLOW BLOCKED</span>
       </div>
       <div className="vision-workspace">

@@ -18,7 +18,9 @@ from momo.domain.calibration_workflow import (
     CalibrationWorkflowError,
     CalibrationWorkflowSource,
     CalibrationWorkflowStatus,
+    calibration_document_fingerprint,
 )
+from momo.domain.enums import HardwareAccessPolicy
 from momo.domain.real_hardware import (
     OperatorSessionEvidence,
     RealHardwareAuthorizationPurpose,
@@ -26,7 +28,7 @@ from momo.domain.real_hardware import (
 )
 from momo.domain.robot import RobotProfile
 from momo.ports.clock import Clock
-from momo.ports.servo_bus import ServoBus
+from momo.ports.servo_bus import ReadOnlyServoBus
 
 
 class CalibrationWorkflowCoordinator:
@@ -49,7 +51,7 @@ class CalibrationWorkflowCoordinator:
         self.clock = clock
         self._guard = asyncio.Lock()
         self._workflow: CalibrationWorkflowService | None = None
-        self._bus: ServoBus | None = None
+        self._bus: ReadOnlyServoBus | None = None
         self._authorization_session_id: UUID | None = None
 
     async def start(
@@ -163,6 +165,7 @@ class CalibrationWorkflowCoordinator:
         async with self._guard:
             workflow, authorization = await self._active(token)
             persistence_started = False
+            persisted_calibration: CalibrationDocument | None = None
 
             def mark_persistence_started() -> None:
                 nonlocal persistence_started
@@ -176,6 +179,7 @@ class CalibrationWorkflowCoordinator:
                     confirmation=confirmation,
                     before_persist=mark_persistence_started,
                 )
+                persisted_calibration = record.calibration
             finally:
                 if persistence_started:
                     try:
@@ -185,7 +189,7 @@ class CalibrationWorkflowCoordinator:
                         # Persistence may have changed the calibration identity,
                         # including replace-then-fsync failure. Cleanup is
                         # completion-observed even when the request is cancelled.
-                        await self._invalidate_device_after_persistence()
+                        await self._invalidate_device_after_persistence(persisted_calibration)
         return record
 
     async def cancel(
@@ -220,6 +224,7 @@ class CalibrationWorkflowCoordinator:
                 self.clock,
             )
             persistence_started = False
+            persisted_calibration: CalibrationDocument | None = None
 
             def mark_persistence_started() -> None:
                 nonlocal persistence_started
@@ -233,17 +238,21 @@ class CalibrationWorkflowCoordinator:
                     confirmation=confirmation,
                     before_persist=mark_persistence_started,
                 )
+                persisted_calibration = record.calibration
             finally:
                 try:
                     await workflow.shutdown()
                 finally:
                     if persistence_started:
-                        await self._invalidate_device_after_persistence()
+                        await self._invalidate_device_after_persistence(persisted_calibration)
         return record
 
-    async def _invalidate_device_after_persistence(self) -> None:
+    async def _invalidate_device_after_persistence(
+        self,
+        persisted_calibration: CalibrationDocument | None,
+    ) -> None:
         cleanup = asyncio.create_task(
-            self.device.invalidate_calibration_authorization(),
+            self.device.invalidate_calibration_authorization(persisted_calibration),
             name="invalidate-stale-calibration-authorization",
         )
         cancellation: asyncio.CancelledError | None = None
@@ -298,8 +307,16 @@ class CalibrationWorkflowCoordinator:
     async def _current_access(
         self,
         token: str,
-    ) -> tuple[ServoBus, OperatorSessionEvidence, CalibrationAuthorization, RobotProfile]:
-        bus, evidence = await self.device.require_authorized_connected_bus(token)
+    ) -> tuple[
+        ReadOnlyServoBus,
+        OperatorSessionEvidence,
+        CalibrationAuthorization,
+        RobotProfile,
+    ]:
+        bus, evidence = await self.device.require_authorized_connected_bus(
+            token,
+            purpose=RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
+        )
         context = self.device.context
         profile = context.profile
         if profile is None:
@@ -307,28 +324,37 @@ class CalibrationWorkflowCoordinator:
                 "PROFILE_NOT_CONFIGURED",
                 "A reviewed Real profile is required for calibration",
             )
+        if evidence.hardware_access_policy is not HardwareAccessPolicy.READ_ONLY:
+            raise CalibrationWorkflowError(
+                "CALIBRATION_AUTHORIZATION_MISMATCH",
+                "Calibration capture requires a READ_ONLY commissioning session",
+            )
         grant = self.device.authorization.require_authorized(
             RealHardwareGateInput(
                 context=context,
                 evaluated_at=self.clock.now(),
                 operator_session=evidence,
             ),
-            purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            purpose=RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
         )
         authorization = CalibrationAuthorization(
             session_id=evidence.session_id,
             robot_id=evidence.robot_id,
             variant=evidence.variant,
             profile_fingerprint=evidence.profile_fingerprint,
-            calibration_fingerprint=evidence.calibration_fingerprint,
+            calibration_fingerprint=(
+                calibration_document_fingerprint(context.calibration)
+                if context.calibration is not None
+                else None
+            ),
             allowed_servo_ids=evidence.allowed_servo_ids,
             issued_at=evidence.issued_at,
             expires_at=evidence.expires_at,
             confirmed=True,
             physical_estop_confirmed=evidence.physical_estop_confirmed,
             control_mode=evidence.control_mode,
-            hardware_policy=evidence.hardware_access_policy,
-            purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            hardware_policy=HardwareAccessPolicy.READ_ONLY,
+            purpose=RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
             capabilities=grant.capabilities,
         )
         return bus, evidence, authorization, profile

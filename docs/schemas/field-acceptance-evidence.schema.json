@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Immutable local proof bound to every safety-relevant hardware fingerprint.",
+  "properties": {
+    "accepted_at": {
+      "format": "date-time",
+      "title": "Accepted At",
+      "type": "string"
+    },
+    "accepted_by": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Accepted By"
+    },
+    "calibration_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Calibration Fingerprint",
+      "type": "string"
+    },
+    "checklist_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Checklist Version",
+      "type": "string"
+    },
+    "device_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Device Fingerprint",
+      "type": "string"
+    },
+    "evidence_id": {
+      "format": "uuid",
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "kinematics_fingerprint": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kinematics Fingerprint"
+    },
+    "profile_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Profile Fingerprint",
+      "type": "string"
+    },
+    "revision": {
+      "const": 1,
+      "default": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "robot_variant": {
+      "$ref": "#/$defs/RobotVariant"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "status": {
+      "const": "PASSED",
+      "default": "PASSED",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "robot_variant",
+    "profile_fingerprint",
+    "calibration_fingerprint",
+    "device_fingerprint",
+    "checklist_version",
+    "accepted_at"
+  ],
+  "title": "FieldAcceptanceEvidence",
+  "type": "object"
+}

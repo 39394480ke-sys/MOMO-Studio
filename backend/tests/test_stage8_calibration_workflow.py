@@ -30,7 +30,7 @@ from momo.domain.calibration_workflow import (
     CalibrationWorkflowState,
     calibration_document_fingerprint,
 )
-from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
+from momo.domain.enums import ControlMode, DomainUnit, HardwareAccessPolicy, RobotVariant
 from momo.domain.real_hardware import (
     RealHardwareAuthorizationPurpose,
     RealHardwareCapabilityReadiness,
@@ -38,6 +38,7 @@ from momo.domain.real_hardware import (
     ServoPingResult,
     ServoWriteResult,
 )
+from momo.domain.robot import RobotProfile
 from tests.stage3_helpers import FakeClock
 from tests.stage8_hardware_helpers import real_calibration, real_profile
 
@@ -93,29 +94,35 @@ class ReadOnlyCalibrationBus:
 
 
 def authorization_for(
-    calibration: CalibrationDocument,
+    calibration: CalibrationDocument | None,
     *,
     clock: FakeClock,
+    profile: RobotProfile | None = None,
     expires_in_s: float = 60.0,
 ) -> CalibrationAuthorization:
-    profile = real_profile()
+    resolved_profile = profile or real_profile()
     return CalibrationAuthorization(
         session_id=uuid4(),
         robot_id="primary",
-        variant=profile.variant,
-        profile_fingerprint=profile.fingerprint,
-        calibration_fingerprint=calibration_document_fingerprint(calibration),
+        variant=resolved_profile.variant,
+        profile_fingerprint=resolved_profile.fingerprint,
+        calibration_fingerprint=(
+            calibration_document_fingerprint(calibration) if calibration is not None else None
+        ),
         allowed_servo_ids=tuple(
-            cast(int, definition.servo_id) for definition in profile.joint_definitions
+            cast(int, definition.servo_id) for definition in resolved_profile.joint_definitions
         ),
         issued_at=clock.now(),
         expires_at=clock.now() + timedelta(seconds=expires_in_s),
         confirmed=True,
         physical_estop_confirmed=True,
         control_mode=ControlMode.REAL,
-        hardware_policy=HardwareAccessPolicy.FULL,
-        purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
-        capabilities=RealHardwareCapabilityReadiness(real_joint_motion_ready=True),
+        hardware_policy=HardwareAccessPolicy.READ_ONLY,
+        purpose=RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
+        capabilities=RealHardwareCapabilityReadiness(
+            commissioning_diagnostics_ready=True,
+            calibration_capture_ready=True,
+        ),
     )
 
 
@@ -284,6 +291,109 @@ def test_selected_joint_reads_are_one_id_only_and_complete_creates_atomic_revisi
     assert bus.forbidden_calls == []
 
 
+@pytest.mark.parametrize("variant", [RobotVariant.V1, RobotVariant.V2])
+def test_empty_repository_builds_incomplete_draft_then_saves_revision_one(
+    tmp_path: Path,
+    variant: RobotVariant,
+) -> None:
+    async def scenario() -> tuple[
+        CalibrationRevisionRecord,
+        ReadOnlyCalibrationBus,
+        RobotProfile,
+    ]:
+        clock = FakeClock()
+        profile = real_profile(variant)
+        repository = FileCalibrationWorkflowRepository(tmp_path / "fresh-commissioning")
+        positions = {
+            cast(int, definition.servo_id): 100 + index
+            for index, definition in enumerate(profile.joint_definitions)
+        }
+        bus = ReadOnlyCalibrationBus(positions)
+        service = CalibrationWorkflowService(repository, bus, clock)
+        authorization = authorization_for(None, clock=clock, profile=profile)
+
+        status = await service.start(authorization, profile)
+        assert status.base_revision is None
+        assert status.base_calibration_fingerprint is None
+        assert status.draft.base_revision is None
+        assert tuple(joint.joint_id for joint in status.draft.joints) == tuple(
+            profile.enabled_joints
+        )
+        assert all(
+            joint.present_raw is None
+            and joint.logical_value is None
+            and joint.direction is None
+            and joint.phase is None
+            and joint.raw_bounds is None
+            and joint.operating_mode is None
+            for joint in status.draft.joints
+        )
+        assert not hasattr(service.servo_bus, "write_goal_positions")
+        assert not hasattr(service.servo_bus, "stop_or_hold")
+        assert not hasattr(service.servo_bus, "scan")
+
+        for definition in profile.joint_definitions:
+            assert definition.servo_id is not None
+            assert definition.raw_bounds is not None
+            status = await service.read_selected_joint(
+                status.session_id,
+                authorization,
+                definition.joint_id,
+            )
+            draft_joint = status.draft.joints_by_id[definition.joint_id]
+            assert draft_joint.present_raw == positions[definition.servo_id]
+            assert draft_joint.logical_value is None
+            preview = await service.preview_joint(
+                status.session_id,
+                authorization,
+                definition.joint_id,
+                logical_value=0.0,
+                direction=1,
+                phase=0,
+                raw_bounds=definition.raw_bounds,
+            )
+            status = await service.confirm_joint(
+                status.session_id,
+                authorization,
+                definition.joint_id,
+                preview_fingerprint=preview.preview_fingerprint,
+                confirmation=CALIBRATION_JOINT_CONFIRMATION,
+            )
+
+        assert status.state is CalibrationWorkflowState.READY_TO_SAVE
+        assert status.save_preview is not None
+        assert status.save_preview.base_revision is None
+        assert status.save_preview.base_calibration_fingerprint is None
+        saved = await service.complete(
+            status.session_id,
+            authorization,
+            proposed_calibration_fingerprint=(status.save_preview.proposed_calibration_fingerprint),
+            confirmation=SAVE_CALIBRATION_CONFIRMATION,
+        )
+        return saved, bus, profile
+
+    saved, bus, profile = asyncio.run(scenario())
+
+    assert saved.revision == 1
+    assert saved.previous_calibration_fingerprint is None
+    assert saved.calibration.template is False
+    assert saved.calibration.profile_fingerprint == profile.fingerprint
+    assert tuple(joint.joint_id for joint in saved.calibration.joints) == tuple(
+        profile.enabled_joints
+    )
+    assert tuple(profile.enabled_joints) == (
+        ("j11", "j12", "j13", "j14", "j15")
+        if variant is RobotVariant.V1
+        else ("j10", "j11", "j12", "j13", "j14", "j15")
+    )
+    for definition in profile.joint_definitions:
+        assert definition.domain_unit is (
+            DomainUnit.MM if definition.joint_id == "j10" else DomainUnit.DEG
+        )
+    assert bus.forbidden_calls == []
+    assert all(len(ids) == 1 for ids in bus.reads)
+
+
 def test_rollback_is_forward_only_and_backs_up_the_replaced_revision(tmp_path: Path) -> None:
     async def scenario() -> tuple[
         CalibrationRevisionRecord,
@@ -368,6 +478,17 @@ def test_template_legacy_import_and_expired_authorization_fail_before_bus_access
             )
         codes.append(template_error.value.code)
 
+        active_then_expired = authorization_for(calibration, clock=clock, expires_in_s=1.0)
+        status = await service.start(active_then_expired, profile)
+        await clock.advance(1.0)
+        with pytest.raises(CalibrationWorkflowError) as active_expiry_error:
+            await service.read_selected_joint(
+                status.session_id,
+                active_then_expired,
+                profile.enabled_joints[0],
+            )
+        codes.append(active_expiry_error.value.code)
+
         expired = authorization_for(calibration, clock=clock, expires_in_s=1.0)
         await clock.advance(1.0)
         with pytest.raises(CalibrationWorkflowError) as expiry_error:
@@ -381,12 +502,13 @@ def test_template_legacy_import_and_expired_authorization_fail_before_bus_access
         "CALIBRATION_AUTHORIZATION_MISMATCH",
         "TEMPLATE_CALIBRATION_FORBIDDEN",
         "CALIBRATION_AUTHORIZATION_EXPIRED",
+        "CALIBRATION_AUTHORIZATION_EXPIRED",
     ]
     assert reads == []
 
 
-def test_confirmation_is_bound_to_current_preview_and_revision_cas(tmp_path: Path) -> None:
-    async def scenario() -> tuple[str, str]:
+def test_confirmation_and_active_steps_are_bound_to_current_revision(tmp_path: Path) -> None:
+    async def scenario() -> tuple[str, str, str]:
         clock = FakeClock()
         profile = real_profile()
         calibration = real_calibration(profile)
@@ -428,6 +550,8 @@ def test_confirmation_is_bound_to_current_preview_and_revision_cas(tmp_path: Pat
             source=CalibrationWorkflowSource.EXISTING_REAL,
             created_at=clock.now(),
         )
+        with pytest.raises(CalibrationWorkflowError) as workflow_drift_error:
+            await service.status(status.session_id, authorization)
         # Complete cannot be reached here, but repository CAS is independently fail-closed.
         with pytest.raises(CalibrationWorkflowError) as cas_error:
             repository.save_new(
@@ -436,9 +560,14 @@ def test_confirmation_is_bound_to_current_preview_and_revision_cas(tmp_path: Pat
                 source=CalibrationWorkflowSource.EXISTING_REAL,
                 created_at=clock.now(),
             )
-        return confirmation_error.value.code, cas_error.value.code
+        return (
+            confirmation_error.value.code,
+            workflow_drift_error.value.code,
+            cas_error.value.code,
+        )
 
-    confirmation_code, cas_code = asyncio.run(scenario())
+    confirmation_code, workflow_drift_code, cas_code = asyncio.run(scenario())
 
     assert confirmation_code == "CALIBRATION_PREVIEW_CHANGED"
+    assert workflow_drift_code == "CALIBRATION_REVISION_CONFLICT"
     assert cas_code == "CALIBRATION_REVISION_CONFLICT"

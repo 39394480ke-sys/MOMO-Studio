@@ -453,6 +453,31 @@ afterEach(() => {
 });
 
 describe('Stage 5 Library', () => {
+  it('blocks Goto and Playback in Commissioning READ ONLY without reusing Dry Run routes', async () => {
+    const user = userEvent.setup();
+    const backend = mockLibraryBackend();
+    renderLibrary(runtime({
+      controlMode: 'REAL',
+      hardwareAccessPolicy: 'READ_ONLY',
+      realMotionEnabled: false,
+    }));
+
+    expect((await screen.findAllByText(/Commissioning READ ONLY permits diagnostics and calibration only/)).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Goto' })[0]).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    const play = await screen.findByRole('button', { name: 'Play' });
+    expect(play).toBeDisabled();
+    expect(screen.getAllByText(/Commissioning READ ONLY permits no playback/).length)
+      .toBeGreaterThan(0);
+    expect(backend.requestsMatching('/goto').filter((request) => request.method === 'POST')).toHaveLength(0);
+    expect(
+      backend.requestsMatching('/play').filter(
+        (request) => request.path.endsWith('/play') && request.method === 'POST',
+      ),
+    ).toHaveLength(0);
+  });
+
   it('renders Pose summaries, loads explicit detail, and uses UUID-only Studio links', async () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend();

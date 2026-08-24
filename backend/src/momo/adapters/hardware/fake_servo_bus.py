@@ -192,6 +192,7 @@ class FakeServoBus:
     async def stop_or_hold(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
         _validate_ids(servo_ids, allow_empty=False)
         self._require_full_granted_ids(servo_ids)
+        self._require_hardware_write_authorization()
         self._events.append(("stop_or_hold", servo_ids))
         if not self._connected:
             return RealStopOutcome(
@@ -263,11 +264,17 @@ class FakeServoBus:
             raise PermissionError("write/Stop IDs must exactly match the authorized allowlist")
 
     def _require_goal_write_authorization(self) -> None:
+        self._require_hardware_write_authorization()
+
+    def _require_hardware_write_authorization(self) -> None:
         authorization = self._authorization
         if authorization is None:
             return
-        if authorization.purpose is RealHardwareAuthorizationPurpose.DIAGNOSTICS:
-            raise PermissionError("a read-only diagnostics grant cannot write goal positions")
+        if authorization.purpose in {
+            RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE,
+        }:
+            raise PermissionError("a read-only commissioning grant cannot perform hardware writes")
 
 
 class FakeServoBusFactory:

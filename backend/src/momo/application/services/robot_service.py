@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 from uuid import UUID
@@ -36,6 +36,7 @@ from momo.settings import Settings
 PRIMARY_ROBOT_ID = "primary"
 STATE_OBSERVATION_TIMEOUT_S = 0.25
 DriverFactory = Callable[[RobotId, RobotProfile, dict[str, float] | None], RobotDriver]
+BeforeVariantSwitch = Callable[[], Awaitable[None]]
 
 
 class RobotApplicationService:
@@ -424,7 +425,12 @@ class RobotApplicationService:
                     hardware_accessed=False,
                 )
 
-    async def switch_variant(self, variant: RobotVariant) -> RobotStatus:
+    async def switch_variant(
+        self,
+        variant: RobotVariant,
+        *,
+        before_switch: BeforeVariantSwitch | None = None,
+    ) -> RobotStatus:
         async with self._command_lock:
             current = self.manager.get_active()
             if current.connection_state is not RobotConnectionState.DISCONNECTED:
@@ -448,6 +454,8 @@ class RobotApplicationService:
                 observed_monotonic=self.clock.monotonic(),
                 state_sequence=sequence,
             )
+            if before_switch is not None:
+                await before_switch()
             self.manager.replace_active(runtime)
             self._queue_save_unlocked()
             return self._status_unlocked()

@@ -1,6 +1,6 @@
 """Stage 3 Dry Run lifecycle and read-only robot diagnostics."""
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request
 
@@ -12,6 +12,7 @@ from momo.api.schemas import (
     VariantSwitchRequest,
 )
 from momo.api.security import authorize_control_request, authorize_priority_stop_request
+from momo.application.services.device_diagnostics_service import DeviceDiagnosticsService
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
@@ -23,6 +24,16 @@ router = APIRouter(prefix="/robot", tags=["robot"])
 RobotServiceDependency = Annotated[RobotApplicationService, Depends(get_robot_service)]
 MotionServiceDependency = Annotated[MotionApplicationService, Depends(get_motion_service)]
 KinematicsServiceDependency = Annotated[KinematicsService, Depends(get_kinematics_service)]
+
+
+def get_device_diagnostics_service(request: Request) -> DeviceDiagnosticsService:
+    return cast(DeviceDiagnosticsService, request.app.state.device_diagnostics_service)
+
+
+DeviceServiceDependency = Annotated[
+    DeviceDiagnosticsService,
+    Depends(get_device_diagnostics_service),
+]
 
 
 @router.get("", response_model=RobotStatus)
@@ -92,8 +103,12 @@ async def stop_robot(service: MotionServiceDependency) -> StopResponse:
 async def switch_robot_variant(
     request: VariantSwitchRequest,
     service: RobotServiceDependency,
+    device: DeviceServiceDependency,
 ) -> RobotCommandResponse:
     return RobotCommandResponse(
-        status=await service.switch_variant(request.variant),
+        status=await service.switch_variant(
+            request.variant,
+            before_switch=device.invalidate_profile_authorization,
+        ),
         hardware_accessed=False,
     )

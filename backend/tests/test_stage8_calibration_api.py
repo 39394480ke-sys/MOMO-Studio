@@ -15,6 +15,9 @@ from momo.adapters.storage.file_calibration_workflow_repository import (
     CalibrationReplaceCommittedError,
     FileCalibrationWorkflowRepository,
 )
+from momo.adapters.storage.file_field_acceptance_repository import (
+    FileFieldAcceptanceEvidenceRepository,
+)
 from momo.api.error_handlers import install_error_handlers
 from momo.api.routes.device_calibration import router as calibration_router
 from momo.application.services.calibration_workflow_coordinator import (
@@ -25,14 +28,32 @@ from momo.application.services.calibration_workflow_service import (
     ROLLBACK_CONFIRMATION,
     SAVE_CALIBRATION_CONFIRMATION,
 )
-from momo.application.services.operator_session_service import (
-    OperatorSessionPrerequisiteError,
-)
+from momo.application.services.field_acceptance_service import FieldAcceptanceService
+from momo.application.services.operator_session_service import OperatorSessionTokenError
 from momo.application.services.security_service import SecurityService
+from momo.domain.calibration import CalibrationDocument
 from momo.domain.calibration_workflow import CalibrationWorkflowSource
-from momo.domain.real_hardware import REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT
+from momo.domain.real_hardware import (
+    REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+    REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT,
+    FieldAcceptanceEvidenceState,
+    FieldAcceptanceStatus,
+    OperatorSessionPurpose,
+    RealHardwareBlocker,
+)
 from momo.domain.security import NetworkSecurityPolicy
-from tests.stage8_hardware_helpers import device_service, fake_bus, real_context
+from tests.stage8_hardware_helpers import (
+    commissioning_context,
+    device_service,
+    fake_bus,
+    write_bomb_bus,
+)
+from tests.stage8_hardware_helpers import (
+    real_context as full_motion_context,
+)
+from tests.stage8_hardware_helpers import (
+    recalibration_context as real_context,
+)
 
 
 async def request(
@@ -51,6 +72,164 @@ async def request(
             json=json_data,
             headers={"X-MOMO-Operator-Session": token},
         )
+
+
+def test_fresh_commissioning_write_bomb_saves_revision_one_without_any_write(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        context = commissioning_context()
+        profile = context.profile
+        assert profile is not None and context.calibration is None
+        bus = write_bomb_bus(context)
+        device, clock, factory = device_service(context, bus=bus)
+        repository = FileCalibrationWorkflowRepository(tmp_path / "fresh-calibrations")
+        coordinator = CalibrationWorkflowCoordinator(
+            device=device,
+            repository=repository,
+            clock=clock,
+        )
+
+        before = await device.readiness()
+        assert before.commissioning_session_authorizable is True
+        assert before.motion_session_authorizable is False
+        assert before.capabilities.commissioning_diagnostics_ready is True
+        assert before.capabilities.calibration_capture_ready is True
+        assert before.capabilities.real_joint_motion_ready is False
+        assert before.capabilities.real_cartesian_motion_ready is False
+
+        issued = await device.issue_operator_session(
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        evidence = issued.evidence
+        token = issued.session_token.get_secret_value()
+        assert evidence.profile_fingerprint == profile.fingerprint
+        assert evidence.device_fingerprint
+        assert evidence.calibration_fingerprint is None
+        assert evidence.kinematics_fingerprint is None
+
+        connected = await device.connect(token)
+        assert connected.connected is True
+        assert all(record.logical_value is None for record in connected.records)
+        assert all(record.raw_bounds is None for record in connected.records)
+        diagnostics = await device.diagnostics(token)
+        assert all(record.torque_enabled is False for record in diagnostics.records)
+        stopped = await device.stop()
+        assert stopped.safety_state_known is False
+        assert bus.write_attempts == []
+
+        status = await coordinator.start(
+            token,
+            source=CalibrationWorkflowSource.EXISTING_REAL,
+        )
+        assert status.base_revision is None
+        assert status.base_calibration_fingerprint is None
+        assert all(
+            joint.present_raw is None
+            and joint.logical_value is None
+            and joint.direction is None
+            and joint.phase is None
+            and joint.raw_bounds is None
+            and joint.operating_mode is None
+            for joint in status.draft.joints
+        )
+
+        for definition in profile.joint_definitions:
+            assert definition.raw_bounds is not None
+            status = await coordinator.read_selected_joint(
+                token,
+                status.session_id,
+                definition.joint_id,
+            )
+            preview = await coordinator.preview_joint(
+                token,
+                status.session_id,
+                definition.joint_id,
+                logical_value=0.0,
+                direction=1,
+                phase=0,
+                raw_bounds=definition.raw_bounds,
+            )
+            status = await coordinator.confirm_joint(
+                token,
+                status.session_id,
+                definition.joint_id,
+                preview_fingerprint=preview.preview_fingerprint,
+                confirmation=CALIBRATION_JOINT_CONFIRMATION,
+            )
+
+        assert status.save_preview is not None
+        saved = await coordinator.complete(
+            token,
+            status.session_id,
+            proposed_calibration_fingerprint=(status.save_preview.proposed_calibration_fingerprint),
+            confirmation=SAVE_CALIBRATION_CONFIRMATION,
+        )
+        assert saved.revision == 1
+        assert saved.previous_calibration_fingerprint is None
+        assert saved.calibration.template is False
+        assert saved.calibration.profile_fingerprint == profile.fingerprint
+        assert tuple(joint.joint_id for joint in saved.calibration.joints) == tuple(
+            profile.enabled_joints
+        )
+        assert repository.get_revision(profile.variant) == saved
+        assert device.context.calibration == saved.calibration
+
+        pending_motion_context = full_motion_context(
+            calibration=saved.calibration,
+            field_acceptance_status=FieldAcceptanceStatus.PENDING,
+            field_acceptance_evidence=None,
+        )
+        pending_motion_device, _, _ = device_service(pending_motion_context)
+        blocked = await pending_motion_device.readiness()
+        assert blocked.motion_session_authorizable is False
+        assert RealHardwareBlocker.FIELD_ACCEPTANCE_NOT_PASSED in blocked.blocking_reasons
+        assert blocked.capabilities.real_joint_motion_ready is False
+        assert blocked.capabilities.real_cartesian_motion_ready is False
+        assert blocked.capabilities.real_playback_ready is False
+        assert blocked.capabilities.real_vision_follow_ready is False
+
+        assert device.connected is False
+        assert factory.bus.connected is False
+        assert (await device.sessions.status()).active is False
+
+        replacement = await device.issue_operator_session(
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        assert replacement.evidence.session_id != evidence.session_id
+        replacement_token = replacement.session_token.get_secret_value()
+        await device.connect(replacement_token)
+        acceptance = FieldAcceptanceService(
+            device=device,
+            repository=FileFieldAcceptanceEvidenceRepository(
+                tmp_path / "field-acceptance",
+                clock,
+            ),
+            clock=clock,
+        )
+        accepted = await acceptance.accept(
+            replacement_token,
+            checklist_version=context.field_acceptance_checklist_version,
+            confirmation_text=REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT,
+            accepted_by="synthetic-first-commissioning",
+        )
+        assert accepted.state is FieldAcceptanceEvidenceState.VALID
+        assert accepted.effective_status is FieldAcceptanceStatus.PASSED
+        assert device.context.field_acceptance_evidence is not None
+        assert device.connected is False
+        assert (await device.sessions.status()).active is False
+        assert bus.write_attempts == []
+        assert not hasattr(bus, "scan")
+        assert all(
+            event[0] not in {"write_goal_positions", "stop_or_hold", "scan", "home"}
+            for event in bus.events
+        )
+
+    asyncio.run(scenario())
 
 
 def test_calibration_api_reads_selected_ids_and_saves_one_revision_without_motion(
@@ -84,7 +263,8 @@ def test_calibration_api_reads_selected_ids_and_saves_one_revision_without_motio
         app.include_router(calibration_router, prefix="/api/v1")
 
         issued = await device.issue_operator_session(
-            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
             physical_estop_confirmed=True,
         )
         token = issued.session_token.get_secret_value()
@@ -170,16 +350,18 @@ def test_calibration_api_reads_selected_ids_and_saves_one_revision_without_motio
         assert completed.json()["revision"] == 2
         assert completed.json()["variant"] == "V2"
         assert device.connected is False
-        assert device.context.calibration is None
         assert (await device.sessions.status()).active is False
-        with pytest.raises(OperatorSessionPrerequisiteError):
-            await device.issue_operator_session(
-                confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
-                physical_estop_confirmed=True,
-            )
+        replacement = await device.issue_operator_session(
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        assert replacement.evidence.session_id != issued.evidence.session_id
+        assert replacement.evidence.calibration_fingerprint is None
         current = repository.get_revision(context.calibration.robot_variant)
         assert current is not None
         assert current.revision == 2
+        assert device.context.calibration == current.calibration
 
         bus = factory.bus
         calibration_reads = [event for event in bus.events if event[0] == "read_present_positions"]
@@ -246,7 +428,8 @@ def test_calibration_rollback_invalidates_loaded_identity_and_operator_session(
         app.state.calibration_workflow_coordinator = coordinator
         app.include_router(calibration_router, prefix="/api/v1")
         issued = await device.issue_operator_session(
-            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
             physical_estop_confirmed=True,
         )
         token = issued.session_token.get_secret_value()
@@ -265,15 +448,19 @@ def test_calibration_rollback_invalidates_loaded_identity_and_operator_session(
 
         assert rolled_back.status_code == 200, rolled_back.text
         assert rolled_back.json()["revision"] == 3
-        assert device.context.calibration is None
+        current = repository.get_revision(initial.robot_variant)
+        assert current is not None
+        assert current.revision == 3
+        assert device.context.calibration == current.calibration
         assert device.connected is False
         assert factory.bus.connected is False
         assert (await device.sessions.status()).active is False
-        with pytest.raises(OperatorSessionPrerequisiteError):
-            await device.issue_operator_session(
-                confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
-                physical_estop_confirmed=True,
-            )
+        replacement_session = await device.issue_operator_session(
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        assert replacement_session.evidence.session_id != issued.evidence.session_id
 
     asyncio.run(scenario())
 
@@ -300,7 +487,8 @@ def test_post_replace_fsync_failure_still_invalidates_stale_hardware_context(
             clock=clock,
         )
         issued = await device.issue_operator_session(
-            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
             physical_estop_confirmed=True,
         )
         token = issued.session_token.get_secret_value()
@@ -381,7 +569,8 @@ def test_repeated_cancellation_waits_for_calibration_invalidation_cleanup(
             clock=clock,
         )
         issued = await device.issue_operator_session(
-            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+            confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
             physical_estop_confirmed=True,
         )
         token = issued.session_token.get_secret_value()
@@ -413,10 +602,12 @@ def test_repeated_cancellation_waits_for_calibration_invalidation_cleanup(
         cleanup_started = asyncio.Event()
         release_cleanup = asyncio.Event()
 
-        async def blocking_invalidate() -> None:
+        async def blocking_invalidate(
+            persisted_calibration: CalibrationDocument | None = None,
+        ) -> None:
             cleanup_started.set()
             await release_cleanup.wait()
-            await original_invalidate()
+            await original_invalidate(persisted_calibration)
 
         monkeypatch.setattr(
             device,
@@ -448,7 +639,7 @@ def test_repeated_cancellation_waits_for_calibration_invalidation_cleanup(
         current = repository.get_revision(calibration.robot_variant)
         assert current is not None
         assert current.revision == 2
-        assert device.context.calibration is None
+        assert device.context.calibration == current.calibration
         assert device.connected is False
         assert factory.bus.connected is False
         assert (await device.sessions.status()).active is False
@@ -478,7 +669,8 @@ def test_expired_workflow_owner_does_not_block_fresh_confirmed_session(
         )
         first_token = (
             await device.issue_operator_session(
-                confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+                purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+                confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
                 physical_estop_confirmed=True,
             )
         ).session_token.get_secret_value()
@@ -491,9 +683,12 @@ def test_expired_workflow_owner_does_not_block_fresh_confirmed_session(
         clock.elapse(61.0)
         await clock.settle()
         assert device.connected is False
+        with pytest.raises(OperatorSessionTokenError):
+            await coordinator.status(first_token, first.session_id)
         second_token = (
             await device.issue_operator_session(
-                confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+                purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
+                confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
                 physical_estop_confirmed=True,
             )
         ).session_token.get_secret_value()

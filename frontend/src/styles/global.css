@@ -4866,6 +4866,46 @@ a {
   background: #f1fbf3;
 }
 
+.real-readiness--readonly {
+  border-color: #d3a84f;
+  color: #6f4c0f;
+  background: #fff9e9;
+}
+
+.commissioning-banner {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 2px solid #d5a94f;
+  border-radius: 6px;
+  color: #65450e;
+  background: #fff9e9;
+}
+
+.commissioning-banner > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.commissioning-banner p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.commissioning-badge {
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #fff;
+  background: #74500f;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+}
+
 .settings-notice--error {
   margin-top: 0;
 }
@@ -4922,7 +4962,7 @@ a {
 
 .real-capabilities {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   margin-bottom: 18px;
   border: 1px solid var(--border);

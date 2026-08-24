@@ -11,12 +11,19 @@ from momo.adapters.storage.file_backup_restore_journal import FileBackupRestoreJ
 from momo.adapters.storage.file_calibration_workflow_repository import (
     FileCalibrationWorkflowRepository,
 )
+from momo.adapters.storage.file_field_acceptance_repository import (
+    FileFieldAcceptanceEvidenceRepository,
+)
 from momo.adapters.time.system_clock import SystemClock
 from momo.application.services.backup_service import BackupApplicationService
 from momo.application.services.calibration_workflow_coordinator import (
     CalibrationWorkflowCoordinator,
 )
 from momo.application.services.device_diagnostics_service import DeviceDiagnosticsService
+from momo.application.services.field_acceptance_service import (
+    FieldAcceptanceService,
+    select_current_field_acceptance_evidence,
+)
 from momo.application.services.operator_session_service import OperatorSessionService
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
 from momo.application.services.robot_service import PRIMARY_ROBOT_ID, RobotApplicationService
@@ -39,6 +46,8 @@ class ReleaseServices:
     security: SecurityService
     backup: BackupApplicationService
     device: DeviceDiagnosticsService
+    field_acceptance: FieldAcceptanceService
+    field_acceptance_evidence: FileFieldAcceptanceEvidenceRepository
     real_calibrations: FileCalibrationWorkflowRepository
     calibration: CalibrationWorkflowCoordinator
 
@@ -111,6 +120,7 @@ def _real_hardware_context(
     robot: RobotApplicationService,
     application: ApplicationServices,
     calibrations: FileCalibrationWorkflowRepository,
+    field_acceptance: FileFieldAcceptanceEvidenceRepository,
 ) -> RealHardwareContext:
     """Load capability-bearing artifacts only after explicit local authorization.
 
@@ -127,6 +137,7 @@ def _real_hardware_context(
         "startup_hardware_enabled": settings.hardware_startup_enabled,
         "explicit_local_config": settings.hardware_local_config_enabled,
         "field_acceptance_status": FieldAcceptanceStatus(settings.field_acceptance_status),
+        "field_acceptance_checklist_version": (settings.field_acceptance_checklist_version),
     }
     if not settings.hardware_local_config_enabled:
         return RealHardwareContext.model_validate(common)
@@ -147,7 +158,7 @@ def _real_hardware_context(
             servo_ids=settings.servo_ids,
             protocol=settings.servo_protocol,
         )
-    return RealHardwareContext.model_validate(
+    context = RealHardwareContext.model_validate(
         {
             **common,
             "robot_id": PRIMARY_ROBOT_ID,
@@ -159,6 +170,12 @@ def _real_hardware_context(
             ),
             "device": device,
         }
+    )
+    evidence = select_current_field_acceptance_evidence(context, field_acceptance)
+    return (
+        context.model_copy(update={"field_acceptance_evidence": evidence})
+        if evidence is not None
+        else context
     )
 
 
@@ -187,6 +204,10 @@ def build_release_services(
     real_calibrations = FileCalibrationWorkflowRepository(
         _configured_path(settings.real_calibration_directory, root)
     )
+    field_acceptance_evidence = FileFieldAcceptanceEvidenceRepository(
+        _configured_path(settings.field_acceptance_directory, root),
+        clock,
+    )
     authorization = RealHardwareAuthorization()
     sessions = OperatorSessionService(
         clock,
@@ -199,6 +220,7 @@ def build_release_services(
             robot,
             application,
             real_calibrations,
+            field_acceptance_evidence,
         ),
         authorization=authorization,
         sessions=sessions,
@@ -208,6 +230,11 @@ def build_release_services(
     calibration = CalibrationWorkflowCoordinator(
         device=device,
         repository=real_calibrations,
+        clock=clock,
+    )
+    field_acceptance = FieldAcceptanceService(
+        device=device,
+        repository=field_acceptance_evidence,
         clock=clock,
     )
 
@@ -249,6 +276,8 @@ def build_release_services(
         security=security,
         backup=backup,
         device=device,
+        field_acceptance=field_acceptance,
+        field_acceptance_evidence=field_acceptance_evidence,
         real_calibrations=real_calibrations,
         calibration=calibration,
     )

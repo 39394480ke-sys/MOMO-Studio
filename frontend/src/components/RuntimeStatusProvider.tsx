@@ -16,18 +16,23 @@ import {
 
 const BOOTSTRAP_TIMEOUT_MS = 900;
 
-function isSafeBootstrap(data: BootstrapResponse): boolean {
-  return (
-    data.health.status === 'ok' &&
-    data.health.control_mode === 'DRY_RUN' &&
-    data.health.hardware_access_policy === 'DISABLED' &&
-    data.health.real_motion_enabled === false &&
-    data.meta.active_control_mode === 'DRY_RUN' &&
-    data.meta.hardware_access_policy === 'DISABLED' &&
-    data.meta.real_motion_enabled === false &&
+function isSupportedRuntimePolicy(data: BootstrapResponse): boolean {
+  const metadataMatchesHealth =
+    data.health.control_mode === data.meta.active_control_mode &&
+    data.health.hardware_access_policy === data.meta.hardware_access_policy &&
+    data.health.real_motion_enabled === data.meta.real_motion_enabled;
+  const dryRunRuntimeIsIsolated =
     data.robot.control_mode === 'DRY_RUN' &&
     data.robot.hardware_access_policy === 'DISABLED' &&
-    data.robot.hardware_accessed === false
+    data.robot.hardware_accessed === false;
+  const policyCombinationIsValid = data.health.control_mode === 'DRY_RUN'
+    ? data.health.hardware_access_policy === 'DISABLED' && data.health.real_motion_enabled === false
+    : data.health.hardware_access_policy === 'FULL' || data.health.real_motion_enabled === false;
+  return (
+    data.health.status === 'ok' &&
+    metadataMatchesHealth &&
+    dryRunRuntimeIsIsolated &&
+    policyCombinationIsValid
   );
 }
 
@@ -44,13 +49,16 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
   } | null>(null);
 
   const applyBootstrap = useCallback((data: BootstrapResponse) => {
-    if (!isSafeBootstrap(data)) {
+    if (!isSupportedRuntimePolicy(data)) {
       throw new Error('Backend returned an unsafe runtime policy');
     }
     setRuntimeStatus((current) => ({
       ...current,
       backend: 'connected',
       stale: data.robot.stale !== false,
+      controlMode: data.meta.active_control_mode === 'DRY_RUN' ? 'DRY RUN' : 'REAL',
+      hardwareAccessPolicy: data.meta.hardware_access_policy,
+      realMotionEnabled: data.meta.real_motion_enabled,
       error: null,
       meta: data.meta,
       robot: data.robot,
@@ -199,13 +207,31 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
     [invalidateBootstrap, refresh],
   );
 
+  const dryRunActionsAvailable =
+    runtimeStatus.controlMode === 'DRY RUN' &&
+    runtimeStatus.hardwareAccessPolicy === 'DISABLED' &&
+    runtimeStatus.realMotionEnabled === false;
+  const rejectRealLifecycleAction = async () => {
+    setRuntimeStatus((current) => ({
+      ...current,
+      error: 'Commissioning and Real Motion device lifecycle is available only in Settings.',
+    }));
+  };
   const value: RuntimeStatus = {
     ...runtimeStatus,
     refresh,
-    connect: () => runAction('connect', connectRobot),
-    disconnect: () => runAction('disconnect', disconnectRobot),
-    stop: () => runAction('stop', stopRobot),
-    switchVariant: (variant) => runAction('switch', () => switchRobotVariant(variant)),
+    connect: dryRunActionsAvailable
+      ? () => runAction('connect', connectRobot)
+      : rejectRealLifecycleAction,
+    disconnect: dryRunActionsAvailable
+      ? () => runAction('disconnect', disconnectRobot)
+      : rejectRealLifecycleAction,
+    stop: dryRunActionsAvailable
+      ? () => runAction('stop', stopRobot)
+      : rejectRealLifecycleAction,
+    switchVariant: dryRunActionsAvailable
+      ? (variant) => runAction('switch', () => switchRobotVariant(variant))
+      : rejectRealLifecycleAction,
   };
 
   return <RuntimeStatusContext.Provider value={value}>{children}</RuntimeStatusContext.Provider>;

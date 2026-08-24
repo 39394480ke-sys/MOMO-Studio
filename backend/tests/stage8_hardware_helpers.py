@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any, NoReturn, cast
 
 from momo.adapters.hardware.fake_servo_bus import FakeServoBus, FakeServoBusFactory
 from momo.adapters.kinematics.model_repository import FileKinematicsModelRepository
@@ -22,17 +24,20 @@ from momo.domain.kinematics.model import KinematicsModel
 from momo.domain.profiles import canonical_robot_profile
 from momo.domain.real_hardware import (
     ExplicitServoDevice,
+    FieldAcceptanceEvidence,
     FieldAcceptanceStatus,
     HardwareDependencyState,
     RealHardwareContext,
+    calibration_fingerprint,
+    explicit_device_fingerprint,
 )
 from momo.domain.robot import RobotProfile
 from momo.settings import repository_root
 from tests.stage3_helpers import FakeClock
 
 
-def real_profile() -> RobotProfile:
-    data = canonical_robot_profile(RobotVariant.V2).model_dump(mode="python")
+def real_profile(variant: RobotVariant = RobotVariant.V2) -> RobotProfile:
+    data = canonical_robot_profile(variant).model_dump(mode="python")
     data.update(
         {
             "template": False,
@@ -100,21 +105,111 @@ def real_context(**updates: Any) -> RealHardwareContext:
         "device": device,
     }
     values.update(updates)
-    return RealHardwareContext.model_validate(values)
+    context = RealHardwareContext.model_validate(values)
+    if (
+        "field_acceptance_evidence" not in updates
+        and context.field_acceptance_status is FieldAcceptanceStatus.PASSED
+        and context.profile is not None
+        and context.calibration is not None
+        and context.device is not None
+    ):
+        evidence = FieldAcceptanceEvidence(
+            robot_variant=context.profile.variant,
+            profile_fingerprint=context.profile.fingerprint,
+            calibration_fingerprint=calibration_fingerprint(context.calibration),
+            kinematics_fingerprint=(
+                context.kinematics.fingerprint if context.kinematics is not None else None
+            ),
+            device_fingerprint=explicit_device_fingerprint(context.device),
+            checklist_version=context.field_acceptance_checklist_version,
+            accepted_at=datetime(2026, 1, 1, tzinfo=UTC),
+            accepted_by="synthetic-stage8-test",
+        )
+        context = context.model_copy(update={"field_acceptance_evidence": evidence})
+    return context
 
 
-def fake_bus(context: RealHardwareContext, **updates: Any) -> FakeServoBus:
+def commissioning_context(**updates: Any) -> RealHardwareContext:
+    """Fresh or recalibration context whose only hardware authority is read-only."""
+
+    context = real_context()
+    kinematics = context.kinematics
+    assert kinematics is not None
+    provisional = kinematics.model_copy(
+        update={"verification_status": KinematicsVerificationStatus.PROVISIONAL_DRY_RUN}
+    )
+    values: dict[str, Any] = {
+        "hardware_access_policy": HardwareAccessPolicy.READ_ONLY,
+        "real_motion_enabled": False,
+        "calibration": None,
+        "kinematics": provisional,
+        "expected_kinematics_fingerprint": provisional.fingerprint,
+        "field_acceptance_status": FieldAcceptanceStatus.PENDING,
+        "field_acceptance_evidence": None,
+    }
+    values.update(updates)
+    return RealHardwareContext.model_validate(context.model_copy(update=values).model_dump())
+
+
+def recalibration_context(**updates: Any) -> RealHardwareContext:
+    """Read-only commissioning context with an existing synthetic calibration."""
+
+    context = real_context()
+    assert context.calibration is not None
+    values: dict[str, Any] = {"calibration": context.calibration}
+    values.update(updates)
+    return commissioning_context(**values)
+
+
+def _fake_bus_values(context: RealHardwareContext, **updates: Any) -> dict[str, Any]:
     device = context.device
+    profile = context.profile
     calibration = context.calibration
-    assert device is not None and calibration is not None
-    modes = {joint.servo_id: joint.operating_mode.value for joint in calibration.joints}
+    assert device is not None and profile is not None
+    modes = (
+        {joint.servo_id: joint.operating_mode.value for joint in calibration.joints}
+        if calibration is not None
+        else {
+            cast(int, definition.servo_id): definition.operating_mode.value
+            for definition in profile.joint_definitions
+        }
+    )
     values: dict[str, Any] = {
         "present_positions": {servo_id: 0 for servo_id in device.servo_ids},
         "operating_modes": modes,
         "torque_states": {servo_id: False for servo_id in device.servo_ids},
     }
     values.update(updates)
-    return FakeServoBus(**values)
+    return values
+
+
+def fake_bus(context: RealHardwareContext, **updates: Any) -> FakeServoBus:
+    return FakeServoBus(**_fake_bus_values(context, **updates))
+
+
+class WriteBombServoBus(FakeServoBus):
+    """Fake read bus whose bounded hardware-write surface always explodes."""
+
+    def __init__(self, **values: Any) -> None:
+        super().__init__(**values)
+        self.write_attempts: list[str] = []
+
+    async def write_goal_positions(
+        self,
+        goal_positions: Mapping[int, int],
+    ) -> NoReturn:
+        del goal_positions
+        self.write_attempts.append("write_goal_positions")
+        raise AssertionError("write path must never be reachable")
+
+    async def stop_or_hold(self, servo_ids: tuple[int, ...]) -> NoReturn:
+        del servo_ids
+        self.write_attempts.append("stop_or_hold")
+        raise AssertionError("write path must never be reachable")
+
+
+def write_bomb_bus(context: RealHardwareContext, **updates: Any) -> WriteBombServoBus:
+    return WriteBombServoBus(**_fake_bus_values(context, **updates))
 
 
 def device_service(

@@ -41,6 +41,7 @@ RobotIdValue = Annotated[
 ]
 ServoId = Annotated[int, Field(strict=True, ge=1, le=253)]
 Revision = Annotated[int, Field(strict=True, ge=1)]
+FiniteLogicalValue = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 
 
 class CalibrationWorkflowError(RuntimeError):
@@ -71,6 +72,78 @@ class CalibrationWorkflowState(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+class CalibrationJointDraft(BaseModel):
+    """Incomplete commissioning capture for one explicit profile joint.
+
+    Missing observations and operator inputs remain ``None``. In particular, a
+    fresh robot is never represented by a fabricated zero-valued calibration.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    joint_id: JointId
+    servo_id: ServoId
+    present_raw: int | None = Field(default=None, strict=True)
+    logical_value: FiniteLogicalValue | None = None
+    direction: Literal[-1, 1] | None = None
+    phase: int | None = Field(default=None, strict=True)
+    raw_bounds: tuple[int, int] | None = None
+    operating_mode: CalibrationOperatingMode | None = None
+
+    @model_validator(mode="after")
+    def validate_partial_mapping(self) -> Self:
+        if self.raw_bounds is not None:
+            lower, upper = self.raw_bounds
+            if (
+                isinstance(lower, bool)
+                or isinstance(upper, bool)
+                or not isinstance(lower, int)
+                or not isinstance(upper, int)
+                or lower >= upper
+            ):
+                raise ValueError("draft raw_bounds must be ordered integers")
+        return self
+
+
+class CalibrationDraft(BaseModel):
+    """Profile-bound, non-persisted input state for initial or later calibration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    robot_variant: RobotVariant
+    profile_fingerprint: Fingerprint
+    enabled_joints: tuple[JointId, ...]
+    created_at: datetime
+    base_revision: Revision | None = None
+    base_calibration_fingerprint: Fingerprint | None = None
+    joints: tuple[CalibrationJointDraft, ...]
+
+    @field_validator("created_at")
+    @classmethod
+    def require_aware_created_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("draft created_at must include a timezone offset")
+        return value
+
+    @model_validator(mode="after")
+    def validate_profile_shape(self) -> Self:
+        joint_ids = tuple(joint.joint_id for joint in self.joints)
+        if not self.enabled_joints or joint_ids != self.enabled_joints:
+            raise ValueError("draft joints must exactly match ordered enabled_joints")
+        if len(joint_ids) != len(set(joint_ids)):
+            raise ValueError("draft joint IDs must be unique")
+        servo_ids = tuple(joint.servo_id for joint in self.joints)
+        if len(servo_ids) != len(set(servo_ids)):
+            raise ValueError("draft Servo IDs must be unique")
+        if (self.base_revision is None) is not (self.base_calibration_fingerprint is None):
+            raise ValueError("draft base revision and fingerprint must both be present or absent")
+        return self
+
+    @property
+    def joints_by_id(self) -> dict[str, CalibrationJointDraft]:
+        return {joint.joint_id: joint for joint in self.joints}
+
+
 class CalibrationAuthorization(BaseModel):
     """Short-lived internal evidence issued only after API token authentication.
 
@@ -83,15 +156,15 @@ class CalibrationAuthorization(BaseModel):
     robot_id: RobotIdValue
     variant: RobotVariant
     profile_fingerprint: Fingerprint
-    calibration_fingerprint: Fingerprint
+    calibration_fingerprint: Fingerprint | None = None
     allowed_servo_ids: tuple[ServoId, ...]
     issued_at: datetime
     expires_at: datetime
     confirmed: Literal[True]
     physical_estop_confirmed: Literal[True]
     control_mode: Literal[ControlMode.REAL] = ControlMode.REAL
-    hardware_policy: Literal[HardwareAccessPolicy.FULL] = HardwareAccessPolicy.FULL
-    purpose: Literal[RealHardwareAuthorizationPurpose.DIAGNOSTICS]
+    hardware_policy: Literal[HardwareAccessPolicy.READ_ONLY] = HardwareAccessPolicy.READ_ONLY
+    purpose: Literal[RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE]
     capabilities: RealHardwareCapabilityReadiness
 
     @field_validator("issued_at", "expires_at")
@@ -114,8 +187,8 @@ class CalibrationAuthorization(BaseModel):
     def require_ordered_window(self) -> Self:
         if self.expires_at <= self.issued_at:
             raise ValueError("authorization expiry must follow issue time")
-        if not self.capabilities.real_joint_motion_ready:
-            raise ValueError("calibration requires current Real joint capability evidence")
+        if not self.capabilities.calibration_capture_ready:
+            raise ValueError("calibration requires current read-only capture capability evidence")
         return self
 
     def active(self, now: datetime) -> bool:
@@ -227,8 +300,8 @@ class CalibrationSavePreview(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
     session_id: UUID
-    base_revision: Revision
-    base_calibration_fingerprint: Fingerprint
+    base_revision: Revision | None = None
+    base_calibration_fingerprint: Fingerprint | None = None
     source: CalibrationWorkflowSource
     proposed_calibration: CalibrationDocument
     proposed_calibration_fingerprint: Fingerprint
@@ -240,7 +313,12 @@ class CalibrationSavePreview(BaseModel):
             raise ValueError("save preview requires a complete non-template calibration")
         if self.proposed_calibration_fingerprint != calibration_document_fingerprint(calibration):
             raise ValueError("save preview calibration fingerprint mismatch")
-        if self.proposed_calibration_fingerprint == self.base_calibration_fingerprint:
+        if (self.base_revision is None) is not (self.base_calibration_fingerprint is None):
+            raise ValueError("save preview base revision and fingerprint must match")
+        if (
+            self.base_calibration_fingerprint is not None
+            and self.proposed_calibration_fingerprint == self.base_calibration_fingerprint
+        ):
             raise ValueError("save preview must create a new calibration identity")
         return self
 
@@ -253,8 +331,9 @@ class CalibrationWorkflowStatus(BaseModel):
     robot_id: RobotIdValue
     variant: RobotVariant
     profile_fingerprint: Fingerprint
-    base_revision: Revision
-    base_calibration_fingerprint: Fingerprint
+    base_revision: Revision | None = None
+    base_calibration_fingerprint: Fingerprint | None = None
+    draft: CalibrationDraft
     source: CalibrationWorkflowSource
     state: CalibrationWorkflowState
     required_joint_ids: tuple[JointId, ...]
@@ -289,6 +368,16 @@ class CalibrationWorkflowStatus(BaseModel):
             raise ValueError("confirmed joints must be a unique subset of required joints")
         if self.preview is not None and self.preview.session_id != self.session_id:
             raise ValueError("preview belongs to a different calibration session")
+        if (self.base_revision is None) is not (self.base_calibration_fingerprint is None):
+            raise ValueError("status base revision and fingerprint must match")
+        if (
+            self.draft.robot_variant is not self.variant
+            or self.draft.profile_fingerprint != self.profile_fingerprint
+            or self.draft.enabled_joints != self.required_joint_ids
+            or self.draft.base_revision != self.base_revision
+            or self.draft.base_calibration_fingerprint != self.base_calibration_fingerprint
+        ):
+            raise ValueError("status draft does not match workflow identity")
         if self.state is CalibrationWorkflowState.READY_TO_SAVE and confirmed != required:
             raise ValueError("READY_TO_SAVE requires every joint confirmation")
         if self.state is CalibrationWorkflowState.READY_TO_SAVE and self.save_preview is None:
@@ -367,6 +456,8 @@ def calibration_preview_fingerprint(preview: CalibrationJointPreview) -> str:
 
 __all__ = [
     "CalibrationAuthorization",
+    "CalibrationDraft",
+    "CalibrationJointDraft",
     "CalibrationJointPreview",
     "CalibrationRevisionRecord",
     "CalibrationSavePreview",

@@ -22,14 +22,33 @@ vi.mock('../../api/client', () => ({
   startCalibrationSession: vi.fn(),
 }));
 
-const fingerprint = 'a'.repeat(64);
 const session: CalibrationWorkflowStatus = {
   session_id: 'calibration-session',
+  authorization_session_id: 'operator-session',
   robot_id: 'primary',
   variant: 'V2',
   profile_fingerprint: 'b'.repeat(64),
-  base_revision: 3,
-  base_calibration_fingerprint: fingerprint,
+  base_revision: null,
+  base_calibration_fingerprint: null,
+  source: 'EXISTING_REAL',
+  draft: {
+    robot_variant: 'V2',
+    profile_fingerprint: 'b'.repeat(64),
+    enabled_joints: ['j1'],
+    created_at: '2026-08-24T03:00:00Z',
+    base_revision: null,
+    base_calibration_fingerprint: null,
+    joints: [{
+      joint_id: 'j1',
+      servo_id: 1,
+      present_raw: null,
+      logical_value: null,
+      direction: null,
+      phase: null,
+      raw_bounds: null,
+      operating_mode: null,
+    }],
+  },
   state: 'ACTIVE',
   required_joint_ids: ['j1'],
   confirmed_joint_ids: [],
@@ -71,15 +90,16 @@ beforeEach(() => {
 describe('protected current-angle Calibration Wizard', () => {
   it('performs no request until an explicitly connected operator starts it', () => {
     const { rerender } = render(
-      <CalibrationWizard connected={false} operatorToken="memory-token" />,
+      <CalibrationWizard connected={false} initiallyConfigured={false} operatorToken="memory-token" />,
     );
 
-    expect(screen.getByRole('button', { name: 'Start protected calibration' })).toBeDisabled();
+    expect(screen.getByText('Not configured')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Start initial calibration' })).toBeDisabled();
     expect(startCalibrationSession).not.toHaveBeenCalled();
     expect(readCalibrationJoint).not.toHaveBeenCalled();
 
-    rerender(<CalibrationWizard connected operatorToken="memory-token" />);
-    expect(screen.getByRole('button', { name: 'Start protected calibration' })).toBeEnabled();
+    rerender(<CalibrationWizard connected initiallyConfigured={false} operatorToken="memory-token" />);
+    expect(screen.getByRole('button', { name: 'Start initial calibration' })).toBeEnabled();
     expect(startCalibrationSession).not.toHaveBeenCalled();
   });
 
@@ -100,7 +120,8 @@ describe('protected current-angle Calibration Wizard', () => {
       save_preview: {
         session_id: session.session_id,
         base_revision: session.base_revision,
-        base_calibration_fingerprint: fingerprint,
+        base_calibration_fingerprint: null,
+        source: 'EXISTING_REAL',
         proposed_calibration_fingerprint: 'd'.repeat(64),
         joints: [{
           joint_id: 'j1',
@@ -114,15 +135,16 @@ describe('protected current-angle Calibration Wizard', () => {
       },
     });
     vi.mocked(completeCalibrationSession).mockResolvedValue({
-      revision: 4,
+      revision: 1,
       calibration_fingerprint: 'd'.repeat(64),
-      previous_calibration_fingerprint: fingerprint,
+      previous_calibration_fingerprint: null,
       variant: 'V2',
       created_at: '2026-08-24T03:01:00Z',
     });
 
-    render(<CalibrationWizard connected operatorToken="memory-token" />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start protected calibration' }));
+    render(<CalibrationWizard connected initiallyConfigured={false} operatorToken="memory-token" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start initial calibration' }));
+    expect(await screen.findByText(/Draft · Initial calibration → Revision 1/)).toBeVisible();
     expect(await screen.findByRole('button', { name: 'Read selected joint' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Read selected joint' }));
@@ -176,6 +198,7 @@ describe('protected current-angle Calibration Wizard', () => {
     fireEvent.click(saveButton);
 
     expect(await screen.findByText('Calibration revision saved')).toBeVisible();
+    expect(screen.getByText(/Calibration configured · Field acceptance pending · Real motion blocked/)).toBeVisible();
     expect(completeCalibrationSession).toHaveBeenCalledWith(
       'memory-token',
       'calibration-session',

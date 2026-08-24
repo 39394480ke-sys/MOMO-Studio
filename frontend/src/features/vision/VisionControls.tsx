@@ -92,7 +92,11 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
   else if (!sourceOperational) detectionBlockReason = 'Vision source is not operational';
   else if (!frameFresh) detectionBlockReason = 'Wait for a fresh frame';
   let startReason: string | null = null;
-  if (!workspace.online) startReason = 'Backend unavailable';
+  if (!workspace.dryRunFollowAllowed) {
+    startReason = workspace.runtimePolicy === 'READ_ONLY'
+      ? 'Commissioning READ ONLY permits no Follow'
+      : 'REAL_MOTION Operator Session required';
+  } else if (!workspace.online) startReason = 'Backend unavailable';
   else if (!workspace.statusReachable) startReason = 'Vision status unavailable';
   else if (!workspace.capabilities) startReason = 'Provider capability is still loading';
   else if (!sourceAvailable) startReason = 'Vision source or bounded stream is unavailable';
@@ -119,7 +123,7 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
           <div><dt>Source</dt><dd>{workspace.capabilities?.source.provider_id ?? 'Waiting'}</dd></div>
           <div><dt>Camera policy</dt><dd>{workspace.capabilities?.camera_access_policy ?? 'Unavailable'}</dd></div>
           <div><dt>Source state</dt><dd>{workspace.status?.source_state ?? (workspace.online ? 'Waiting' : 'OFFLINE')}</dd></div>
-          <div><dt>Mode</dt><dd>DRY RUN</dd></div>
+          <div><dt>Mode</dt><dd>{workspace.runtimeMode}</dd></div>
           <div><dt>Live camera</dt><dd>Not opened</dd></div>
         </dl>
         <p className="vision-blocked-reason">

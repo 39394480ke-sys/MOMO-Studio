@@ -99,16 +99,26 @@ def test_connect_disconnect_and_stop_are_safe_and_idempotent(tmp_path: Path) -> 
 
 def test_variant_switch_requires_disconnected_and_replaces_joint_set(tmp_path: Path) -> None:
     service = make_service(tmp_path)
+    pre_switch_calls: list[None] = []
+
+    async def before_switch() -> None:
+        pre_switch_calls.append(None)
 
     async def scenario() -> None:
-        v1 = await service.switch_variant(RobotVariant.V1)
+        v1 = await service.switch_variant(RobotVariant.V1, before_switch=before_switch)
         assert set(v1.positions) == {"j11", "j12", "j13", "j14", "j15"}
         assert "j10" not in v1.positions
         assert v1.connection_state is RobotConnectionState.DISCONNECTED
+        assert pre_switch_calls == [None]
+
+        unchanged = await service.switch_variant(RobotVariant.V1, before_switch=before_switch)
+        assert unchanged == v1
+        assert pre_switch_calls == [None]
 
         await service.connect()
         with pytest.raises(VariantSwitchWhileConnectedError):
-            await service.switch_variant(RobotVariant.V2)
+            await service.switch_variant(RobotVariant.V2, before_switch=before_switch)
+        assert pre_switch_calls == [None]
         assert (await service.get_status()).variant is RobotVariant.V1
 
     asyncio.run(scenario())

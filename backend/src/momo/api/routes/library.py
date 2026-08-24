@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from momo.api.dependencies import get_library_service
+from momo.api.dependencies import authorize_real_joint_motion_request, get_library_service
 from momo.api.library_schemas import (
     LibrarySort,
     MotionListResponse,
@@ -117,7 +117,10 @@ async def duplicate_pose(
     "/poses/{pose_id}/goto",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(authorize_control_request)],
+    dependencies=[
+        Depends(authorize_control_request),
+        Depends(authorize_real_joint_motion_request),
+    ],
 )
 async def goto_pose(
     pose_id: UUID, request: GotoPoseCommand, service: LibraryService
