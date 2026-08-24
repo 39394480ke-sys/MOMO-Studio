@@ -22,6 +22,7 @@ hardware_startup_enabled: false
 hardware_local_config_enabled: false
 camera_access_policy: SYNTHETIC_ONLY
 field_acceptance_status: PENDING
+field_acceptance_checklist_version: "1"
 ```
 
 Starting the backend does not connect, enumerate, scan, home, calibrate, enable torque,
@@ -38,6 +39,7 @@ make lint
 make format-check
 make build
 make schemas
+make audit
 ```
 
 Create an ignored `config/local.yaml` containing at least the reviewed bind decision:
@@ -84,28 +86,36 @@ application.
 Dry Run `STOPPED` means the in-memory executor stopped at its last accepted sample. It
 is not a physical emergency-stop guarantee.
 
-## Real-hardware boundary
+## Commissioning and Real-hardware boundary
 
 Do not attempt Real operation until every item in
 [`real-hardware-acceptance.md`](real-hardware-acceptance.md) has been performed by an
 authorized field team with the correct physical robot and a tested physical E-stop.
 
-The backend refuses authorization unless all independent gates pass: Real mode, Full
-policy, real-motion flag, startup flag, exact ignored local configuration, verified
-non-template Profile and Calibration, matching verified kinematics, passed field
-acceptance, explicit serial/protocol/Servo IDs, and a current Operator Session.
+First commissioning is intentionally read-only. It requires Real mode, `READ_ONLY`
+hardware policy, startup and local opt-ins, a verified non-template Profile, an available
+verified adapter, and one explicitly configured serial device/protocol/Servo-ID set. It
+does not require an existing Calibration, `real_motion_enabled`, passed field acceptance,
+or verified Kinematics.
 
-When those prerequisites eventually exist:
+For commissioning:
 
 1. Open Settings and review every masked identity/fingerprint and blocked reason.
 2. Ensure the physical E-stop is reachable and the workspace is clear.
-3. Type the exact one-time confirmation and check the physical E-stop statement.
-4. Use Explicit connect. Connection opens only the configured device, pings only the
+3. Request a `COMMISSIONING_READ_ONLY` session with the exact confirmation.
+4. Use Connect Read-Only. Connection opens only the configured device, pings only the
    configured IDs, reads bounded status, and never scans, homes, moves, or enables torque.
-5. Run read-only diagnostics only by explicit action. Do not treat a software Stop as a
-   physical E-stop; `SAFETY_STATE_UNCERTAIN` requires the physical E-stop.
-6. End the short-lived session. Tokens live in backend/frontend memory only, expire,
-   and are invalidated by backend restart or context drift.
+5. Run diagnostics and the joint-explicit Calibration capture. No motion control is
+   available in this session.
+6. Complete field acceptance and store its fingerprint-bound local evidence. End or
+   retain the old session only for read-only work.
+
+Real Motion is a second authorization. It requires `FULL` policy,
+`real_motion_enabled`, the same opt-ins and exact device, a complete matching Calibration,
+current Field Acceptance Evidence, and a newly confirmed `REAL_MOTION` session. Verified
+matching Kinematics is additionally required for Cartesian, Cartesian Playback, and
+Vision Follow. Never reuse a commissioning token; it cannot be upgraded. Tokens live in
+backend/frontend memory only, expire, and fail closed after restart or context drift.
 
 The release candidate's committed configuration cannot pass these gates. The optional
 Feetech dependency remains unavailable until its exact package/API/license and physical
@@ -113,12 +123,15 @@ Stop semantics are verified.
 
 ## Calibration workflow
 
-Calibration is protected and joint-explicit. It reads only the selected configured
-Servo's current position; it cannot move, write a Servo, change mode, toggle torque, or
-scan. For each joint, enter the observed logical value and review direction, Home,
-phase, raw bounds, round-trip error, and preview fingerprint. Confirm every joint before
-an atomic revision save. Each save backs up the prior revision; rollback is explicit and
-creates another forward revision. Example Calibration can never be promoted to Real.
+Calibration is protected and joint-explicit. When none exists, the workflow starts a
+Profile-bound incomplete draft; missing capture values remain empty rather than becoming
+zeroes. It reads only the selected configured Servo's current position and cannot move,
+write, change mode, toggle torque, or scan. For each enabled joint, enter the observed
+logical value and confirm direction, Home, phase, raw bounds, round-trip error, and the
+preview fingerprint. A complete validated first draft saves atomically as Revision 1;
+later recalibration saves Revision N+1 and preserves the prior backup. Rollback is
+explicit and forward-only. Calibration completion does not grant motion: field acceptance
+and a new Real Motion session are still required. Example Calibration cannot be promoted.
 Legacy import requires a separate exact confirmation and reviewed input.
 
 ## Backup and recovery

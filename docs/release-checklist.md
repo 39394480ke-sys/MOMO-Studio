@@ -9,7 +9,8 @@ work.
 ## Source and identity
 
 - [x] Branch is `codex/v1-autonomous-completion`; `main` was not merged or modified.
-- [x] Stage 3–8 commits exist in order; the final report-finalization worktree is clean.
+- [x] Stage 3–8 commits exist in order; all task-owned changes are committed at delivery.
+  Three externally created iCloud duplicate files remain excluded and untouched.
 - [x] Version is `0.1.0-rc1` in Python, frontend, lockfiles, defaults, API metadata, and UI.
 - [x] Release status is `FIELD_ACCEPTANCE_REQUIRED`; UI says Dry Run validated and Real
   hardware field acceptance pending.
@@ -17,18 +18,21 @@ work.
 
 ## Automated gates
 
-- [x] `make test` — backend 563 passed; frontend 201 passed across 17 files.
+- [x] `make test` — backend 591 passed; frontend 215 passed across 18 files.
 - [x] `make lint`
 - [x] `make format-check`
-- [x] `make build` — 1,642 modules; JS 465.73 kB / 131.20 kB gzip.
+- [x] `make build` — 1,642 modules; JS 480.15 kB / 135.88 kB gzip.
 - [x] Two fresh schema generations are byte-identical and match the tracked tree.
 - [x] `git diff --check`
 - [x] `uv lock --project backend --check`
-- [x] `uv pip check` — 42 installed packages compatible.
-- [x] `npm audit --omit=dev --audit-level=moderate` — 0 vulnerabilities.
-- [x] Hardware and camera isolation suites — 52 passed.
+- [x] `uv pip check` — 66 installed packages compatible.
+- [x] `pip-audit` is a locked dev dependency and a fail-closed CI gate; the direct
+  vulnerable pytest 8.x dependency was upgraded to a fixed pytest 9.x release.
+- [x] `npm audit --audit-level=high` — 0 vulnerabilities.
+- [x] Hardware and camera isolation suites — 102 passed under explicit safe startup gates.
 - [x] Secret/basic provenance scan
 - [x] CI workflow contains no hardware, camera, Real config, or network model download.
+- [x] Every JavaScript GitHub Action uses its official Node 24 runtime major.
 - [x] Static release test proves relative local assets, `/docs` and `/redoc` disabled,
   OpenAPI free of CDN URLs, SPA refresh success, and missing API/assets remaining 404
 
@@ -44,6 +48,8 @@ work.
   coverage.
 - [x] Browser console warning/error entries are `[]`.
 - [x] Default Settings displays `Hardware access disabled` and never probes a device.
+- [x] Safe fixture acceptance distinguishes Hardware Disabled, Commissioning `READ ONLY`,
+  and Real Motion; commissioning exposes diagnostics/Calibration but no motion controls.
 - [x] API/WebSocket/schema inventories and resource bounds match documentation.
 
 ## Security and recovery
@@ -76,22 +82,40 @@ work.
 - [x] Default is Dry Run, hardware Disabled, real motion false, camera Synthetic.
 - [x] Every motion source uses the reviewed Motion Safety Gateway; API routes import no
   raw driver and expose no raw register/filesystem/Python escape hatch.
+- [x] Commissioning uses an immutable read-only session purpose and `ReadOnlyServoBus`;
+  its token cannot call or become a motion session.
+- [x] Initial Calibration Revision 1 and recalibration N+1 share complete validation;
+  Calibration completion alone never enables motion.
+- [x] Field acceptance is local fingerprint-bound evidence; a stale or bare status value
+  cannot authorize motion.
 - [x] Stop uncertainty is represented truthfully and requires the physical E-stop.
 - [x] `real-hardware-acceptance.md` remains entirely unchecked for this autonomous build.
 - [x] Release notes state that Real field acceptance is required.
 
-## Final evidence handoff
+## Commissioning-fix re-verification
 
-- Backend pytest exact result: 563 passed; one existing Starlette/httpx deprecation warning.
-- Ruff / format / strict mypy exact result: PASS; 210 files clean.
+- Backend pytest exact result: 591 passed; one existing Starlette/httpx deprecation warning.
+- Ruff / format / strict mypy exact result: PASS; 214 files clean.
 - Schema/lock/dependency/isolation/secret-scan exact result: PASS; two deterministic
-  generations equal tracked schemas, lock clean, 42 packages compatible, 52 isolation
+  generations equal tracked schemas, lock clean, 66 packages compatible, 102 isolation
   tests, secret scan and diff check pass.
-- Frontend test/lint/type/build exact result: PASS; 201 tests/17 files, ESLint and
-  TypeScript clean, 1,642-module build, JS 465.73 kB/131.20 kB gzip, npm audit 0.
-- Desktop/mobile/breakpoint browser workflow and console result: PASS at 1440×960,
-  390×844, 850, and 830; no horizontal overflow; console warning/error `[]`.
-- Final independent audit P1/P2 result: PASS; P1=0/P2=0 after 74 focused tests.
+- Frontend test/lint/type/build exact result: PASS; 215 tests/18 files, ESLint and
+  TypeScript clean, 1,642-module build, JS 480.15 kB/135.88 kB gzip, npm audit 0.
+- Focused commissioning and safe-gate isolation results: PASS; 88 commissioning tests
+  and 102 hardware/camera isolation tests.
+- Browser result: prior desktop/mobile/breakpoint acceptance remains covered by the full
+  regression; the isolated READ_ONLY flow completed diagnostics and Revision 1 with
+  motion blocked and console warning/error `[]`.
+- Independent commissioning safety audit: PASS; no P1/P2 safety bypass remains.
+
+## Historical Stage 8 delivery
+
+- Original Stage 8 gate: 563 backend tests, 201 frontend tests across 17 files,
+  strict mypy across 210 files, 42 compatible installed packages, 52 isolation tests,
+  and the 1,642-module build at JS 465.73 kB/131.20 kB gzip.
+- Original desktop/mobile/breakpoint browser workflow: PASS at 1440×960, 390×844,
+  850, and 830; no horizontal overflow; console warning/error `[]`.
+- Original independent Stage 8 audit: PASS; P1=0/P2=0 after 74 focused tests.
 - Stage 8 commit/push/PR result: PASS —
   `4f7a75606aacb3fc93128445d7487ff196ce9efb` pushed; Draft PR
   [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) open against `main`.

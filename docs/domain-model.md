@@ -127,8 +127,12 @@ backup and atomically replaces the variant's current record. Explicit rollback r
 unique earlier backup and saves its content as a fresh UUID/new forward revision; it does
 not rewind revision history. Example/template Calibration cannot be saved or promoted.
 
-`CalibrationWorkflowSession` is runtime-only, bounded to one operator/device context,
-and contains a per-joint status map. A joint moves from pending through raw capture,
+`CalibrationWorkflowSession` is runtime-only, bounded to one commissioning operator/device
+context, and contains a Profile-bound `CalibrationDraft` plus per-joint status. With no
+current record, `base_revision` is absent and a successful save becomes Revision 1.
+Draft present raw, logical value, direction, phase, bounds, and mode remain optional until
+explicitly captured or entered; zero is never used as an incomplete sentinel. A joint
+moves from pending through raw capture,
 preview, and explicit confirmation. The preview binds selected joint/Servo identity,
 captured raw value, entered logical value, direction, Home, phase/raw bounds, round-trip
 error, and a deterministic mapping fingerprint. It authorizes no Servo write or motion.
@@ -168,20 +172,28 @@ and any device-safety uncertainty. `ExplicitServoDevice` has exactly one secret-
 serial path, protocol, and ordered unique Servo-ID allowlist; it has no scan range.
 
 `RealHardwareAuthorization` evaluates a `RealHardwareGateInput` containing that context,
-the evaluation time, and optional `OperatorSessionEvidence`. The report has a readiness
-state, deduplicated typed blockers, redacted confirmation facts, session status, and four
-separate booleans: Real Joint, Cartesian, Playback, and Vision Follow. A purpose-bound
-`RealHardwareAccessGrant` is created only when its corresponding capability passes.
-Diagnostics is read-only but still requires the complete Joint gate and a current
-session; it is not a weaker hardware bypass.
+the evaluation time, and optional `OperatorSessionEvidence`. The report has typed
+blockers, redacted confirmation facts, session status, two commissioning booleans
+(`commissioning_diagnostics_ready`, `calibration_capture_ready`), and four distinct
+motion booleans (Joint, Cartesian, Playback, Vision Follow). Commissioning does not reuse
+the Joint gate.
 
-An Operator Session is context-bound, short lived, and single-owner. Token-free evidence
-records session UUID, robot/variant, Profile/Calibration fingerprints, exact Servo IDs,
-issued/expiry times, physical-E-stop confirmation, and required Real/Full policy. The raw
-token is returned once and only a digest/evidence remain in backend memory. Expiry,
-restart, explicit revoke, connection failure, disconnect, context mismatch, or
-Calibration transition invalidates it. A backend expiry cleanup closes any connected bus
-even when the frontend has disappeared.
+`OperatorSessionPurpose` has immutable `COMMISSIONING_READ_ONLY` and `REAL_MOTION`
+values. `OperatorSessionScope` narrows them to diagnostics read, Calibration capture, or
+the individual motion capabilities. Token-free evidence always records session UUID,
+purpose/scopes, robot/variant, Profile and device fingerprints, exact Servo IDs,
+issued/expiry times, and confirmation. Commissioning may omit Calibration/Kinematics
+fingerprints; motion requires Calibration and current acceptance evidence, and geometry
+scopes require Kinematics. The raw token is returned once and only a digest/evidence
+remain in memory. Completing Calibration or acceptance cannot mutate or upgrade an old
+session. Expiry, restart, explicit revoke, connection failure, disconnect, or evidence
+drift invalidates it.
+
+`FieldAcceptanceEvidence` is device-local and ignored. It stores schema version, status,
+variant, Profile/Calibration/device fingerprints, optional Kinematics fingerprint,
+checklist version, acceptance time, and optional operator identity. Motion authorization
+requires the evidence to match the current context exactly; configuration status alone
+is not evidence and a mismatch is reported stale/fail-closed.
 
 `ServoWriteResult` partitions every requested ID into written/failed sets and cannot
 claim completeness with an unknown safety state. `RealStopOutcome` distinguishes
@@ -556,9 +568,13 @@ change Pose, Motion, MotionDraft, or another persisted user schema and create no
 storage contract. Full deterministic generation and schema-current tests pass in the
 432-test backend gate.
 
-Stage 8 adds `backup-envelope.schema.json`,
+Stage 8 added `backup-envelope.schema.json`,
 `backup-restore-transaction.schema.json`, and `calibration-revision.schema.json` without
 changing Pose `2.0.0`, Motion `2.0.0`, or MotionDraft `1.0.0`. The transaction schema is
 operational recovery state under an ignored fixed server directory, not a user-editable
-web payload. Two fresh full generations are byte-identical and match the tracked schema
-tree; the final backend gate passes 563 tests.
+web payload. Its historical backend gate passed 563 tests.
+
+The commissioning authorization fix adds `field-acceptance-evidence.schema.json` for
+ignored, device-local, fingerprint-bound acceptance records. Two fresh full generations
+are byte-identical and match the tracked schema tree; the current backend gate passes
+591 tests.

@@ -142,22 +142,25 @@ kinematics context without auto-connecting.
 
 ## Stage 8 Real-hardware boundary
 
-Real authorization is a pure decision over a complete `RealHardwareContext` plus one
-current Operator Session. A grant requires `REAL`, `FULL`, real-motion/startup/local
-opt-ins, a verified non-template Profile, complete non-template matching Calibration,
-verified matching Kinematics, field acceptance `PASSED`, an available identified
-adapter, one explicit device/protocol and exactly the Profile's ordered Servo IDs, and
-an unexpired context-matching session. No one flag or UI action bypasses another.
+Authorization is a pure decision over a complete `RealHardwareContext` plus one immutable
+purpose-bound Operator Session. `COMMISSIONING_READ_ONLY` requires `REAL`, `READ_ONLY`,
+startup/local opt-ins, a verified non-template Profile, an available identified adapter,
+one explicit device/protocol and exactly the Profile's ordered Servo IDs, and operator
+confirmation. It deliberately omits `real_motion_enabled`, Calibration, acceptance, and
+Kinematics prerequisites. Its readiness is exposed separately as commissioning
+diagnostics and Calibration capture.
 
-Capability readiness stays separate: Joint, Cartesian, Playback, and Vision Follow are
-not one switch. Provisional kinematics blocks geometry-dependent capabilities. The
-committed release context fails multiple upstream gates and therefore cannot create an
-adapter. Session expiry/context drift closes an authorized connection through a
-backend-owned cleanup path and invalidates Calibration authorization.
+`REAL_MOTION` requires `REAL`, `FULL`, all motion/startup/local opt-ins, a verified
+non-template Profile, complete matching non-template Calibration, current
+fingerprint-bound Field Acceptance Evidence, available adapter, exact device, and a new
+operator confirmation. Joint, Cartesian, Playback, and Vision Follow remain separate;
+provisional Kinematics blocks geometry-dependent scopes. Purpose cannot change, so a
+commissioning token never becomes a motion token after Calibration or acceptance.
 
-The `ServoBus` port is deliberately narrow: open/close, ping exact IDs, typed present
-position/mode/torque reads, mapped goal writes, and typed Stop/Hold. It exposes no scan,
-arbitrary register, raw SDK, torque-enable, Home, or calibration-write surface. Connect
+The full `ServoBus` port is deliberately bounded, but commissioning services never
+receive it. They receive `ReadOnlyServoBus`, exposing only explicit open/close, exact-ID
+ping, and typed present-position/mode/torque reads. It has no goal, Stop/Hold, torque
+write, arbitrary register, raw SDK, scan, enumeration, Home, or motion surface. Connect
 opens only the configured device, pings only configured IDs, validates bounded reads,
 and does not move. Any partial connection failure closes and clears authorization.
 
@@ -175,13 +178,14 @@ observer. Authorization/context/sequence/position evidence is rechecked at bound
 Partial writes, timeout, bus fault, readback mismatch, cancellation, disconnect, and
 expiry enter a typed terminal/fault state and request a truthful typed Stop.
 
-Calibration authoring is a separate protected workflow over an already authorized,
-explicitly connected bus. It reads only the one selected Profile joint/Servo ID, accepts
-the operator's observed logical value, previews direction/Home/phase/raw bounds and
-round-trip evidence, and requires explicit per-joint confirmation. Saving builds a
-complete non-template document and atomically installs a new forward revision after
-preserving the previous revision in a fixed backup directory. After any persistence
-attempt begins—success, failure, or
+Calibration authoring is a separate protected commissioning workflow over an explicitly
+connected read-only bus. With no current Calibration it creates an incomplete draft from
+the exact Profile; missing captured/operator values remain absent. It reads only the one
+selected Profile joint/Servo ID, accepts the operator's observed logical value, previews
+direction/Home/phase/raw bounds and round-trip evidence, and requires explicit per-joint
+confirmation. Saving the first complete validated document creates Revision 1 through
+the same atomic repository path; recalibration creates Revision N+1 after preserving the
+previous revision in a fixed backup directory. After any persistence attempt begins—success, failure, or
 replace-then-fsync uncertainty—the coordinator closes/revokes hardware authorization in
 `finally`. Rollback restores old content as another new revision; it never rewinds
 history or promotes an example. Cancellation cannot release the workflow guard before
@@ -463,9 +467,11 @@ passed Synthetic Select/Detect/Follow/Stop and responsive bounds with console
 warnings/errors `[]`.
 
 The Stage 8 Settings additions display release identity, LAN browser-session state,
-masked Real artifact/device evidence, exact blockers/capability readiness, explicit
-connect/diagnostics/Stop controls, and the protected Calibration wizard. Default data
-shows `Hardware access disabled` and no action probes a device. Frontend controls retain
+masked artifact/device evidence, separate Commissioning Read-Only and Real Motion
+readiness, explicit read-only connect/diagnostics controls, and the protected Calibration
+wizard. Default data shows `Hardware access disabled`; a commissioning fixture shows a
+prominent `READ ONLY / No motion permitted` state. Control, Playback, and Follow remain
+disabled without Real Motion readiness and a motion-purpose session. Frontend controls retain
 only non-secret session expiry metadata; the long-term Bearer input is cleared after
 exchange and no session token is JavaScript-readable or stored in browser storage.
 Final Stage 8 browser acceptance passes at 1440×960, 390×844, and 850/830 breakpoint
@@ -485,6 +491,7 @@ real_motion_enabled: false
 hardware_access_policy: DISABLED
 camera_access_policy: SYNTHETIC_ONLY
 field_acceptance_status: PENDING
+field_acceptance_checklist_version: "1"
 lan_enabled: false
 ```
 

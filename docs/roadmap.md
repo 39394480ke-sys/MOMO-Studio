@@ -134,19 +134,22 @@ was added; no camera was opened/enumerated and no model was downloaded. Final in
 audit closes P1=0/P2=0. Stage 7 is complete in pushed commit
 `dedbdabb9a35aefea01df05f0652214428305a93`.
 
-## Stage 8 - Real boundary and release hardening (software complete / green; delivery pending)
+## Stage 8 - Real boundary and release hardening (software complete / Draft PR open)
 
 The current worktree implements:
 
-- a minimal explicit-ID/no-scan `ServoBus` port, deterministic Fake Bus, and a lazy
+- separate commissioning read-only and Real Motion authorization, with an immutable
+  purpose/scope Operator Session, a capability-narrowed explicit-ID/no-scan
+  `ReadOnlyServoBus`, deterministic Fake/Write-Bomb buses, and a lazy
   optional Feetech shell that remains `PENDING_ADAPTER_VERIFICATION` and disables goal
   writes until its package/API/license/cancellation/physical semantics are reviewed;
-- a pure multi-factor Real readiness matrix, separate capability readiness, a bounded
-  context-bound Operator Session, explicit-connect/read-only diagnostics, and backend
+- a pure multi-factor matrix with separate commissioning diagnostics/Calibration capture
+  and motion capability readiness, explicit-connect/read-only diagnostics, and backend
   expiry cleanup without automatic connect, Home, torque, scan, or movement;
-- a selected-joint current-angle Calibration workflow with complete preview, immutable
-  revision/fingerprint, atomic V1/V2 file replacement, prior-revision backup, and
-  explicit rollback; examples cannot be promoted to Real;
+- a selected-joint current-angle Calibration workflow supporting no Calibration to
+  Revision 1 and Revision N to N+1, plus fingerprint-bound local Field Acceptance
+  Evidence invalidation; examples cannot be promoted to Real and Calibration alone never
+  grants motion;
 - an exact-PreparedTrajectory Real executor exercised only through Fake Bus contracts,
   including raw mapping/bounds, monotonic deadlines, readback/divergence, partial-write,
   cancellation, session expiry, and truthful Stop uncertainty;
@@ -166,13 +169,19 @@ Pending. Real Joint, Cartesian, Playback, and Vision capabilities remain indepen
 blocked until every applicable verified Profile, Calibration, Kinematics, adapter,
 device, operator, and field-acceptance gate is satisfied.
 
-Final software evidence is GREEN: 563 backend tests, 201 frontend tests across 17 files,
+Historical Stage 8 closeout evidence is GREEN: 563 backend tests, 201 frontend tests across 17 files,
 Ruff/format/strict mypy, ESLint/TypeScript/build, deterministic schemas, lock/dependency,
 52-test isolation, secret-scan, and npm-audit gates pass. The complete V2 Dry Run workflow
 passes at 1440×960 and 390×844, with 850/830 breakpoint checks, no horizontal overflow,
 and console warnings/errors `[]`. The final independent audit closes P1=0/P2=0 after 74
 focused tests. Stage 8 commit `4f7a75606aacb3fc93128445d7487ff196ce9efb` is
 pushed, and Draft PR [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open.
+
+The commissioning authorization fix is re-verified by 591 backend tests, 215 frontend
+tests across 18 files, an 88-test focused commissioning selection, a 102-test safe-gate
+hardware/camera isolation selection, strict mypy across 214 files, deterministic schemas,
+clean Python/npm vulnerability audits, and an isolated READ_ONLY browser flow through
+Calibration Revision 1 with every motion control blocked and console warning/error `[]`.
 
 ## Evidence still required
 

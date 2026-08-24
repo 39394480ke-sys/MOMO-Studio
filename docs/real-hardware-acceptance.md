@@ -38,6 +38,10 @@ current, heat, communication loss, divergence, or uncertain software Stop result
 - [ ] Connect performs no scan, Home, mode write, torque enable, goal write, or movement.
 - [ ] Backend restart, token expiry, context drift, disconnect, and power interruption
   revoke authorization and fail closed.
+- [ ] Commissioning used a `COMMISSIONING_READ_ONLY` session under `READ_ONLY` policy;
+  its token was rejected by Joint, Jog, Home, Playback, Cartesian, and Follow APIs.
+- [ ] The commissioning adapter capability exposed no goal, torque-write, Stop/Hold,
+  arbitrary-register, scan, or enumeration method.
 
 ## Per-joint record
 
@@ -63,7 +67,11 @@ assume six joints or J10. V1 is exactly J11–J15. V2 is J10–J15, with J10 in 
 - [ ] Direction and Home were established independently, not inferred from Legacy data.
 - [ ] Raw and logical bounds reject both sides before any bus write.
 - [ ] Calibration capture read only the selected joint and performed no movement/write.
-- [ ] New Calibration revision, fingerprint, backup, and explicit rollback were verified.
+- [ ] A fresh unit progressed from no Calibration to a complete validated Revision 1;
+  no missing value was represented by a fabricated zero.
+- [ ] Revision 1 did not enable motion while Field Acceptance remained pending.
+- [ ] Recalibration Revision N to N+1, fingerprint, backup, and explicit rollback were
+  verified without changing the initial-Calibration rules.
 
 ## Kinematics and Cartesian acceptance
 
@@ -109,5 +117,10 @@ Follow remain blocked even if Real Joint motion is accepted.
 - [ ] Security, backup/restore, audit redaction, and recovery were exercised in the
   intended deployment topology.
 - [ ] Field Acceptance record is approved by operator and independent reviewer.
-- [ ] Only after approval, ignored local configuration may set field acceptance to
-  `PASSED`; committed defaults remain `PENDING`.
+- [ ] Local ignored `FieldAcceptanceEvidence` records the current variant, Profile,
+  Calibration, device, optional Kinematics fingerprint, checklist version, acceptance
+  time, and operator identity; a configured `PASSED` string alone grants nothing.
+- [ ] Changing each bound fingerprint or checklist version makes prior evidence stale and
+  returns motion readiness to pending/blocked.
+- [ ] After acceptance, the commissioning token is still rejected for motion and a new,
+  explicitly confirmed `REAL_MOTION` session is required.

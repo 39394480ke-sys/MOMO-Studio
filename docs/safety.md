@@ -45,40 +45,53 @@ accuracy remain unverified. Therefore provisional models categorically block:
 UI/domain values remain `mm`/`deg`; adapter values are `m`/`rad`. Only named boundary
 functions may convert them. Unit conversion cannot depend on the name `j10`.
 
-## Multi-factor Real authorization
+## Commissioning and Real Motion authorization
 
-No Real adapter may be created until one backend decision verifies all of the following
-at the same time: Real mode, Full policy, real-motion/startup flags, explicit ignored
-local opt-in, verified non-template Profile, complete non-template matching Calibration,
-verified matching Kinematics/fingerprint, field acceptance `PASSED`, available identified
-adapter, explicit serial/protocol, exact ordered Profile Servo IDs, a known device safety
-state, and one current context-bound Operator Session. More configuration cannot weaken a
-missing gate; there is no debug bypass.
+Real hardware has two disjoint Operator Session purposes. A
+`COMMISSIONING_READ_ONLY` session requires Real mode, `READ_ONLY` policy, startup and
+local hardware opt-ins, a verified non-template Profile, an explicit device/protocol and
+exact ordered Profile Servo IDs, an available verified adapter, and an explicit operator
+confirmation. It does **not** require `real_motion_enabled`, an existing Calibration,
+field acceptance, or verified Real Kinematics. Its only scopes are diagnostics read and
+Calibration capture.
 
-Joint, Cartesian, Playback, and Vision Follow readiness are separate. Provisional
-kinematics blocks all geometry-dependent capabilities even if another gate is true.
-The required confirmation displays variant, Profile/Calibration/Kinematics fingerprints,
-masked device/ID evidence, protocol, exact acknowledgement text, and a physical E-stop
-warning. The short-lived token is returned once, not persisted or logged, and is revoked
-on expiry, restart, disconnect/failure, Calibration transition, explicit revoke, or
-context drift. Backend-owned expiry cleanup closes a connected bus even if the browser
-has stopped sending requests.
+Commissioning services receive a capability-narrowed `ReadOnlyServoBus`: explicit
+open/close, exact-ID ping, and typed present-position/mode/torque reads. It has no goal,
+Stop/Hold, torque-write, arbitrary-register, scan, enumeration, Home, Jog, Playback, or
+Follow method. Partial open/ping/read failure closes the bus, revokes authorization, and
+cannot report Connected. A commissioning token presented to any motion API fails with an
+insufficient-scope error.
 
-Explicit Connect is not movement. It may open only the configured device, ping only the
-configured IDs, and read bounded present-position/mode/torque diagnostics. It must never
-scan, Home, change mode, enable torque, write a goal, or auto-move. Partial open/ping/read
-failure closes the bus, revokes authorization, and cannot report Connected. Diagnostics
-requires the same authorization and exposes masked identifiers; it is not a low-level
-register surface.
+A separate `REAL_MOTION` session requires Real mode, `FULL` policy,
+`real_motion_enabled`, both hardware opt-ins, verified non-template Profile, complete
+non-template matching Calibration, current fingerprint-bound Field Acceptance Evidence,
+available identified adapter, exact device evidence, and a fresh explicit operator
+confirmation. Joint, Cartesian, Playback, and Vision Follow readiness remain separate.
+Provisional Kinematics blocks Cartesian, Cartesian-containing Playback, and Follow even
+when Joint Motion is otherwise ready.
+
+Both session types are short lived, returned once, and bound to current evidence. Tokens
+are not persisted or logged and are revoked on expiry, restart, disconnect/failure,
+explicit revoke, or relevant context drift. Purpose is immutable: completing Calibration
+or acceptance never upgrades a commissioning token. Backend-owned expiry cleanup closes
+a connected bus even if the browser has stopped sending requests.
 
 The current-angle Calibration workflow is selected-joint and read-only at the Servo
-boundary. It reads one configured present raw value, accepts one operator-observed logical
-value, previews direction/Home/phase/raw bounds and round-trip evidence, and requires
-every enabled joint explicitly confirmed before saving. It cannot write a Servo, change
-mode/torque, move, or scan. Save atomically persists a new revision and prior-version
-backup; after a persistence attempt begins, the coordinator revokes/closes hardware
+boundary. With no stored Calibration it creates an incomplete Profile-bound draft whose
+uncaptured values remain `None`, then reads one configured present raw value and accepts
+the operator's logical value, direction, phase, and bounds. It previews round-trip
+evidence and requires every enabled joint explicitly confirmed before the normal domain
+validator and atomic repository path save Revision 1. Recalibration starts from Revision
+N and saves Revision N+1. Neither path can write a Servo, change mode/torque, move, or
+scan. After a persistence attempt begins, the coordinator revokes/closes commissioning
 authorization in `finally`, including on filesystem durability failure. Rollback is
 explicit and creates a new forward revision. A template/example can never be promoted.
+
+Completing Calibration grants no motion capability. Field acceptance remains pending
+until a local ignored `FieldAcceptanceEvidence` binds the reviewed checklist to the exact
+variant, Profile, Calibration, device, optional Kinematics fingerprint, and checklist
+version. A bare configured `PASSED` value is insufficient. Any bound value change makes
+the evidence stale and all affected motion readiness fails closed.
 
 The Real executor accepts only the already-preflighted immutable trajectory/digest and
 rechecks authorization/context/sequence/continuity. It maps samples through verified
@@ -588,3 +601,14 @@ The independent audit closes P1=0/P2=0 after 74 focused tests. Stage 8 commit
 Stage report. Every physical field
 item, Feetech adapter verification, verified V1/V2 kinematics, live camera, and Real
 motion result remains pending.
+
+## Commissioning authorization fix evidence
+
+The follow-up fix passes 591 backend tests, 215 frontend tests across 18 files, an
+88-test focused commissioning selection, and a 102-test safe-gate hardware/camera
+isolation selection. Ruff/format, strict mypy across 214 files, ESLint, TypeScript, the
+1,642-module build, two fresh deterministic schema generations, lock compatibility,
+`pip-audit`, `npm audit`, secret scan, and diff checks pass. The browser completed an
+isolated Fake READ_ONLY flow from no Calibration through Revision 1, revoked the old
+session after save, kept Field Acceptance pending and every motion control blocked, and
+reported console warning/error `[]`. No physical adapter or camera source was used.

@@ -203,13 +203,14 @@ change schema version or reinterpret existing fields.
 | Method | Path | Purpose | Verification |
 |---|---|---|---|
 | POST / DELETE | `/api/v1/security/session` | Exchange a LAN Bearer for, or revoke, a bounded HttpOnly browser session | Verified |
-| GET | `/api/v1/device/readiness` | Read all-gates and per-capability Real blockers without connecting | Verified |
-| POST / DELETE | `/api/v1/device/operator-session` | Issue/revoke exact-context short-lived operator intent | Verified |
-| POST | `/api/v1/device/connect` | Explicitly connect only after complete authorization | Verified with Fake/blocked composition |
+| GET | `/api/v1/device/readiness` | Read separate commissioning and motion capability blockers without connecting | Verified |
+| POST / DELETE | `/api/v1/device/operator-session` | Issue/revoke an immutable commissioning-read-only or Real-Motion session purpose and exact scopes | Verified |
+| GET / POST | `/api/v1/device/field-acceptance` | Read current/missing/stale local evidence or create exact-confirmed current-context evidence under commissioning authorization | Verified with local fixture repository |
+| POST | `/api/v1/device/connect` | Explicitly connect only under commissioning read-only authorization | Verified with Fake/Write-Bomb composition |
 | POST | `/api/v1/device/diagnostics` | Read bounded masked explicit-ID diagnostics | Verified with Fake/blocked composition |
 | POST | `/api/v1/device/disconnect` | Explicit device cleanup | Verified with Fake/blocked composition |
 | POST | `/api/v1/device/stop` | Authenticated priority typed Stop outcome | Verified with Fake Bus; physical semantics unverified |
-| POST | `/api/v1/device/calibration/sessions` | Start one protected selected-joint workflow | Verified with Fake Bus |
+| POST | `/api/v1/device/calibration/sessions` | Start one protected selected-joint Revision 1 or recalibration workflow | Verified with Fake/Write-Bomb Bus |
 | GET / DELETE | `/api/v1/device/calibration/sessions/{session_id}` | Read or cancel exact workflow | Verified with Fake Bus |
 | POST | `/api/v1/device/calibration/sessions/{session_id}/read` | Read one configured joint's present raw value | Verified with Fake Bus |
 | POST | `/api/v1/device/calibration/sessions/{session_id}/preview` | Preview mapping/bounds/fingerprint without persistence | Verified with Fake Bus |
@@ -224,8 +225,9 @@ Executed Stage 5 OpenAPI enumeration contains 46 method/path combinations across
 unique HTTP paths, plus the existing read-only WebSocket. Stage 6 adds 14 combinations
 across 11 unique paths. Stage 7 adds 11 combinations across 10 unique paths; the
 combined Stage 7 inventory is 71 method/path combinations across 61 unique HTTP paths.
-Stage 8 adds 20 method/path combinations across 17 unique paths, producing 91
-combinations across 78 unique HTTP paths, plus the same read-only WebSocket. No API may
+The current Stage 8 security, device, and backup surface adds 22 method/path combinations
+across 18 unique paths, producing 93 combinations across 79 unique HTTP paths, plus the
+same read-only WebSocket. No API may
 accept an arbitrary
 server path, Python code, raw register/address, driver selector, auto-scan, client
 trajectory samples, or hidden Real override.
@@ -259,6 +261,7 @@ No WebSocket is a raw or alternate motion-control transport.
 | `docs/schemas/backup-envelope.schema.json` | Deterministic config-free Backup Envelope | Stage 8 round-trip/migration/digest/bound tests pass |
 | `docs/schemas/backup-restore-transaction.schema.json` | Exact planned entity/Calibration targets for crash-recovery WAL | Stage 8 compensation/startup recovery tests pass |
 | `docs/schemas/calibration-revision.schema.json` | Forward-only protected Calibration revision record | Stage 8 save/backup/rollback tests pass |
+| `docs/schemas/field-acceptance-evidence.schema.json` | Local fingerprint-bound physical acceptance evidence | Commissioning fix round-trip, stale-evidence, and schema-determinism tests pass |
 
 Stage 3 schema deterministic-generation evidence: **PASS**. Stage 4 deliberately rejects
 and quarantines `1.0.0` Pose/Motion documents rather than inventing missing evidence; an
@@ -271,8 +274,10 @@ but on-disk recovery requires every serialized field recursively and quarantines
 incomplete nested identity rather than inventing past state.
 Stage 7 adds three transient Vision schemas without changing a persisted user-data
 contract or introducing media persistence.
-Stage 8 adds the three explicit backup/recovery/Calibration artifacts above. Two fresh
-full generations are byte-identical and the generated tree matches tracked schemas.
+Stage 8 adds the three explicit backup/recovery/Calibration artifacts above; the
+commissioning fix adds the fourth, local acceptance-evidence artifact without changing
+existing persisted schemas. Two fresh full generations are byte-identical and the
+generated tree matches tracked schemas.
 
 ## Data directories and exclusion policy
 
@@ -308,7 +313,7 @@ quarantining another entity type.
 | Stage 5 additions | No new runtime dependency | Existing Python/npm lockfiles unchanged; npm production audit 0 vulnerabilities | 5 |
 | Stage 6 additions | No new runtime dependency in the current diff | Python/npm lockfiles unchanged; `uv lock --project backend --check` passes for 44 packages; npm audit reports 0 vulnerabilities; Python runtime vulnerability audit not rerun and no pass inferred | 6 |
 | Optional OpenCV shell/capabilities | Explicit-ID camera shell plus tracker/HOG/Haar capability descriptions | No package/lock addition; lazy import only after full grant; unavailable in Stage 7; no download/open/enumeration; exact package/HOG/Haar provenance remains required | 7 |
-| Stage 8 application/runtime additions | Local/LAN serving, security, Backup/WAL, Calibration and Real boundary | No new required runtime package beyond existing declared Python/JS dependencies; lock check and `uv pip check` (42 compatible packages) pass; npm audit reports 0 vulnerabilities | 8 |
+| Stage 8 application/runtime additions | Local/LAN serving, security, Backup/WAL, Calibration and Real boundary | No new required runtime package beyond existing declared Python/JS dependencies; commissioning fix adds locked dev-only `pip-audit`, upgrades vulnerable direct pytest 8.x to fixed pytest 9.x, and keeps Python/npm vulnerability gates fail-closed; final exact results are recorded in `commissioning-authorization-fix.md` | 8 |
 | Optional Feetech SDK | Gated ServoBus adapter shell | Package is absent from project metadata/lock/environment; no vendor copy or SDK import in normal startup; exact 1.0.0 artifact/API/license/physical behavior remains Pending Adapter Verification | 8 |
 | Legacy URDF/STL/models | Evidence only | Files/assets not copied; numerical joint geometry facts were transcribed into provisional mesh-free models; provenance/redistribution/physical verification unresolved | Deferred |
 
@@ -325,7 +330,7 @@ download, CDN, or vendored unknown binary.
 | PyBullet FK/IK | Rewrite | Complete NumPy deterministic serial-chain/DLS implementation |
 | Controller bridge/service | Retire as architecture | Small services/ports; one gateway contract |
 | Continuous joint stream | Rewrite with characterization | Complete absolute-deadline Dry Run executor/Jog lease |
-| Real driver/Calibration tooling | Independently rewritten only behind the Stage 8 boundary | Narrow explicit-ID/no-scan port, lazy unavailable Feetech shell, Fake Bus, protected selected-joint Calibration, and typed executor; no Legacy code/register table/Calibration/serial/runtime data copied or executed |
+| Real driver/Calibration tooling | Independently rewritten only behind the Stage 8 boundary | Separate purpose-bound commissioning read-only and Real Motion authorization; capability-narrowed explicit-ID/no-scan bus, first Calibration Revision 1 plus forward recalibration, local fingerprint-bound acceptance evidence, lazy unavailable Feetech shell, Fake/Write-Bomb buses, and typed executor; no Legacy code/register table/Calibration/serial/runtime data copied or executed |
 | Action/recording code | Legacy architecture retired; tracked format characterized | Stage 4 has an independently written explicit/default-dry-run importer. Stage 5 independently rewrites playback as immutable digest-bound compilation and bounded monotonic Dry Run execution. Stage 6 independently adds strict Draft/timeline authoring with directed-edge semantics and write-ahead recovery; recording remains excluded |
 | Legacy Vision | Rewritten only for approved slice | Stage 7 deterministic Synthetic source/fixture detectors/tracker, frame-bound ROI, bounded stream, and gateway-only Dry Run Follow; no Legacy code/model, recording, gesture, direct driver, or general-model claim |
 | Fleet/multi-arm/AI/voice/gripper/Teach/community/media | Out of scope | No product surface |
@@ -338,11 +343,14 @@ characterization documents.
 - Current control mode: `DRY_RUN`
 - Current hardware policy: `DISABLED`
 - `real_motion_enabled`: `false`
+- Commissioning readiness under shipped defaults: **BLOCKED / hardware Disabled and no
+  Real adapter**; a safe READ_ONLY fixture verifies the reachable first-commissioning path
 - Real Joint readiness: **BLOCKED / complete authorization, adapter verification, and field acceptance absent**
 - Real Cartesian readiness: **BLOCKED / provisional Kinematics**
 - Real Playback readiness: **BLOCKED**
 - Real Vision Follow readiness: **BLOCKED**
-- Operator Session: implemented and bounded, but not authorizable under shipped/default blockers
+- Operator Sessions: immutable `COMMISSIONING_READ_ONLY` and `REAL_MOTION` purposes;
+  neither is authorizable under shipped/default blockers
 - Field Acceptance: **REQUIRED / NOT PERFORMED**
 
 No committed example Profile, Calibration, Kinematics document, synthetic test record,
@@ -352,19 +360,19 @@ environment variable, or frontend click may promote this status.
 
 | Evidence | Stage 3 | Stage 4 | Stage 5 | Stage 6 | Stage 7 | Stage 8 | Final |
 |---|---|---|---|---|---|---|---|
-| Backend pytest count | 226 passed | 273 passed; one known Starlette `TestClient`/httpx deprecation warning | 352 passed; same warning | 393 passed; same warning | 432 passed; same warning | 563 passed; same one warning | 563 passed; same one warning |
-| Focused backend suite | 20 isolation | 65 route/import/storage/isolation | 128 isolation/integration | 36 Stage 6 | 34 Stage 7 | 52 isolation plus 74 independent-audit focused | Pass |
-| Frontend Vitest count | 54 / 7 files | 71 / 8 files | 85 / 8 files | 174 / 12 files | 190 / 14 files | 201 / 17 files | 201 / 17 files |
-| Ruff / format / strict mypy | Pass | Pass | Pass | Pass | Pass | Pass / 210 files clean | Pass |
+| Backend pytest count | 226 passed | 273 passed; one known Starlette `TestClient`/httpx deprecation warning | 352 passed; same warning | 393 passed; same warning | 432 passed; same warning | 563 passed; same one warning | 591 passed; same one warning |
+| Focused backend suite | 20 isolation | 65 route/import/storage/isolation | 128 isolation/integration | 36 Stage 6 | 34 Stage 7 | 52 isolation plus 74 independent-audit focused | 88 commissioning; 102 safe-gate isolation |
+| Frontend Vitest count | 54 / 7 files | 71 / 8 files | 85 / 8 files | 174 / 12 files | 190 / 14 files | 201 / 17 files | 215 / 18 files |
+| Ruff / format / strict mypy | Pass | Pass | Pass | Pass | Pass | Pass / 210 files clean | Pass / 214 files clean |
 | ESLint / TypeScript | Pass | Pass | Pass | Pass | Pass | Pass | Pass |
-| Vite build | Pass / 1,616 modules | Pass / 1,621 modules | Pass / 1,624 modules | Pass / 1,635 modules | Pass / 1,638 modules | Pass / 1,642 modules; JS 465.73/131.20 gzip kB | Pass |
+| Vite build | Pass / 1,616 modules | Pass / 1,621 modules | Pass / 1,624 modules | Pass / 1,635 modules | Pass / 1,638 modules | Pass / 1,642 modules; JS 465.73/131.20 gzip kB | Pass / 1,642 modules; JS 480.15/135.88 gzip kB |
 | Schema determinism | Pass | Pass | Pass | Pass | Pass | Pass / two fresh generations equal tracked tree | Pass |
-| Lock/dependency compatibility | Pass | Pass | Pass | Pass | Pass | `uv lock --check` pass; `uv pip check`: 42 compatible | Pass |
+| Lock/dependency compatibility | Pass | Pass | Pass | Pass | Pass | `uv lock --check` pass; `uv pip check`: 42 compatible | Pass / 68 resolved; 66 compatible; `pip-audit` clean |
 | npm audit | 0 vulnerabilities | 0 vulnerabilities | 0 vulnerabilities | 0 vulnerabilities | 0 vulnerabilities | 0 vulnerabilities | Pass |
 | Independent audit | Pass | P1=0/P2=0 | P1=0/P2=0 | P1=0/P2=0 | P1=0/P2=0 | P1=0/P2=0; 74 focused | Pass |
-| Hardware/camera isolation | Pass | Pass | Pass | Pass | Pass | Pass / 52 tests; Dry Run/Synthetic/Fake only | Pass |
+| Hardware/camera isolation | Pass | Pass | Pass | Pass | Pass | Pass / 52 tests; Dry Run/Synthetic/Fake only | Pass / 102 tests; Dry Run/Synthetic/Fake only |
 | Secret scan / diff check | Pass | Pass | Pass | Pass | Pass | Pass | Pass |
-| Browser desktop/mobile/boundary | Pass | Pass | Pass | Pass | Pass | Pass / 1440×960, 390×844, 850/830; no horizontal overflow | Pass |
+| Browser desktop/mobile/boundary | Pass | Pass | Pass | Pass | Pass | Pass / 1440×960, 390×844, 850/830; no horizontal overflow | Pass / prior responsive suite plus isolated commissioning Revision 1 flow |
 | Console unhandled warnings/errors | `[]` | `[]` | `[]` | `[]` | `[]` | `[]` | `[]` |
 
 Exact commands, counts, versions, durations, failures/fixes, and skipped items are added

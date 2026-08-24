@@ -31,30 +31,37 @@ Final combined automated gates, desktop/mobile/breakpoint browser acceptance, an
 independent audit are complete and recorded below. The dedicated Stage commit is pushed,
 and Draft PR [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open.
 
-## Real-hardware authorization boundary
+## Commissioning and Real Motion authorization boundary
 
 Stage 8 adds:
 
-- a narrow `ServoBus` port with open/close, explicit-ID ping, bounded present-position/
-  mode/torque reads, mapped goal writes, and typed Stop/Hold only;
+- a full bounded `ServoBus` port plus a capability-narrowed `ReadOnlyServoBus` for
+  commissioning, exposing only explicit open/close, exact-ID ping, and bounded
+  present-position/mode/torque reads;
 - no scan, arbitrary register, torque-enable, Home, raw SDK, filesystem, or Python API;
 - a deterministic Fake Bus for all autonomous hardware-boundary tests;
-- a pure all-gates `RealHardwareAuthorization` matrix;
-- independent Joint, Cartesian, Playback, and Vision Follow capability readiness;
-- bounded context-bound Operator Sessions with exact confirmation and physical E-stop
-  acknowledgement;
+- a pure purpose-aware `RealHardwareAuthorization` matrix with independent commissioning
+  diagnostics, Calibration capture, Joint, Cartesian, Playback, and Follow readiness;
+- immutable `COMMISSIONING_READ_ONLY` and `REAL_MOTION` Operator Session purposes with
+  exact scopes, evidence, confirmation, expiry, and no upgrade path;
 - explicit device/protocol/ordered Servo IDs with masked public diagnostics;
 - explicit Connect and read-only diagnostics with cleanup on partial failure;
 - backend-owned session-expiry cleanup so an abandoned frontend cannot leave the bus
   open indefinitely;
 - truthful typed Stop outcomes, including `SAFETY_STATE_UNCERTAIN`.
 
-One Real grant requires all relevant facts at once: Real mode, Full policy, real-motion
-and startup flags, explicit ignored local opt-in, verified non-template Profile,
-complete non-template matching Calibration, verified matching Kinematics/fingerprint,
-field acceptance Passed, identified available adapter, explicit device/protocol/exact
-Profile Servo IDs, known device state, and a current matching Operator Session. No one
-environment value, local file value, or frontend action bypasses another.
+Commissioning requires Real mode, `READ_ONLY` policy, startup/local opt-ins, verified
+non-template Profile, identified available adapter, explicit device/protocol/exact
+Profile Servo IDs, and a current commissioning-purpose session. It deliberately does
+not require `real_motion_enabled`, Calibration, acceptance, or Kinematics and cannot
+grant any write or motion scope.
+
+Real Joint Motion separately requires `FULL` policy, all motion opt-ins, complete
+matching Calibration, current fingerprint-bound Field Acceptance Evidence, the same
+exact device, and a newly confirmed motion-purpose session. Cartesian, Cartesian
+Playback, and Follow additionally require matching `VERIFIED_FOR_REAL` Kinematics. No
+environment value, local file value, frontend action, or old commissioning token bypasses
+another gate.
 
 Committed example Profiles/Calibration and both provisional Kinematics models fail this
 matrix. The shipped/default application therefore reports blockers rather than Ready.
@@ -79,29 +86,43 @@ field Stop semantics to be independently approved.
 
 ## Protected Calibration workflow
 
-The current-angle workflow is explicit and selected-joint only:
+The current-angle workflow is explicit, selected-joint, and commissioning-read-only:
 
 ```text
-authorized session
+commissioning session
   -> explicit read-only connection
+  -> create an incomplete Profile-bound draft (no stored Calibration is allowed)
   -> choose one enabled joint
   -> read that configured Servo's present raw value
   -> enter observed logical value
   -> preview direction/Home/phase/raw bounds/round-trip/fingerprint
   -> confirm the joint
   -> repeat for every Profile-enabled joint
-  -> atomically save a new Calibration revision
+  -> validate the complete proposed Calibration
+  -> atomically save Revision 1, or Revision N+1 for recalibration
   -> close/revoke device authorization in final cleanup
 ```
 
-It cannot scan, move, write a goal/register, change mode, toggle torque, or promote an
-example. The Real Calibration repository keeps one current file per variant under a
+Missing draft fields remain absent and are never replaced by zero. The workflow cannot
+scan, move, write a goal/register, change mode, toggle torque, or promote an example.
+Saving Revision 1 does not enable motion; Field Acceptance Evidence and a new
+`REAL_MOTION` session remain mandatory. The Real Calibration repository keeps one current file per variant under a
 fixed ignored root. A forward save preserves prior exact bytes in a private
 revision/fingerprint backup and atomically replaces current bytes. Rollback restores old
 content as a new UUID/new forward revision; it never rewinds history. Persistence and
 cleanup reach a terminal result despite repeated caller cancellation. Once a save or
 rollback persistence attempt starts, device authorization is invalidated in `finally`,
 including after replace-then-directory-fsync failure.
+
+## Field Acceptance Evidence
+
+A local ignored evidence document binds an acceptance pass to schema and checklist
+versions, robot variant, Profile fingerprint, Calibration fingerprint, optional
+Kinematics fingerprint, device fingerprint, acceptance time, and optional operator
+identity. A settings value of `PASSED` is display/compatibility input only and cannot
+authorize motion. Profile, Calibration, device, Kinematics, variant, or checklist drift
+makes the evidence stale and returns motion readiness to blocked until acceptance is
+explicitly repeated. See ADR 0018.
 
 ## Real executor software path
 

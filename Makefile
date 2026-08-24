@@ -1,4 +1,4 @@
-.PHONY: install test lint format-check build dev-backend serve-backend dev-frontend schemas
+.PHONY: install test lint format-check build audit dev-backend serve-backend dev-frontend schemas
 
 BACKEND_PYTHON ?= backend/.venv/bin/python
 UV ?= uv
@@ -24,6 +24,11 @@ format-check:
 
 build:
 	$(NPM) --prefix frontend run build
+
+audit:
+	$(UV) pip check --python $(BACKEND_PYTHON)
+	$(BACKEND_PYTHON) -m pip_audit
+	$(NPM) --prefix frontend audit --audit-level=high
 
 schemas:
 	PYTHONPATH=backend/src $(BACKEND_PYTHON) backend/scripts/generate_schemas.py

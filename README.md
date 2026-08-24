@@ -6,6 +6,13 @@ This repository is the new web-first system. The legacy [`MOMO_RobotARM`](https:
 
 ## Current status
 
+MOMO Studio `0.1.0-rc1` contains the complete Stages 1–8 software implementation. The
+Dry Run end-to-end workflow is validated, and Draft PR
+[#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) contains the current release
+candidate. Real-hardware commissioning and physical field acceptance remain pending.
+The software must not be considered hardware-verified until the field-acceptance
+checklist has been completed on the exact physical robot.
+
 Stage 3 is complete on top of the completed Stage 2 robot core. Its dedicated commit is
 `133318e9437dff133a4c25bf01aec09cce5ae6e3` and is pushed to
 `origin/codex/v1-autonomous-completion`. It adds
@@ -100,12 +107,14 @@ Desktop/mobile browser acceptance and final independent audit pass P1=0/P2=0. Th
 [Vision access/Follow lease decision](docs/adr/0014-vision-access-policy-and-follow-lease.md).
 
 Stage 8 software implementation and Dry Run release-candidate verification are complete
-for `0.1.0-rc1` with `FIELD_ACCEPTANCE_REQUIRED`; the dedicated Stage commit/push and PR
-disposition remain pending. It adds the minimal explicit-ID `ServoBus` port and Fake
-Bus coverage, a multi-factor Real authorization matrix, short-lived Operator Sessions,
-explicit-connect/read-only diagnostics, a protected current-angle Calibration workflow,
-and a Fake-Bus-verified Real trajectory executor with truthful Stop uncertainty. The
-default composition still supplies no Real bus factory and cannot open hardware.
+for `0.1.0-rc1` with `FIELD_ACCEPTANCE_REQUIRED`; its dedicated commit is pushed and the
+current release candidate remains in Draft PR #1. The Real boundary now separates
+purpose-bound commissioning read-only access from full motion authorization. It includes
+capability-narrowed exact-ID diagnostics, first Calibration Revision 1 plus forward-only
+recalibration, fingerprint-bound Field Acceptance Evidence, short-lived non-upgradeable
+Operator Sessions, and a Fake-Bus-verified Real trajectory executor with truthful Stop
+uncertainty. The default composition still supplies no Real bus factory and cannot open
+hardware.
 
 The release boundary also includes exact-Origin local/LAN authentication, bounded
 HttpOnly browser sessions, ongoing WebSocket/Vision stream reauthorization, structured
@@ -120,7 +129,7 @@ returns `SAFETY_STATE_UNCERTAIN`. Both committed kinematics models remain
 `PROVISIONAL_DRY_RUN`, field acceptance is still `PENDING`, and every item in the Real
 field checklist remains unchecked.
 
-The final software gate passes 563 backend tests with one existing Starlette/httpx
+The historical Stage 8 software gate passed 563 backend tests with one existing Starlette/httpx
 deprecation warning and 201 frontend tests across 17 files. Ruff, format, strict mypy,
 ESLint, TypeScript, schema determinism, lock/dependency compatibility, the 52-test
 hardware/camera isolation suite, secret scan, npm audit, and the 1,642-module Vite build
@@ -129,6 +138,12 @@ the V2 Dry Run Control→Library→Studio→Playback→Synthetic Vision workflow
 horizontal overflow and console warnings/errors `[]`. The final independent audit closes
 P1=0/P2=0 after 74 focused tests. Exact evidence and remaining delivery/field gates are
 in the [Stage 8 report](docs/stage-reports/stage-08-release-hardening.md).
+
+The commissioning authorization fix is currently verified by 591 backend tests, 215
+frontend tests across 18 files, 88 focused commissioning tests, 102 safe-gate
+hardware/camera isolation tests, clean Python/npm audits, deterministic schemas, and an
+isolated READ_ONLY browser flow through Calibration Revision 1. Exact current evidence is
+in the [commissioning fix report](docs/stage-reports/commissioning-authorization-fix.md).
 
 ## Develop locally
 
@@ -158,6 +173,7 @@ make lint
 make format-check
 make build
 make schemas
+make audit
 ```
 
 Backend commands use `backend/.venv`; frontend commands run through npm in `frontend/`.
@@ -183,9 +199,9 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
 First-version scope includes connection, Dry Run plus a field-gated Real software boundary, joint and Cartesian
 control, FK/IK, poses, keyframes, motions, Studio authoring, library/playback,
 camera-fed vision following, device diagnostics, and safety checks for one active
-robot. Stages 1–7 are complete and pushed. Stage 8 software implementation, Dry Run
-browser acceptance, and independent audit are evidence-backed; its dedicated Git
-delivery and all physical field acceptance remain separate unresolved gates.
+robot. Stages 1–8 software implementation, Dry Run browser acceptance, and independent
+audit are evidence-backed and included in Draft PR #1. Real commissioning evidence and
+all physical field acceptance remain separate unresolved gates.
 
 Explicitly excluded: PyQt or another standalone GUI, AI/voice/natural-language control, gesture control, cinematic director/subject-lock directing, photography or video recording, grippers, teach mode, PyBullet product windows, community features, Camera Hub media management, and multi-arm product workflows.
 
