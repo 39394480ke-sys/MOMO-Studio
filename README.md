@@ -1,6 +1,6 @@
 # MOMO Studio
 
-MOMO Studio is a local photography motion workstation for MOMO V1 and V2 robot arms. The intended workflow is to connect one active robot, find camera positions with joint or Cartesian control, capture poses and keyframes, arrange a motion on a timeline, save it to a library, preflight it, and play it back safely. Vision will later support target selection and following.
+MOMO Studio is a local photography motion workstation for MOMO V1 and V2 robot arms. The intended workflow is to connect one active robot, find camera positions with joint or Cartesian control, capture poses and keyframes, arrange a motion on a timeline, save it to a library, preflight it, and play it back safely. Stage 7 adds Synthetic target selection and lease-bound Dry Run following; Real Follow remains blocked.
 
 This repository is the new web-first system. The legacy [`MOMO_RobotARM`](https://github.com/39394480ke-sys/MOMO_RobotARM) V2 branch is read-only migration evidence; MOMO Studio does not copy its hardware implementation wholesale. The pinned source point is recorded in the migration documents and Stage reports.
 
@@ -72,11 +72,31 @@ persisted-keyframe Goto through the existing Dry Run Motion Safety Gateway. Conf
 Save As uses an authoritative, provenance-preserving Draft fork without overwriting the
 original Draft or Motion.
 
-Lock and npm vulnerability gates also pass; the dedicated commit and push evidence
-remain Pending, so Stage 6 is not yet marked complete. See the
-[live Stage 6 report](docs/stage-reports/stage-06-studio-timeline.md),
+Lock and npm vulnerability gates also pass. Stage 6 is complete in commit
+`37783bdf8c01146d3a312980dbe4a25716e5468c`, pushed to
+`origin/codex/v1-autonomous-completion`. See the
+[Stage 6 report](docs/stage-reports/stage-06-studio-timeline.md),
 [MotionDraft decision](docs/adr/0013-motion-draft-and-timeline-editor.md), and
 [Studio workflow](docs/studio-user-workflow.md).
+
+Stage 7 implementation and static gates are green: 432 backend tests (including 34
+focused Vision core/Follow/API tests), 190 frontend tests across 14 files (including 16
+focused Vision client/page tests), backend/frontend lint/type/format/build, deterministic
+schema generation, lock, and npm-audit checks pass. The Vision workspace provides a
+deterministic Synthetic stream, frame-bound manual ROI, honest person/face/tracker
+capabilities, tracking overlays, controller metrics, and one heartbeat-renewed Dry Run
+Follow lease. Stale/lost/low-confidence/disconnect/fault/conflict/expiry/Stop events stop
+ownership and cancel Vision commands through the normal motion application path.
+
+Camera access defaults to `SYNTHETIC_ONLY`. OpenCV was not added as a dependency; its
+optional camera shell imports lazily only after a complete explicit live grant, and
+Stage 7 startup neither opens nor enumerates a camera. Synthetic detectors and the
+tracker are deterministic fixtures, not general models. Real Follow remains blocked.
+Desktop/mobile browser acceptance and final independent audit pass P1=0/P2=0. The Stage
+7 dedicated commit/push is still Pending. See the
+[Stage 7 report](docs/stage-reports/stage-07-vision-following.md),
+[provider capabilities](docs/vision-provider-capabilities.md), and
+[Vision access/Follow lease decision](docs/adr/0014-vision-access-policy-and-follow-lease.md).
 
 ## Develop locally
 
@@ -111,7 +131,8 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
 
 - `backend/` — FastAPI factory, application services, domain models, ports/adapters, schema generator, tests.
 - `frontend/` — React/Vite application, REST fallback, lifecycle/motion controls,
-  Pose/Motion Library and playback, Studio timeline authoring, diagnostics, and tests.
+  Pose/Motion Library and playback, Studio timeline authoring, Synthetic Vision/Follow,
+  diagnostics, and tests.
 - `kinematics_models/` — mesh-free, fingerprinted V1/V2 provisional Dry Run serial chains.
 - `config/default.yaml` — safe repository defaults; Real mode and non-disabled hardware access remain rejected.
 - `robot_profiles/` — fingerprinted product-contract examples, never device-ready profiles.
@@ -125,7 +146,7 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
 First-version scope includes connection, Dry Run/Real modes, joint and Cartesian
 control, FK/IK, poses, keyframes, motions, Studio authoring, library/playback,
 camera-fed vision following, device diagnostics, and safety checks for one active
-robot. Only completed Stages—and the explicitly identified Stage 6 implementation
+robot. Only completed Stages—and the explicitly identified Stage 7 implementation/static
 evidence above—are currently evidence-backed.
 
 Explicitly excluded: PyQt or another standalone GUI, AI/voice/natural-language control, gesture control, cinematic director/subject-lock directing, photography or video recording, grippers, teach mode, PyBullet product windows, community features, Camera Hub media management, and multi-arm product workflows.
@@ -136,11 +157,10 @@ and the complete [Stage 3 report](docs/stage-reports/stage-03-kinematics-and-con
 
 ## Later stages
 
-Stage 5 implementation and code/browser evidence are GREEN. Stage 6 Studio is the
-current worktree scope; its implementation and integrated audit are green while the
-dedicated commit/push delivery gate remains open. Vision and the Real hardware boundary
-remain later Stage work. Every
-later motion source must reuse the Motion Safety Gateway rather than introducing a
-route-to-driver shortcut. Real hardware remains field-acceptance gated.
+Stages 3-6 are complete and GREEN. Stage 7 Vision/Follow implementation, browser, and
+final independent audit are green while dedicated commit/push evidence remains open.
+Stage 8 owns the separately gated Real hardware/release boundary. Every
+motion source must reuse the Motion Safety Gateway rather than introducing a
+route-to-driver shortcut. Real hardware and Real Follow remain field-acceptance gated.
 
 No open-source license has been selected. See `THIRD_PARTY_NOTICES.md` for provenance tracking; license selection remains a project decision.

@@ -4,9 +4,11 @@
 
 `RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases.
 `ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability
-gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 6 continues to permit only
-`DRY_RUN` plus `DISABLED`; the other enum members reserve vocabulary and grant no
-current capability.
+gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 7 continues to permit only
+`DRY_RUN` plus disabled hardware access; the other enum members reserve vocabulary and
+grant no current motion capability. Camera access is independently typed as `DISABLED`,
+`SYNTHETIC_ONLY`, or `LIVE_CAMERA_ALLOWED`, with `SYNTHETIC_ONLY` as the tracked
+default. A live policy value alone neither selects nor opens a camera.
 
 `RobotId` is a validated stable identifier. The composition root creates one `primary`
 robot in a `RobotManager`; it does not expose a global robot value, `arm_a`, Fleet, or
@@ -111,7 +113,7 @@ Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE
 - `VALID_FOR_DRY_RUN`
 - `READY_FOR_REAL`
 
-Stage 5 still never returns effective Real readiness: `real_readiness` remains
+Stage 7 still never returns effective Real readiness: `real_readiness` remains
 `BLOCKED_BY_STAGE_POLICY`. A complete matching template can be structurally valid for
 diagnostics, but it cannot authorize hardware. Mapping mismatch is classified as
 `INCOMPLETE` and makes `calibration_valid=false`. The repository is read-only and loads
@@ -181,7 +183,9 @@ and Move Pose. Stage 4 admits exactly one Library movement intent: Goto is a
 `LIBRARY`-source `MOVE_JOINTS` command after persisted-snapshot compatibility checks.
 Stage 5 adds digest-bound Playback ownership. Stage 6 admits one Studio movement intent:
 persisted-keyframe Goto becomes a `STUDIO`-source `MOVE_JOINTS` command after Draft
-revision and snapshot compatibility checks. Vision remains reserved. An immutable
+revision and snapshot compatibility checks. Stage 7 admits only Follow-created
+`VISION`-source `MOVE_JOINTS` commands after frame, lease, mapping, and fresh Robot
+checks. An immutable
 command carries a unique command ID, source, robot identity, expected state
 sequence, Profile and Kinematics fingerprints, explicit unit-bearing target or delta,
 timing intent, and idempotency identity. Clients cannot select a concrete executor or
@@ -208,6 +212,57 @@ session ID and owned by one active robot/command source. Heartbeat extends the b
 expiry; explicit Stop, command conflict, disconnect, fault, backend shutdown, or expiry
 cancels it. Duplicate Stop is stable and idempotent. Browser pointer release is a normal
 stop signal, not the safety guarantee—network loss is covered by backend expiry.
+
+## Vision frame, selection, and tracking
+
+`FrameMetadata` is immutable observation identity: validated `frame_id`, `source_id`,
+aware `captured_at`, `width_px`, and `height_px`. `VisionFrame` adds an explicitly
+supported image media type and bounded encoded content. These are transient latest-value
+observations, not persisted media entities.
+
+`NormalizedBoundingBox` uses finite `x`, `y`, `width`, and `height` values in normalized
+frame coordinates. Width/height must be positive and the complete box must stay inside
+`[0, 1]`. It embeds the originating frame ID, source, capture time, and dimensions, so a
+box cannot be detached from the pixels that gave it meaning. Pixel conversion returns
+an enclosing rectangle and never infers dimensions from UI layout.
+
+`TargetSelection` identifies `MANUAL`, `PERSON`, or `FACE`. `Detection` binds one
+provider, target kind, confidence, and a box whose metadata exactly matches its result
+frame. `TrackingResult` carries the complete frame metadata, `UNINITIALIZED`, `LOCKED`,
+`LOST`, `STALE`, or `FAULTED`, optional matching box, confidence, and a bounded detail.
+A locked result requires a box; non-locked results cannot retain one.
+
+Provider capabilities report stable provider/kind IDs, `AVAILABLE` or `UNAVAILABLE`,
+display name, model source, notice, and safe detail. The deterministic Synthetic
+detectors/tracker are explicitly scenario fixtures, not general-purpose model claims.
+Unavailable optional OpenCV capabilities remain visible rather than becoming invented
+success.
+
+## Vision Follow lease and controller
+
+`FollowOperatorIntent` is confirmed and can request only `DRY_RUN`. Its complete
+`FollowConfiguration` contains dead zones, EMA alpha, gain, maximum step/rate,
+confidence threshold, frame freshness, target-loss interval, lease TTL, and
+`FollowActuatorMapping`. Mapping names distinct pan/tilt joints and signs and requires
+`VERIFIED_FOR_DRY_RUN`. Start checks both IDs against the Profile's explicit
+`enabled_joints` and requires `REVOLUTE`/`deg`; it cannot map the V2 prismatic rail or an
+unknown/disabled joint.
+
+`FollowController` is pure. It computes bounding-box-center error relative to `(0.5,
+0.5)`, updates EMA, applies per-axis dead zones, sign/gain, `max_step`, and elapsed-time
+`max_rate`, and returns auditable `FollowMetrics` bound to frame ID/source/capture time.
+The application factory combines the increment with a fresh complete Robot joint state
+and produces only a high-level `VISION` + `MOVE_JOINTS` command for the normal motion
+application/gateway path.
+
+`FollowLease` has opaque UUID identity plus aware issued, heartbeat, and expiry times.
+`FollowStatus` is `IDLE`, `ACTIVE`, or `STOPPED` and carries one lease/configuration,
+latest metrics/command, explicit stop reason, `control_mode=DRY_RUN`,
+`real_follow_allowed=false`, and `hardware_accessed=false`. Heartbeat renews only the
+matching active lease. Stale/non-advancing frames, loss/low confidence, source/tracker/
+browser failure, Robot disconnect/fault/staleness, motion conflict/rejection, expiry,
+operator/Global Stop, or backend shutdown stop ownership. Backend monotonic deadlines,
+not frontend timers, are the fail-safe.
 
 ## State, Pose, and Motion contracts
 
@@ -403,3 +458,10 @@ generated artifact is `docs/schemas/motion-draft.schema.json`. Round-trip, corru
 missing nested identity, and schema-current tests are included in the current 393-test
 backend pass. Two fresh temporary generations were byte-identical, and a final generated
 temporary tree matched the tracked schema artifacts.
+
+Stage 7 adds generated schemas for transient `FrameMetadata`, `TrackingResult`, and
+`FollowStatus` at `docs/schemas/vision-frame-metadata.schema.json`,
+`vision-tracking-result.schema.json`, and `vision-follow-status.schema.json`. They do not
+change Pose, Motion, MotionDraft, or another persisted user schema and create no media
+storage contract. Full deterministic generation and schema-current tests pass in the
+432-test backend gate.

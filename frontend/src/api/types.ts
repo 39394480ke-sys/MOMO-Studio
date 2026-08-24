@@ -751,3 +751,129 @@ export interface RobotSocketSnapshot {
   stateSequence: number | null;
   command: MotionCommandStatus | null;
 }
+
+export type CameraAccessPolicy = 'DISABLED' | 'SYNTHETIC_ONLY' | 'LIVE_CAMERA_ALLOWED';
+
+export interface NormalizedBoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface VisionFrameMetadata {
+  frame_id: string;
+  width_px: number;
+  height_px: number;
+  captured_at: string;
+  source_id: string;
+  age_ms: number;
+}
+
+export interface VisionProviderCapability {
+  provider_id: string;
+  kind: string;
+  available: boolean;
+  active: boolean;
+  model_source: string;
+  notice: string;
+  reason: string | null;
+}
+
+export interface VisionCapabilities {
+  camera_access_policy: CameraAccessPolicy;
+  source: VisionProviderCapability;
+  trackers: VisionProviderCapability[];
+  detectors: VisionProviderCapability[];
+  stream: VisionProviderCapability;
+  real_follow_allowed: false;
+  real_follow_blocked_reason: string;
+}
+
+export interface VisionTargetSelection {
+  frame_id: string;
+  bounding_box: NormalizedBoundingBox;
+}
+
+export type VisionTrackingState = 'LOCKED' | 'LOST' | 'STALE' | 'FAULTED';
+
+export interface VisionTrackingResult {
+  frame_id: string;
+  source_id: string;
+  captured_at: string;
+  bounding_box: NormalizedBoundingBox | null;
+  confidence: number;
+  status: VisionTrackingState;
+  error: string | null;
+}
+
+export interface VisionFollowStatus {
+  active: boolean;
+  lease_id: string | null;
+  expires_at: string | null;
+  stop_reason: string | null;
+  error_x: number | null;
+  error_y: number | null;
+  ema_error_x: number | null;
+  ema_error_y: number | null;
+  last_command_id: string | null;
+}
+
+export interface VisionStatus {
+  camera_access_policy: CameraAccessPolicy;
+  source_state: string;
+  latest_frame: VisionFrameMetadata | null;
+  selection: VisionTargetSelection | null;
+  tracking: VisionTrackingResult | null;
+  follow: VisionFollowStatus;
+  robot_state: string;
+  dry_run: true;
+  real_follow_blocked_reason: string;
+}
+
+export interface VisionDetection {
+  detection_id: string;
+  frame_id: string;
+  source_id: string;
+  captured_at: string;
+  bounding_box: NormalizedBoundingBox;
+  confidence: number;
+  label: string;
+}
+
+export interface VisionDetectionResponse {
+  capability: VisionProviderCapability;
+  detections: VisionDetection[];
+}
+
+export interface VisionFollowConfiguration {
+  dead_zone_x: number;
+  dead_zone_y: number;
+  ema_alpha: number;
+  gain: number;
+  max_step: number;
+  max_rate: number;
+  confidence_threshold: number;
+  frame_freshness_limit_s: number;
+  target_lost_limit_s: number;
+  lease_ttl_s: number;
+}
+
+export interface VisionFollowMapping {
+  pan_joint: string;
+  tilt_joint: string;
+  pan_sign: -1 | 1;
+  tilt_sign: -1 | 1;
+  verification_status: 'VERIFIED_FOR_DRY_RUN';
+}
+
+export interface StartVisionFollowRequest {
+  configuration: VisionFollowConfiguration;
+  mapping: VisionFollowMapping;
+}
+
+export interface VisionFollowLeaseResponse {
+  lease_id: string;
+  expires_at: string;
+  status: VisionStatus;
+}

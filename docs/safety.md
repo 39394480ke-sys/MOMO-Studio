@@ -1,20 +1,23 @@
 # Safety
 
-## Stage 6 safety boundary
+## Stage 7 safety boundary
 
-Stages 3-5 are complete. Stage 6 Studio implementation evidence is green across backend,
-frontend, isolated browser acceptance, and final independent integrated audit
-P1=0/P2=0. Its dedicated commit/push delivery evidence remains Pending. It adds
-recoverable MotionDraft authoring, compiler-backed non-executable preview, fail-closed write-ahead formal Save,
-and persisted-keyframe Goto without widening the hardware boundary. The entire
-application remains Dry Run only and structurally unable to command physical hardware:
+Stages 3-6 are complete; Stage 6 is pushed in
+`37783bdf8c01146d3a312980dbe4a25716e5468c`. Stage 7 adds Synthetic frame/selection/
+tracking and lease-bound Dry Run Follow. Its automated/static and desktop/mobile browser
+evidence and final independent audit P1=0/P2=0 are green; dedicated commit/push remains
+Pending. The
+entire application remains Dry Run only and structurally unable to command physical
+hardware:
 
 - settings require `control_mode=DRY_RUN`, `real_motion_enabled=false`, and
   `hardware_access_policy=DISABLED`;
+- camera access defaults to `SYNTHETIC_ONLY`; startup uses only the deterministic
+  in-memory source and exposes no live-camera-open route;
 - the composition root may inject only in-memory Dry Run motion implementations;
 - no serial or Feetech adapter/dependency is available through the product path;
 - no startup, Connect, Capture, Draft recovery, Goto, import, compile, Save, playback,
-  route, WebSocket, executor, or kinematics
+  Vision, route, WebSocket, executor, or kinematics
   operation may enumerate, scan, read, write, Home, torque, calibrate, or move a device;
 - Robot status, FK, command-status, Stop, diagnostics, lifecycle, and WebSocket contracts
   that carry hardware-access evidence report `hardware_accessed=false`; accepted-motion,
@@ -24,9 +27,9 @@ application remains Dry Run only and structurally unable to command physical har
 - no raw Servo, arbitrary register, arbitrary file, arbitrary Python, or driver-selection
   endpoint exists.
 
-The Stage report records exact executed implementation evidence. Until the dedicated
-commit and push are recorded, Stage 6 remains delivery-incomplete; none of its evidence
-authorizes Real motion.
+The Stage report records exact executed implementation/browser/audit evidence. Until the
+dedicated commit and push are recorded, Stage 7 remains incomplete; none of its
+evidence authorizes live-camera access, Real motion, or Real Follow.
 
 ## Provisional kinematics are not Real authority
 
@@ -50,7 +53,7 @@ functions may convert them. Unit conversion cannot depend on the name `j10`.
 
 There is one reviewed application admission point for every movement source. Joint
 Move, single/continuous Joint Jog, Home, Cartesian Jog, Move Pose, Library Goto,
-Playback, and Studio Goto—as well as later Vision commands—may not call an executor or
+Playback, Studio Goto, and Vision Follow may not call an executor or
 driver directly.
 
 The gateway owns one atomic admission coordinator for ordinary motion, trajectory
@@ -144,6 +147,42 @@ checks and command submission, preventing an autosave from replacing the target 
 interval.
 Stale, missing, incompatible, disconnected, busy, or policy-blocked state dispatches
 nothing.
+
+## Vision access and Follow deadman
+
+Camera policy is independent from hardware policy. `SYNTHETIC_ONLY` is the safe default;
+`DISABLED` composes a fail-closed source. `LIVE_CAMERA_ALLOWED` is vocabulary, not an
+implicit open. The optional OpenCV factory requires explicit local enablement, one
+explicit bounded device ID, and operator action before its lazy import. Source
+construction still performs no device I/O, application startup always selects Synthetic,
+and Stage 7 exposes no live-open/enumeration route. OpenCV is absent from the manifest
+and lock. Frames are `no-store`, never recorded, and subject to bounded retention.
+
+A manual selection or provider result is usable only when its complete frame ID,
+source, aware capture time, and dimensions match a retained unexpired frame. A new
+Follow frame ID must advance its capture time strictly; equal/older timestamps stop as
+stale. Same-frame loss or confidence corrections remain actionable so they cancel the
+old direction instead of being discarded as duplicates.
+
+Follow requires explicit confirmed Dry Run intent, one short backend lease, and a
+Profile-bound mapping marked `VERIFIED_FOR_DRY_RUN`. Both mapped joints must be distinct
+members of explicit `enabled_joints` and `REVOLUTE`/`deg`; the prismatic V2 rail and
+unknown/disabled joints fail closed. The controller bounds error/EMA/dead-zone/gain,
+increment, and rate. Its coordinator has only the high-level motion application surface,
+so every command passes through the shared gateway and motion slot.
+
+Target loss or low confidence immediately suspends/cancels the active Vision command,
+then begins the bounded lost-target interval; it never continues the last direction.
+Frame staleness, camera/browser disconnect, tracker fault, Robot disconnect/fault/stale
+state, motion conflict/rejection, lease expiry, operator Stop, Global Stop, and backend
+shutdown all end ownership. Centered frames and active commands still trigger a fresh
+Robot snapshot, so a heartbeat cannot conceal a lifecycle fault.
+
+Start is lifecycle-epoch fenced around its awaited Robot snapshot. Global Stop can
+therefore invalidate an idle-but-starting Follow without re-entering motion cancellation
+from the registered hook. Backend shutdown uses the same barrier, performs normal Vision
+command cancellation, permanently closes the service, and prevents a late or later
+start from installing a lease.
 
 ## Dry Run executor
 
@@ -417,7 +456,32 @@ fork/Save As, null recovery markers, and a fresh 390 x 844 mobile drawer. Earlie
 responsive measurements cover container-local Timeline overflow and focus restoration;
 all desktop/mobile console warnings/errors are `[]`.
 
-The dedicated commit and push remain Pending. Python runtime dependency audit was not
-rerun because Stage 6
-adds no dependency and changes neither lockfile; no passing result is inferred. None of
-this evidence authorizes Real preview, Real playback, or any physical Studio Goto.
+Stage 6 is contained by pushed commit
+`37783bdf8c01146d3a312980dbe4a25716e5468c`. Its Python runtime dependency audit was
+not rerun because the Stage added no dependency and changed neither lockfile; no passing
+result is inferred. None of this evidence authorizes Real preview, Real playback, or any
+physical Studio Goto.
+
+## Stage 7 evidence status
+
+The current automated gate passes 432 backend tests with one known Starlette/httpx
+deprecation warning, including 34 focused Vision core/Follow/API tests. It passes 190
+frontend tests across 14 files, including 16 focused Vision client/page tests. Ruff,
+Ruff format, and strict mypy pass across 168 backend files; ESLint, TypeScript, Vite
+build, deterministic schema generation, the 44-package lock check, and npm audit with
+zero reported vulnerabilities pass. No Python runtime vulnerability audit was rerun
+because Stage 7 adds no package/lock change; no result is inferred.
+
+Policy-first/lazy-import Spy coverage proves denied camera requests cannot import
+OpenCV or call `VideoCapture`, and constructor/capability reads do not open a camera.
+The full task opened/enumerated no camera and downloaded/recorded no frame, model, or
+cascade. Synthetic detector/tracker tests state explicitly that these are fixtures, not
+general models. Hardware remained Dry Run/Fake-only and all accepted Vision commands
+used the high-level Motion Safety Gateway path.
+
+The real application passed 1440×960 and 390×844 Synthetic manual selection (LOCKED
+98%), person detection (LOCKED 98%), Follow ACTIVE with EMA/tuning lock, accepted
+gateway preflight and completed command with `hardware_accessed=false`, operator Stop,
+lease expiry after navigation/unmount, exact mobile width bounds, and console
+warnings/errors `[]`. Final independent audit reports P1=0/P2=0. The dedicated Stage 7
+commit/push remains Pending; Real Follow stays blocked.

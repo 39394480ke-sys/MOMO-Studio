@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
+from momo.domain.vision import CameraAccessPolicy
 from momo.settings import Settings, load_settings
 
 
@@ -23,6 +24,7 @@ def test_defaults_are_always_dry_run_when_config_is_absent(
     assert settings.real_motion_enabled is False
     assert settings.active_robot_variant is RobotVariant.V2
     assert settings.hardware_access_policy is HardwareAccessPolicy.DISABLED
+    assert settings.camera_access_policy is CameraAccessPolicy.SYNTHETIC_ONLY
 
 
 def test_environment_overrides_yaml_without_using_current_working_directory(
@@ -174,3 +176,45 @@ def test_storage_directories_conservatively_reject_uncreated_case_aliases(
 def test_motion_update_rate_has_reviewed_interpolation_bounds(update_hz: float) -> None:
     with pytest.raises(ValidationError):
         Settings(motion_update_hz=update_hz)
+
+
+def test_live_camera_policy_requires_device_and_explicit_local_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(ValidationError, match="live_camera_device_id"):
+        Settings(camera_access_policy=CameraAccessPolicy.LIVE_CAMERA_ALLOWED)
+
+    default = tmp_path / "default.yaml"
+    default.write_text(
+        "camera_access_policy: synthetic_only\nlive_camera_device_id: ''\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MOMO_CAMERA_ACCESS_POLICY", "LIVE_CAMERA_ALLOWED")
+    monkeypatch.setenv("MOMO_LIVE_CAMERA_DEVICE_ID", "explicit-device")
+    with pytest.raises(ValueError, match="explicitly supplied local config"):
+        load_settings(default_config_path=default)
+
+    local = tmp_path / "local.yaml"
+    local.write_text(
+        "camera_access_policy: live_camera_allowed\nlive_camera_device_id: explicit-device\n",
+        encoding="utf-8",
+    )
+    configured = load_settings(default_config_path=default, local_config_path=local)
+    assert configured.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED
+    assert configured.live_camera_device_id == "explicit-device"
+
+
+@pytest.mark.parametrize(
+    ("width_px", "height_px"),
+    [(63, 360), (1281, 360), (640, 63), (640, 721)],
+)
+def test_synthetic_frame_resolution_has_reviewed_bounds(
+    width_px: int,
+    height_px: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            vision_frame_width_px=width_px,
+            vision_frame_height_px=height_px,
+        )

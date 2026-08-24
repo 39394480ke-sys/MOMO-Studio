@@ -15,6 +15,7 @@ from momo.api.routes.motion import router as motion_router
 from momo.api.routes.playback import router as playback_router
 from momo.api.routes.robot import router as robot_router
 from momo.api.routes.studio import router as studio_router
+from momo.api.routes.vision import router as vision_router
 from momo.api.routes.ws_robot import router as ws_robot_router
 from momo.application.services.robot_service import RobotApplicationService
 from momo.bootstrap import build_application_services, build_robot_service
@@ -38,12 +39,15 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         del app
         yield
-        await services.motion.shutdown()
+        try:
+            await services.vision.shutdown()
+        finally:
+            await services.motion.shutdown()
 
     app = FastAPI(
         title=f"{resolved_settings.product_name} API",
         version=resolved_settings.version,
-        description="Stage 6 Dry Run Studio authoring, trajectory, and playback API.",
+        description="Stage 7 Synthetic vision and safety-gated Dry Run Follow API.",
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
@@ -54,6 +58,7 @@ def create_app(
     app.state.library_service = services.library
     app.state.trajectory_service = services.trajectory
     app.state.studio_service = services.studio
+    app.state.vision_service = services.vision
     app.state.playback_service = services.playback
     app.state.playback_observer = services.playback_observer
     install_error_handlers(app)
@@ -66,5 +71,6 @@ def create_app(
     app.include_router(library_router, prefix="/api/v1")
     app.include_router(playback_router, prefix="/api/v1")
     app.include_router(studio_router, prefix="/api/v1")
+    app.include_router(vision_router, prefix="/api/v1")
     app.include_router(ws_robot_router, prefix="/api/v1")
     return app

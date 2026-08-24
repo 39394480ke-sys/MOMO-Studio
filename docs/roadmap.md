@@ -80,9 +80,9 @@ lint/type/format/build/schema/lock/dependency, focused isolation, and desktop/mo
 browser checks are green. Cartesian behavior remains provisional until physical
 kinematics acceptance.
 
-## Stage 6 - Studio (implementation green; delivery pending)
+## Stage 6 - Studio (complete)
 
-The current Stage 6 worktree implements:
+Stage 6 implements:
 
 - independent recursively strict `MotionDraft` schema `1.0.0` with zero-or-more
   keyframes, typed server-owned source metadata, bounded canonical Legacy-snapshot trust,
@@ -105,16 +105,34 @@ files, a focused 89-test Studio selection, Ruff/format over 141 files, strict my
 141 source files, ESLint/TypeScript/build, schema determinism, lock/npm-audit gates, isolated
 desktop/mobile browser acceptance, and final independent integrated audit P1=0/P2=0.
 The oversized service/hook findings were closed by bounded backend coordinators/actions
-and composed frontend session hooks. The dedicated commit and push evidence remain
-Pending; Stage 6 is not complete until that delivery gate closes.
+and composed frontend session hooks. Commit
+`37783bdf8c01146d3a312980dbe4a25716e5468c` contains the Stage and is pushed to
+`origin/codex/v1-autonomous-completion`.
 
-## Stage 7 - Vision and safe following (not started)
+## Stage 7 - Vision and safe following (implementation/audit green; delivery pending)
 
-Planned scope: deny-by-default Camera Access Policy, Synthetic source, manual ROI,
-honest optional tracking/detector capabilities, bounded local stream, EMA/dead zone,
-Follow Lease, and immediate lost/stale/disconnect Stop. Vision may submit only through
-the Stage 3 Motion Safety Gateway. Photography, recording, gestures, and Cinematic
-Director remain excluded.
+The Stage 7 worktree implements:
+
+- independent `DISABLED` / `SYNTHETIC_ONLY` / `LIVE_CAMERA_ALLOWED` camera policy with
+  Synthetic default and a policy-first, lazy-import optional OpenCV camera shell;
+- strict frame identity, normalized frame-bound boxes, manual ROI, deterministic
+  Synthetic person/face fixtures and tracker, and honest unavailable live capabilities;
+- a no-store bounded local stream with 12 fps/640×360 defaults, 30 fps/1280×720 maxima,
+  4 default/16 maximum clients, one latest-value slot, and 64-frame/32-MiB history caps;
+- center error, EMA, dead zone, sign/gain, maximum step/rate, explicit Profile-bound
+  pan/tilt mapping, one renewable Follow lease, and complete automatic Stop reasons;
+- high-level Vision commands only through the motion application service and Stage 3
+  Motion Safety Gateway; Real Follow remains blocked;
+- the responsive Vision workspace with frame-bound selection, overlays, provider/status
+  evidence, tuning, heartbeat, and priority Stop.
+
+Current automated evidence passes 432 backend tests, a 34-test focused Stage 7
+core/Follow/API suite, 190 frontend tests across 14 files, a focused 16-test Vision
+client/page suite, backend/frontend static/build/schema/lock/npm gates, and real-app
+desktop/mobile browser acceptance with empty warning/error logs. No OpenCV dependency
+was added; no camera was opened/enumerated and no model was downloaded. Final independent
+audit closes P1=0/P2=0. The dedicated Stage 7 commit/push remains Pending, so Stage 7 is
+not yet complete.
 
 ## Stage 8 - Real boundary and release hardening (not started)
 
@@ -131,8 +149,8 @@ Calibration, Kinematics, device, operator, and field-acceptance gate is satisfie
 
 ## Evidence still required
 
-- Stage 6 dedicated commit/push, and Stage 7-8 implementation, verification, and one
-  dedicated commit per remaining Stage;
+- Stage 7 dedicated commit/push, plus Stage 8 implementation, verification, and
+  dedicated commit;
 - physically verified V1/V2 geometry, frames, joint limits, Homes, directions, Servo
   IDs, scales, raw bounds, modes, workspace, FK references, IK tolerances, and dynamics;
 - reviewed production Calibration lifecycle and independent device/field acceptance;

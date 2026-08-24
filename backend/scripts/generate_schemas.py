@@ -15,6 +15,8 @@ from momo.domain.motion_draft import MotionDraft, motion_draft_persisted_json_sc
 from momo.domain.pose import Pose
 from momo.domain.robot import RobotProfile
 from momo.domain.runtime import RobotStatus, RuntimeState
+from momo.domain.vision import FrameMetadata, TrackingResult
+from momo.domain.vision_follow import FollowStatus
 
 SCHEMAS: dict[str, type[BaseModel]] = {
     "calibration.schema.json": CalibrationDocument,
@@ -25,6 +27,9 @@ SCHEMAS: dict[str, type[BaseModel]] = {
     "robot-profile.schema.json": RobotProfile,
     "robot-status.schema.json": RobotStatus,
     "runtime-state.schema.json": RuntimeState,
+    "vision-follow-status.schema.json": FollowStatus,
+    "vision-frame-metadata.schema.json": FrameMetadata,
+    "vision-tracking-result.schema.json": TrackingResult,
 }
 
 

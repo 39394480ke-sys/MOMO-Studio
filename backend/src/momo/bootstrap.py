@@ -17,6 +17,18 @@ from momo.adapters.storage.file_pose_repository import FilePoseRepository
 from momo.adapters.storage.profile_repository import FileProfileRepository
 from momo.adapters.storage.runtime_state_repository import FileRuntimeStateRepository
 from momo.adapters.time.system_clock import SystemClock
+from momo.adapters.vision import (
+    DisabledFrameSource,
+    PassthroughVisionStreamEncoder,
+    SyntheticFaceDetector,
+    SyntheticFrameSource,
+    SyntheticPersonDetector,
+    SyntheticTargetTracker,
+    SyntheticVisionScenario,
+    UnavailableFaceDetector,
+    UnavailableTargetDetector,
+    UnavailableTargetTracker,
+)
 from momo.application.services.calibration_service import CalibrationService
 from momo.application.services.jog_service import JogLeaseService
 from momo.application.services.kinematics_service import KinematicsService
@@ -32,7 +44,11 @@ from momo.application.services.trajectory_service import (
     PlaybackSafetyValidator,
     TrajectoryApplicationService,
 )
+from momo.application.services.vision_follow import VisionFollowService
+from momo.application.services.vision_service import VisionApplicationService
 from momo.domain.robot import RobotId, RobotProfile
+from momo.domain.vision import CameraAccessPolicy
+from momo.ports.frame_source import FrameSource
 from momo.ports.robot_driver import RobotDriver
 from momo.settings import Settings, repository_root
 
@@ -82,6 +98,7 @@ class ApplicationServices:
     trajectory: TrajectoryApplicationService
     playback: PlaybackService
     studio: StudioApplicationService
+    vision: VisionApplicationService
     playback_observer: LatestValuePlaybackObserver
 
 
@@ -157,6 +174,66 @@ def build_application_services(
         motion,
         clock,
     )
+    scenario = SyntheticVisionScenario()
+    source: FrameSource
+    if settings.camera_access_policy is CameraAccessPolicy.DISABLED:
+        source = DisabledFrameSource()
+    else:
+        # LIVE_CAMERA_ALLOWED only exposes a configuration capability here.  The
+        # composition still selects Synthetic until a future explicit operator
+        # route invokes the reviewed optional factory; application startup cannot
+        # import OpenCV or open/enumerate a device.
+        source = SyntheticFrameSource(
+            clock=clock,
+            source_id=settings.vision_source_id,
+            width_px=settings.vision_frame_width_px,
+            height_px=settings.vision_frame_height_px,
+            fps=settings.vision_max_fps,
+            scenario=scenario,
+            camera_access_policy=settings.camera_access_policy,
+        )
+    follow = VisionFollowService(robot_service, kinematics, motion, clock)
+    vision = VisionApplicationService(
+        camera_access_policy=settings.camera_access_policy,
+        source=source,
+        tracker=SyntheticTargetTracker(
+            scenario=scenario,
+            source_id=settings.vision_source_id,
+        ),
+        person_detector=SyntheticPersonDetector(
+            scenario=scenario,
+            source_id=settings.vision_source_id,
+        ),
+        face_detector=SyntheticFaceDetector(
+            scenario=scenario,
+            source_id=settings.vision_source_id,
+        ),
+        stream_encoder=PassthroughVisionStreamEncoder(media_type="image/png"),
+        follow=follow,
+        robot=robot_service,
+        clock=clock,
+        max_stream_clients=settings.vision_max_stream_clients,
+        additional_tracker_capabilities=(
+            UnavailableTargetTracker(
+                provider_id="opencv-live-target-tracker",
+                display_name="OpenCV live target tracker",
+                detail="Live OpenCV tracking is not loaded in the Synthetic session",
+            ).capability,
+        ),
+        additional_detector_capabilities=(
+            UnavailableTargetDetector(
+                provider_id="opencv-hog-person-detector",
+                display_name="OpenCV HOG person detector",
+                model_source="OpenCV built-in HOG descriptor",
+                notice="Optional local OpenCV provider; no weights are downloaded.",
+                detail="Live OpenCV person detection is not loaded",
+            ).capability,
+            UnavailableFaceDetector(
+                detail="Live OpenCV Haar face detection is not loaded"
+            ).capability,
+        ),
+    )
+    motion.register_stop_hook(follow.stop_all)
     return ApplicationServices(
         kinematics=kinematics,
         motion=motion,
@@ -165,5 +242,6 @@ def build_application_services(
         trajectory=trajectory,
         playback=playback,
         studio=studio,
+        vision=vision,
         playback_observer=playback_observer,
     )

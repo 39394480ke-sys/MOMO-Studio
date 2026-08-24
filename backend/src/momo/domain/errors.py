@@ -137,3 +137,38 @@ class PreparedTrajectoryNotFoundError(RobotApplicationError):
 
 class HardwareMappingError(DomainValidationError):
     """A logical/raw conversion cannot be proven valid from explicit inputs."""
+
+
+class VisionFrameConflictError(RobotApplicationError):
+    """A frame-scoped request no longer targets the authoritative latest frame."""
+
+    code = "VISION_FRAME_CONFLICT"
+    status_code = 409
+
+
+class VisionProviderUnavailableError(RobotApplicationError):
+    """A requested optional provider is honestly unavailable in this process."""
+
+    code = "VISION_PROVIDER_UNAVAILABLE"
+    status_code = 503
+
+
+class VisionSelectionRequiredError(RobotApplicationError):
+    """Tracking or Follow was requested without a current selected target."""
+
+    code = "VISION_SELECTION_REQUIRED"
+    status_code = 409
+
+
+class VisionFollowConflictError(RobotApplicationError):
+    """Follow cannot start or advance because a safety precondition changed."""
+
+    code = "VISION_FOLLOW_CONFLICT"
+    status_code = 409
+
+
+class VisionFollowLeaseNotFoundError(RobotApplicationError):
+    """A Follow lease is unknown or no longer active."""
+
+    code = "VISION_FOLLOW_LEASE_NOT_FOUND"
+    status_code = 404

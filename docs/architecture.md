@@ -11,10 +11,11 @@ Stage 2 established one Active Robot, Profile/Calibration diagnostics, an in-mem
 Run driver, and atomic runtime state. Stage 3 adds Dry Run kinematics and control. Stage
 4 adds Pose/Motion persistence and Library workflows. Stage 5 adds deterministic
 whole-path trajectory compilation, immutable prepared-plan identity, preview, and
-bounded Dry Run playback. Stage 6 Studio implementation is green across backend,
-frontend, isolated browser acceptance, and final integrated audit P1=0/P2=0. Its
-dedicated commit/push delivery remains open. Vision and Real hardware remain outside
-the current boundary.
+bounded Dry Run playback. Stage 6 Studio is complete in pushed commit
+`37783bdf8c01146d3a312980dbe4a25716e5468c`. Stage 7 adds the Synthetic Vision and
+lease-bound Dry Run Follow slice; automated/static and desktop/mobile browser gates are
+green with final independent audit P1=0/P2=0; dedicated commit/push remains open. Live camera
+activation and Real hardware/Follow remain outside the current boundary.
 
 ```text
 React Control workspace
@@ -64,13 +65,25 @@ React Studio workspace
               -> coherent Dry Run Capture
               -> persisted-keyframe STUDIO / MOVE_JOINTS
                   -> Motion application service -> MotionSafetyGateway
+
+React Vision workspace
+  -> bounded no-store Synthetic frame/stream + REST status
+  -> exact-frame manual ROI / Synthetic fixture detection and tracking
+  -> VisionApplicationService (latest-value frame/selection/tracking state)
+      -> FrameSource / TargetDetector / FaceDetector / TargetTracker ports
+          -> deterministic Synthetic adapters
+          -> honest unavailable optional provider capabilities
+      -> VisionFollowService (one renewable Dry Run lease)
+          -> pure FollowController + Profile-bound command factory
+          -> VisionCommandCoordinator
+              -> Motion application service -> MotionSafetyGateway
 ```
 
 Dependencies point inward toward domain and port contracts. API routes do not import a
 driver, executor implementation, serial package, or Legacy controller. The composition
 root explicitly injects the Dry Run implementations. There is no module-global robot,
-`arm_a` product assumption, Fleet surface, serial adapter, device scan, camera source,
-or raw-control transport.
+`arm_a` product assumption, Fleet surface, serial adapter, device scan, startup live
+camera open/enumeration, or raw-control transport.
 
 ## Active Robot and lifecycle
 
@@ -121,7 +134,7 @@ increments rotate translation and orientation through the current TCP frame.
 ## Unified motion path
 
 Every movement source—Joint Move, Joint Jog, Home, Cartesian Jog, Move Pose, Library
-Goto, Playback, and Studio Goto, plus later Vision sources—must submit immutable intent
+Goto, Playback, Studio Goto, and Vision Follow—must submit immutable intent
 to the same
 `MotionSafetyGateway`:
 
@@ -194,6 +207,21 @@ cannot submit browser-owned Joint targets for Studio Goto. The sole Studio mutat
 linearizes Draft read/recovery, revision/keyframe checks, and command submission, so an
 autosave cannot replace the persisted target in that interval.
 
+Stage 7 admits `VISION` + `MOVE_JOINTS` only from the Follow command factory. It begins
+with a fresh Robot/Profile/Joint snapshot; the configured pan/tilt IDs must both be in
+the Profile's explicit `enabled_joints`, distinct, `REVOLUTE`, and `deg`. The factory
+applies bounded controller increments to the current complete keyed state. Its narrow
+coordinator calls only the injected motion application/gateway-facing protocol and owns
+late-acceptance cancellation; Vision never receives an executor or driver reference.
+
+The pure Follow controller computes target-center error, EMA, dead zone, configured
+sign/gain, maximum step, and elapsed-time rate limit. One heartbeat-renewed lease owns
+Follow. Stale/non-advancing frames, target loss/low confidence, source/tracker/browser
+loss, Robot disconnect/fault/staleness, motion conflict/rejection, expiry, Stop, or
+shutdown end ownership. Same-frame loss corrections cancel the previous direction.
+Lifecycle epochs prevent a start awaiting Robot evidence from publishing after Global
+Stop or shutdown; shutdown permanently closes the service.
+
 The `DryRunMotionExecutor` uses an injected monotonic clock, absolute deadlines, a fixed
 bounded update rate, and a cancellation signal. It interpolates single moves instead of
 teleporting state, advances `state_sequence` monotonically, persists compatible runtime
@@ -251,6 +279,19 @@ revisions; every revision conflict names the bounded entity scope `MotionDraft` 
 enumeration records 14 Stage 6 method/path combinations across 11 unique paths and 60
 combined combinations across 51 unique HTTP paths, plus the existing read-only
 WebSocket.
+
+Stage 7 adds capability/status/frame/stream, exact-frame selection/clear, detector,
+tracking-reset, and Follow start/heartbeat/stop routes below `/api/v1/vision`. These are
+11 method/path combinations across 10 unique paths; the combined application inventory
+is 71 method/path combinations across 61 unique HTTP paths plus the same read-only
+Robot WebSocket. There is no Vision command WebSocket, live-camera-open route, raw
+camera identifier, recording route, or alternate motion path.
+
+The Synthetic stream uses `multipart/x-mixed-replace`, `Cache-Control: no-store`, and
+already encoded bounded PNG frames. Each slow consumer observes one latest-value slot
+instead of accumulating a queue. The service permits 4 clients by default and at most
+16, retains at most 64 frames subject to 32 MiB encoded content, and releases client
+ownership on disconnect. Frame/tracking/Follow metadata remains available through REST.
 
 The WebSocket is read-only. Its payload carries RobotStatus (including its safe last-error
 summary), TCP pose/FK, the latest command status/progress/error, state sequence, and
@@ -310,23 +351,39 @@ never traverses the client. Automated frontend and isolated desktop/mobile brows
 acceptance pass, including focus restoration, container-local timeline overflow, and a
 real-backend external-Motion conflict with local post-conflict edits retained.
 
+The Stage 7 Vision workspace renders the Synthetic stream, exact frame identity/age,
+manual pointer ROI, detections, tracking box/confidence/state, center and EMA errors,
+dead-zone overlay/tuning, Provider Capability, Robot/Follow/lease state, Stop, and the
+Real Follow block reason. Pointer-down captures frame identity so a late drag cannot
+select a newer frame accidentally. Late Follow-start responses are compensated after
+priority Stop, disconnect, or unmount. The checked 1440×960 and 390×844 real-app flows
+passed Synthetic Select/Detect/Follow/Stop and responsive bounds with console
+warnings/errors `[]`.
+
 ## Configuration and persistence
 
 Safe default loading uses typed defaults, tracked `config/default.yaml`, then `MOMO_*`
 environment values. It does **not** probe or read ignored `config/local.yaml`. A caller
 may opt in to one specific local file only by explicitly passing `local_config_path` to
 the settings loader; that explicit file is then merged before environment overrides.
-Throughout Stage 6:
+Throughout Stage 7:
 
 ```text
 control_mode: DRY_RUN
 real_motion_enabled: false
 hardware_access_policy: DISABLED
+camera_access_policy: SYNTHETIC_ONLY
 ```
 
 Selecting `REAL`, `READ_ONLY`, `FULL`, or real motion fails before any adapter is built.
 The serial-port field remains inert. Kinematics models are reviewed repository inputs,
 not local hardware configuration.
+
+Stage 7 defaults to the in-memory source at 12 fps and 640×360, with configuration caps
+of 30 fps and 1280×720. `LIVE_CAMERA_ALLOWED` does not change startup composition: the
+optional OpenCV shell requires a complete explicit grant before lazy import and another
+explicit call before `VideoCapture`. OpenCV is not a declared dependency, no route
+performs that call, and startup never enumerates a device.
 
 Dry Run runtime state remains schema-versioned, path-confined, ignored operational data
 written with a same-directory temporary file, flush, `fsync`, and replace. Restore
@@ -376,13 +433,15 @@ raw Draft CAS and never mutates a Motion.
   coordination, command status, Jog lease, Library, trajectory, playback, and bounded
   Studio Draft/compile, formal-save, and robot-action use cases.
 - `backend/src/momo/adapters/playback` — bounded latest-value playback observation.
+- `backend/src/momo/adapters/vision` — Synthetic/disabled/latest-value adapters and a
+  policy-first lazy-import optional OpenCV camera shell.
 - `backend/src/momo/api` — versioned REST/read-only WebSocket transport only.
 - `backend/src/momo/adapters/hardware` — Dry Run adapter only in Stage 3.
 - `backend/src/momo/adapters/storage` — Profile, example Calibration, runtime state, and
   atomic UUID Pose/Motion/MotionDraft adapters.
 - `kinematics_models` — V1/V2 provisional mesh-free documents.
 - `frontend/src` — typed transport, shared runtime state, responsive pages/components,
-  and composed Studio Draft/Motion/Pose/navigation hooks.
+  composed Studio Draft/Motion/Pose/navigation hooks, and Vision selection/Follow state.
 
 Stage 3 design decisions are recorded in ADR 0009 and ADR 0010. Stage 4 persistence and
 schema compatibility are recorded in ADR 0011; importer operation is documented in
@@ -390,4 +449,7 @@ schema compatibility are recorded in ADR 0011; importer operation is documented 
 0012 and `trajectory-semantics.md`. Stage 6 draft, edge, recovery, and compiler decisions
 are recorded in ADR 0013 and `studio-user-workflow.md`. Executed evidence and known
 limitations are in each Stage report; the Stage 6 report explicitly separates green
-implementation/integrated-audit evidence from Pending commit/push delivery evidence.
+implementation evidence from its now-recorded containing commit. Stage 7 camera access,
+frame identity, provider honesty, and Follow lease decisions are in ADR 0014 and
+`vision-provider-capabilities.md`; its report separates green implementation/browser/
+audit evidence from Pending commit/push delivery.

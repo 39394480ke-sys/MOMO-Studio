@@ -1,14 +1,14 @@
-"""Stage 3 configuration loading with an enforced hardware-access safety gate."""
+"""Configuration loading with independent robot-hardware and camera safety gates."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Self
+from typing import Annotated, Any, Self
 from unicodedata import normalize
 
 import yaml
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, StringConstraints, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -17,6 +17,7 @@ from pydantic_settings import (
 
 from momo import __version__
 from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
+from momo.domain.vision import CameraAccessPolicy
 
 _STORAGE_DIRECTORY_FIELDS = (
     "runtime_state_directory",
@@ -77,6 +78,11 @@ class Settings(BaseSettings):
     serial_port: str = ""
     active_robot_variant: RobotVariant = RobotVariant.V2
     hardware_access_policy: HardwareAccessPolicy = HardwareAccessPolicy.DISABLED
+    camera_access_policy: CameraAccessPolicy = CameraAccessPolicy.SYNTHETIC_ONLY
+    live_camera_device_id: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, max_length=128),
+    ] = ""
     runtime_state_directory: str = "data/runtime/robots"
     profile_directory: str = "robot_profiles"
     calibration_directory: str = "calibration/examples"
@@ -87,6 +93,19 @@ class Settings(BaseSettings):
     motion_update_hz: float = Field(default=25.0, ge=20, le=100)
     jog_lease_ttl_ms: int = Field(default=400, ge=250, le=500)
     robot_state_freshness_limit_s: float = Field(default=5.0, gt=0, le=60)
+    vision_source_id: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+        ),
+    ] = "synthetic-stage7"
+    vision_frame_width_px: int = Field(default=640, strict=True, ge=64, le=1280)
+    vision_frame_height_px: int = Field(default=360, strict=True, ge=64, le=720)
+    vision_max_fps: float = Field(default=12.0, gt=0.0, le=30.0)
+    vision_max_stream_clients: int = Field(default=4, strict=True, ge=1, le=16)
 
     @classmethod
     def settings_customise_sources(
@@ -129,6 +148,13 @@ class Settings(BaseSettings):
             return value.strip().replace("-", "_").replace(" ", "_").upper()
         return value
 
+    @field_validator("camera_access_policy", mode="before")
+    @classmethod
+    def normalize_camera_access(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().replace("-", "_").replace(" ", "_").upper()
+        return value
+
     @field_validator("real_motion_enabled")
     @classmethod
     def enforce_stage_three_safety_lock(cls, value: bool) -> bool:
@@ -144,6 +170,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Stage 3 requires hardware_access=DISABLED; no hardware adapter is available"
             )
+        if (
+            self.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED
+            and not self.live_camera_device_id
+        ):
+            raise ValueError(
+                "LIVE_CAMERA_ALLOWED requires an explicit non-empty live_camera_device_id"
+            )
+        if self.vision_frame_width_px * self.vision_frame_height_px > 1280 * 720:
+            raise ValueError("Synthetic vision resolution must not exceed 1280x720 pixels")
         root = repository_root()
         resolved = {
             field: (
@@ -204,8 +239,28 @@ def load_settings(
     root = repository_root()
     default_path = default_config_path or root / "config" / "default.yaml"
     values = _read_yaml(default_path)
+    local_values: dict[str, Any] = {}
     # Ignored/local configuration is capability-bearing and must never be inspected
     # implicitly. A caller must provide the exact path deliberately.
     if local_config_path is not None:
-        values.update(_read_yaml(local_config_path))
-    return Settings.model_validate(values)
+        local_values = _read_yaml(local_config_path)
+        values.update(local_values)
+    settings = Settings.model_validate(values)
+    if settings.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED:
+        local_policy = local_values.get("camera_access_policy")
+        normalized_policy = (
+            local_policy.strip().replace("-", "_").replace(" ", "_").upper()
+            if isinstance(local_policy, str)
+            else local_policy
+        )
+        local_device = local_values.get("live_camera_device_id")
+        if (
+            normalized_policy != CameraAccessPolicy.LIVE_CAMERA_ALLOWED.value
+            or not isinstance(local_device, str)
+            or local_device.strip() != settings.live_camera_device_id
+        ):
+            raise ValueError(
+                "Live camera capability requires camera policy and device identifier "
+                "from the explicitly supplied local config"
+            )
+    return settings

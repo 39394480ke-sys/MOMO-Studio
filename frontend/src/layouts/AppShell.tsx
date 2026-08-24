@@ -39,7 +39,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
-      <footer className="stage-footer">Stage 6&nbsp; · &nbsp;Studio Timeline Authoring</footer>
+      <footer className="stage-footer">Stage 7&nbsp; · &nbsp;Safe Vision Following</footer>
     </div>
   );
 }

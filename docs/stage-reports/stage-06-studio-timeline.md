@@ -3,12 +3,12 @@
 - Date: 2026-08-24
 - Repository: `/Users/ke/Library/Mobile Documents/com~apple~CloudDocs/Code/MOMO-Studio`
 - Branch: `codex/v1-autonomous-completion`
-- Status: **IMPLEMENTATION GREEN — backend, frontend, browser, schema/lock/npm, and
-  independent integrated audit PASS P1=0/P2=0; commit/push Pending**
+- Status: **COMPLETE / GREEN — backend, frontend, browser, schema/lock/npm, independent
+  integrated audit P1=0/P2=0, dedicated commit, and push recorded**
 - Starting commit: `114f2a579df236b4824b23c9a0aae320a83a9a07`
-- Ending commit: Pending
+- Ending commit: `37783bdf8c01146d3a312980dbe4a25716e5468c`
 - Dedicated containing commit subject: `feat: add studio timeline authoring`
-- Remote state: Pending
+- Remote state: Pushed to `origin/codex/v1-autonomous-completion`
 
 ## Summary
 
@@ -27,8 +27,9 @@ Final implementation evidence is 393 passing backend tests, an independently rer
 36-test Stage 6 domain/repository/coordinator/actions/API selection, 174 passing frontend
 tests across 12 files, an independently rerun 89-test Studio selection, green
 Ruff/format/mypy over 141 backend files, green ESLint/TypeScript/build, browser
-acceptance, and final independent integrated audit **P1=0/P2=0**. Stage 6 still has no
-ending commit or pushed remote SHA.
+acceptance, and final independent integrated audit **P1=0/P2=0**. The containing commit
+is `37783bdf8c01146d3a312980dbe4a25716e5468c` and is pushed to the working remote
+branch.
 
 ## Domain boundary
 
@@ -330,7 +331,7 @@ The final independent integrated and code-quality re-review reports **P1=0/P2=0*
 | `git diff --check` | PASS |
 | Browser desktop/mobile/boundary | PASS — isolated desktop/mobile, focus, overflow, conflict retention, console `[]` |
 | Final Stage integration audit | PASS — P1=0/P2=0 |
-| Dedicated commit and push | Pending |
+| Dedicated commit and push | PASS — `37783bdf8c01146d3a312980dbe4a25716e5468c`, pushed to `origin/codex/v1-autonomous-completion` |
 
 The current Stage 6 diff adds no runtime dependency and does not modify either lockfile.
 The lock and npm audit commands above were executed; the Python runtime vulnerability
@@ -372,7 +373,8 @@ npm test -- --run \
   evidence only.
 - Multi-select, curve editing, custom Bezier easing, a PyBullet product view,
   collaborative editing, and Real Studio motion are outside Stage 6.
-- Dedicated commit, push, and remote evidence are Pending.
+- Multi-process/distributed persistence and Real Studio motion remain later work; the
+  Stage 6 dedicated commit/push gate is closed.
 
 ## Current safety statement
 
@@ -394,7 +396,8 @@ No microphone was opened.
 All Stage 6 motion verification used Dry Run or Fake adapters.
 Real-hardware field acceptance remains required.
 
-## Completion gate still open
+## Delivery evidence
 
-Stage 6 must not receive an ending SHA until the dedicated commit and remote push
-evidence are supplied and pass.
+Stage 6 is contained by commit `37783bdf8c01146d3a312980dbe4a25716e5468c`
+(`feat: add studio timeline authoring`) and is pushed to
+`origin/codex/v1-autonomous-completion`.

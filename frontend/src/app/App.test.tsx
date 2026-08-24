@@ -19,7 +19,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('MOMO Studio Stage 6 shell', () => {
+describe('MOMO Studio Stage 7 shell', () => {
   it.each([
     ['/control', 'Control'],
     ['/studio', 'Studio'],
@@ -30,7 +30,7 @@ describe('MOMO Studio Stage 6 shell', () => {
     mockStage3Backend();
     renderRoute(path);
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeVisible();
-    expect(screen.getByText(/Stage 6\s*·\s*Studio Timeline Authoring/)).toBeVisible();
+    expect(screen.getByText(/Stage 7\s*·\s*Safe Vision Following/)).toBeVisible();
   });
 
   it('opens the active Studio timeline authoring workspace', async () => {

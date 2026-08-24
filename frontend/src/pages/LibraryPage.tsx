@@ -956,7 +956,7 @@ export function LibraryPage() {
                     rate={playbackRate}
                     stopDisabled={!online}
                   />
-                  <p className="stage-boundary-note">Playback uses immutable embedded snapshots. Timeline authoring remains gated to Stage 6.</p>
+                  <p className="stage-boundary-note">Playback uses immutable embedded snapshots. Timeline authoring remains in the separate Studio workspace.</p>
                 </>
               ) : null}
             </section>

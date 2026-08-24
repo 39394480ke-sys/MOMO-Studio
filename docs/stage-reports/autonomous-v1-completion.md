@@ -3,12 +3,11 @@
 - Repository: `/Users/ke/Library/Mobile Documents/com~apple~CloudDocs/Code/MOMO-Studio`
 - Task starting commit: `32d0163431e229cb3c2e01a285e7e851124ce9c1`
 - Working branch: `codex/v1-autonomous-completion`
-- Report status: **LIVE — Stages 3-5 complete and GREEN; Stage 6 implementation and
-  independent integrated audit GREEN P1=0/P2=0 with delivery Pending; Stages 7-8
-  pending**
+- Report status: **LIVE — Stages 3-6 complete and GREEN; Stage 7 implementation,
+  browser, and independent audit GREEN P1=0/P2=0 with delivery Pending; Stage 8 pending**
 - Final commit: Pending
 - Remote branch: `origin/codex/v1-autonomous-completion` pushed through
-  `114f2a579df236b4824b23c9a0aae320a83a9a07`
+  `37783bdf8c01146d3a312980dbe4a25716e5468c`
 - Draft PR: Pending
 
 This is the cumulative evidence ledger for the Stage 3-8 autonomous task. It is updated
@@ -22,8 +21,8 @@ operation has not yet been truthfully recorded; it never means pass.
 | 3 - Kinematics and Control | `32d0163431e229cb3c2e01a285e7e851124ce9c1` | `133318e9437dff133a4c25bf01aec09cce5ae6e3` | Complete | Pass: backend 226; frontend 54 | Pass | Pass | Provisional Dry Run kinematics; no physical authority |
 | 4 - Library | `133318e9437dff133a4c25bf01aec09cce5ae6e3` | `837369a0e3c43b756dfbaacc3bd21e5b1ae13d3b` | Complete / GREEN; audit PASS P1=0/P2=0 | Pass: backend 273; frontend 71/8 files; focused isolation 65 | Pass: full desktop/mobile workflow and responsive acceptance | Pass: Dry Run only; forbidden modules `[]` | Schema `1.0.0` requires explicit migration; single-process file writers |
 | 5 - Trajectory and Playback | `837369a0e3c43b756dfbaacc3bd21e5b1ae13d3b` | `114f2a579df236b4824b23c9a0aae320a83a9a07` | Complete / GREEN; audit PASS P1=0/P2=0 | Pass: backend 352; frontend 85/8 files; focused isolation/integration 128 | Pass: preflight/preview/play/pause/resume/stop and responsive acceptance | Pass: Dry Run only; hardware accessed false | Process-local prepared cache/status; provisional Kinematics; Real blocked |
-| 6 - Studio | `114f2a579df236b4824b23c9a0aae320a83a9a07` | Pending | Implementation GREEN; audit PASS P1=0/P2=0; delivery Pending | Backend PASS: 393; focused 36; frontend PASS: 174/12 files; focused 89 | Pass: isolated desktop/mobile plus real-backend conflict retention | Pass: Dry Run/Fake only; console `[]` | Local/single-process Draft persistence; commit/push Pending |
-| 7 - Vision Following | Pending | Pending | Not started | Pending | Pending | Pending | Synthetic/default only; live camera separately gated |
+| 6 - Studio | `114f2a579df236b4824b23c9a0aae320a83a9a07` | `37783bdf8c01146d3a312980dbe4a25716e5468c` | Complete / GREEN; audit PASS P1=0/P2=0 | Backend PASS: 393; focused 36; frontend PASS: 174/12 files; focused 89 | Pass: isolated desktop/mobile plus real-backend conflict retention | Pass: Dry Run/Fake only; console `[]` | Local/single-process Draft persistence |
+| 7 - Vision Following | `37783bdf8c01146d3a312980dbe4a25716e5468c` | Pending | Implementation/browser/audit GREEN P1=0/P2=0; delivery Pending | Backend PASS: 432; focused 34; frontend PASS: 190/14 files; focused 16/2 | Pass: 1440×960 + 390×844 Synthetic Select/Detect/Follow/Stop | Pass: Dry Run/Fake only; no camera open/enumeration; console `[]` | Synthetic fixture only; OpenCV absent; live camera/Real Follow blocked; commit/push Pending |
 | 8 - Release Hardening | Pending | Pending | Not started | Pending | Pending | Pending | Real field acceptance remains required |
 
 ## Commit ledger
@@ -35,7 +34,7 @@ operation has not yet been truthfully recorded; it never means pass.
 | Stage 3 | `133318e9437dff133a4c25bf01aec09cce5ae6e3` | `feat: add dry-run kinematics and safe motion control` | Pushed to `origin/codex/v1-autonomous-completion` |
 | Stage 4 | `837369a0e3c43b756dfbaacc3bd21e5b1ae13d3b` | `feat: add pose and motion library workflows` | GREEN; pushed to `origin/codex/v1-autonomous-completion` |
 | Stage 5 | `114f2a579df236b4824b23c9a0aae320a83a9a07` | `feat: add trajectory compiler and playback engine` | GREEN; pushed to `origin/codex/v1-autonomous-completion` |
-| Stage 6 | Pending | `feat: add studio timeline authoring` | Pending |
+| Stage 6 | `37783bdf8c01146d3a312980dbe4a25716e5468c` | `feat: add studio timeline authoring` | GREEN; pushed to `origin/codex/v1-autonomous-completion` |
 | Stage 7 | Pending | `feat: add safe vision following` | Pending |
 | Stage 8 | Pending | `feat: harden real-hardware boundary and v1 release` | Pending |
 
@@ -85,8 +84,8 @@ duplicated across hooks.
 | 3 | Kinematics model/fingerprint/results, command/preflight/status, Jog lease | Complete |
 | 4 | Pose/Motion schema `2.0.0`, atomic/CAS repository results, capture consistency, structured entity errors, import/conversion reports | Complete / GREEN; audit PASS P1=0/P2=0 |
 | 5 | Immutable TrajectoryPlan/Segment/Sample/Digest/PreparedTrajectory, structured whole-plan preflight, operator intent, playback lifecycle/status/events | Complete |
-| 6 | MotionDraft `1.0.0`, directed edge/default metadata, server-owned source/trust provenance, bounded reducer/undo/autosave, fail-closed write-ahead Save intent/exact abandon, structured conflicts/fork, compiler preview, persisted-keyframe Studio Goto | Implementation/audit GREEN P1=0/P2=0; bounded backend collaborators and composed frontend sessions; delivery Pending |
-| 7 | Frame/box/selection/detection/tracking/follow/lease/capability contracts | Pending |
+| 6 | MotionDraft `1.0.0`, directed edge/default metadata, server-owned source/trust provenance, bounded reducer/undo/autosave, fail-closed write-ahead Save intent/exact abandon, structured conflicts/fork, compiler preview, persisted-keyframe Studio Goto | Complete / GREEN P1=0/P2=0 in pushed commit `37783bdf8c01146d3a312980dbe4a25716e5468c` |
+| 7 | Frame/box/selection/detection/tracking/capability contracts; pure controller; Profile-bound mapping; Follow lease/status/stop reasons | Implementation/browser/audit GREEN P1=0/P2=0; delivery Pending |
 | 8 | ServoBus, readiness evidence, Operator Session, Real outcomes, backup/migration | Pending |
 
 Persisted schema changes require compatibility analysis, round-trip tests, deterministic
@@ -180,11 +179,27 @@ change schema version or reinterpret existing fields.
 | POST | `/api/v1/studio/drafts/{draft_id}/keyframes/{keyframe_id}/goto` | Persisted-keyframe Dry Run Studio Goto | Verified |
 | POST | `/api/v1/studio/capture` | Coherent current Dry Run snapshot | Verified |
 
+### Stage 7 implemented and verified surface
+
+| Method | Path | Purpose | Verification |
+|---|---|---|---|
+| GET | `/api/v1/vision/capabilities` | Honest source/tracker/detector/stream capabilities | Verified |
+| GET | `/api/v1/vision/status` | Latest frame/selection/tracking/Follow/Robot state | Verified |
+| GET | `/api/v1/vision/frame` | One exact no-store frame | Verified |
+| GET | `/api/v1/vision/stream` | Bounded no-store latest-value stream | Verified |
+| POST / DELETE | `/api/v1/vision/selection` | Select exact-frame normalized ROI / clear selection | Verified |
+| POST | `/api/v1/vision/detect/{detector}` | Synthetic `person` or `face` fixture detection | Verified |
+| POST | `/api/v1/vision/tracking/reset` | Reset tracking state | Verified |
+| POST | `/api/v1/vision/follow/start` | Start one confirmed Dry Run Follow lease | Verified |
+| POST | `/api/v1/vision/follow/{lease_id}/heartbeat` | Renew matching lease | Verified |
+| POST | `/api/v1/vision/follow/{lease_id}/stop` | Stop matching lease/command | Verified |
+
 Executed Stage 5 OpenAPI enumeration contains 46 method/path combinations across 40
 unique HTTP paths, plus the existing read-only WebSocket. Stage 6 adds 14 combinations
-across 11 unique paths; the combined inventory is 60 method/path combinations across 51
-unique HTTP paths, plus the same read-only WebSocket. Stage 7-8 routes will be appended
-only from completed application evidence. No API may accept an arbitrary
+across 11 unique paths. Stage 7 adds 11 combinations across 10 unique paths; the
+combined inventory is 71 method/path combinations across 61 unique HTTP paths, plus the
+same read-only WebSocket. Stage 8 routes will be appended only from completed
+application evidence. No API may accept an arbitrary
 server path, Python code, raw register/address, driver selector, auto-scan, client
 trajectory samples, or hidden Real override.
 
@@ -193,8 +208,8 @@ trajectory samples, or hidden Real override.
 | Path | Direction/payload | Safety/resource contract | State |
 |---|---|---|---|
 | `/api/v1/ws/robot` | Server-to-client Robot/FK/latest-command/playback/sequence; safe errors are embedded, with no separate fault-list field | Read-only; fixed 10 Hz source cap; latest-value playback observer; no application queue; one-second send timeout; 1.5-second/15-frame silent-socket watchdog; REST fallback | Stage 5 verified |
-| Vision metadata socket | Pending exact path | Follow Lease ownership, bounded rate, LAN auth | Stage 7 Pending |
-| Vision local stream | Pending exact path | FPS/resolution/queue caps, no recording, disconnect cleanup, LAN auth | Stage 7 Pending |
+| Vision metadata | REST `/api/v1/vision/status`; no Vision WebSocket | Latest-value frame/selection/tracking/Follow/Robot state; LAN auth remains Stage 8 | Stage 7 verified |
+| `/api/v1/vision/stream` | Server-to-client multipart encoded frames | 12 fps/640×360 default; 30/1280×720 max; 4 default/16 max clients; one latest slot; no-store/recording; disconnect cleanup | Stage 7 verified |
 
 No WebSocket is a raw or alternate motion-control transport.
 
@@ -211,7 +226,10 @@ No WebSocket is a raw or alternate motion-control transport.
 | `docs/schemas/kinematics-model.schema.json` | KinematicsModel schema `1.0.0` | Present; consecutive generation byte-identical |
 | Stage 5 trajectory/playback | Ephemeral validated domain/transport contracts; no persisted user schema | No generated artifact required; existing seven artifacts unchanged |
 | `docs/schemas/motion-draft.schema.json` | MotionDraft schema `1.0.0`; zero-or-more keyframes; recursively strict persisted recovery fields including source/trust/intent identity | Artifact and schema-current/missing-nested-identity tests pass; two fresh generations are byte-identical and a final temporary generation matches tracked artifacts |
-| Later Stage schemas | Vision/backup as applicable | Pending |
+| `docs/schemas/vision-frame-metadata.schema.json` | Transient exact frame identity/dimensions | Stage 7 deterministic/current generation passes |
+| `docs/schemas/vision-tracking-result.schema.json` | Transient frame-bound tracking result | Stage 7 deterministic/current generation passes |
+| `docs/schemas/vision-follow-status.schema.json` | Transient Dry Run Follow lease/controller status | Stage 7 deterministic/current generation passes |
+| Later Stage schemas | Backup/Real as applicable | Pending |
 
 Stage 3 schema deterministic-generation evidence: **PASS**. Stage 4 deliberately rejects
 and quarantines `1.0.0` Pose/Motion documents rather than inventing missing evidence; an
@@ -222,6 +240,8 @@ and to the tracked seven artifacts. Stage 6 adds the independent MotionDraft art
 without changing formal Motion `2.0.0`. API construction may use documented defaults,
 but on-disk recovery requires every serialized field recursively and quarantines
 incomplete nested identity rather than inventing past state.
+Stage 7 adds three transient Vision schemas without changing a persisted user-data
+contract or introducing media persistence.
 
 ## Data directories and exclusion policy
 
@@ -254,7 +274,7 @@ quarantining another entity type.
 | jsonschema and transitives | Stored Pose/Motion Draft 2020-12 validation | Lock resolves jsonschema `4.26.0`, attrs `26.1.0`, jsonschema-specifications `2025.9.1`, referencing `0.37.0`, rpds-py `2026.6.3` (installed metadata: MIT); dev stubs types-jsonschema `4.26.0.20260518` (Apache-2.0). Lock check passes at 44 packages; locked-runtime audit reports no known vulnerabilities; distribution license-file review remains required | 4 |
 | Stage 5 additions | No new runtime dependency | Existing Python/npm lockfiles unchanged; npm production audit 0 vulnerabilities | 5 |
 | Stage 6 additions | No new runtime dependency in the current diff | Python/npm lockfiles unchanged; `uv lock --project backend --check` passes for 44 packages; npm audit reports 0 vulnerabilities; Python runtime vulnerability audit not rerun and no pass inferred | 6 |
-| Optional OpenCV | Tracker/person/face providers only | Not yet added; exact package/model/cascade notices required, no auto-download | 7 |
+| Optional OpenCV shell/capabilities | Explicit-ID camera shell plus tracker/HOG/Haar capability descriptions | No package/lock addition; lazy import only after full grant; unavailable in Stage 7; no download/open/enumeration; exact package/HOG/Haar provenance remains required | 7 |
 | Optional Feetech SDK | Gated ServoBus adapter shell | Not yet selected/verified; no vendor copy, default install optional | 8 |
 | Legacy URDF/STL/models | Evidence only | Files/assets not copied; numerical joint geometry facts were transcribed into provisional mesh-free models; provenance/redistribution/physical verification unresolved | Deferred |
 
@@ -273,7 +293,7 @@ download, CDN, or vendored unknown binary.
 | Continuous joint stream | Rewrite with characterization | Complete absolute-deadline Dry Run executor/Jog lease |
 | Real driver/Calibration tooling | Deferred to Stage 8 boundary | No device code executed or copied |
 | Action/recording code | Legacy architecture retired; tracked format characterized | Stage 4 has an independently written explicit/default-dry-run importer. Stage 5 independently rewrites playback as immutable digest-bound compilation and bounded monotonic Dry Run execution. Stage 6 independently adds strict Draft/timeline authoring with directed-edge semantics and write-ahead recovery; recording remains excluded |
-| Legacy Vision | Rewrite later | Stage 7 Synthetic-first, no recording/gesture/direct driver |
+| Legacy Vision | Rewritten only for approved slice | Stage 7 deterministic Synthetic source/fixture detectors/tracker, frame-bound ROI, bounded stream, and gateway-only Dry Run Follow; no Legacy code/model, recording, gesture, direct driver, or general-model claim |
 | Fleet/multi-arm/AI/voice/gripper/Teach/community/media | Out of scope | No product surface |
 
 The detailed per-file tables remain in `docs/legacy-migration-map.md` and Stage-specific
@@ -298,24 +318,24 @@ environment variable, or frontend click may promote this status.
 
 | Evidence | Stage 3 | Stage 4 | Stage 5 | Stage 6 | Stage 7 | Stage 8 | Final |
 |---|---|---|---|---|---|---|---|
-| Backend pytest count | 226 passed | 273 passed; one known Starlette `TestClient`/httpx deprecation warning | 352 passed; same warning | 393 passed; same warning | Pending | Pending | Pending |
-| Focused backend suite | 20 isolation tests | 65 route/import/storage/isolation tests | 128 isolation/integration tests | 36 Stage 6 domain/repository/coordinator/actions/API tests passed | Pending | Pending | Pending |
-| Frontend Vitest count | 54 passed / 7 files | 71 passed / 8 files | 85 passed / 8 files | 174 passed / 12 files; focused Studio 89/4 files | Pending | Pending | Pending |
-| Ruff | Pass | Pass | Pass | Pass | Pending | Pending | Pending |
-| Mypy | Pass / 98 files | Pass / 112 files | Pass / 125 source files | Pass / 141 source files | Pending | Pending | Pending |
-| Ruff format check | Pass / 98 files | Pass / 112 files | Pass / 125 files | Pass / 141 files | Pending | Pending | Pending |
-| ESLint | Pass | Pass | Pass | Pass | Pending | Pending | Pending |
-| TypeScript | Pass | Pass | Pass | Pass | Pending | Pending | Pending |
-| Vite build | Pass / 1,616 modules; JS 242.41 kB (gzip 76.45 kB) | Pass / 1,621 modules; CSS 32.80/7.10 gzip kB; JS 278.61/85.19 gzip kB | Pass / 1,624 modules; CSS 40.70/8.59 gzip kB; JS 305.54/91.97 gzip kB | Pass / 1,635 modules; HTML 0.56/0.33 gzip kB; CSS 57.26/11.47 gzip kB; JS 394.58/114.40 gzip kB | Pending | Pending | Pending |
-| Schema determinism | Pass / byte-identical | Pass / byte-identical with hashes recorded | Pass / unchanged seven artifacts | Pass / two fresh generations byte-identical; final temp tree matches tracked | Pending | Pending | Pending |
-| `uv lock --check` | Pass / 38 packages | Pass / 44 packages | Pass / 44 packages | Pass / 44 packages | Pending | Pending | Pending |
-| npm audit | Pass / 0 vulnerabilities | Pass / 0 vulnerabilities | Pass / 0 vulnerabilities | Pass / 0 vulnerabilities | Pending | Pending | Pending |
-| Python runtime audit | Pass / no known vulnerabilities | Pass / no known vulnerabilities | Pass / no known vulnerabilities | Not rerun; dependencies/lockfiles unchanged, no pass inferred | Pending | Pending | Pending |
-| Independent audit | Pass | Pass / P1=0/P2=0 | Pass / P1=0/P2=0 | Pass / integrated and code-quality P1=0/P2=0 | Pending | Pending | Pending |
-| Hardware isolation | Pass / focused 20-test suite | Pass / focused 65-test route/import/hardware suite; forbidden modules `[]` | Pass / focused 128-test suite | Pass / Dry Run/Fake only; no hardware access | Pending | Pending | Pending |
-| Camera isolation | Pass | Pass / forbidden modules `[]`; no camera path used | Pass / no camera path or dependency | Pass / no camera path or dependency used | Pending | Pending | Pending |
-| Browser desktop/mobile/boundary | Pass | Pass at 1440 x 960 and exact 390 x 844; no horizontal overflow | Pass / workflow and responsive acceptance | Pass / 1440×960, 390×844, focus/overflow/conflict | Pending | Pending | Pending |
-| Console unhandled errors | Pass / `[]` | Pass / warnings and errors `[]` | Pass / warnings and errors `[]` | Pass / warnings and errors `[]` | Pending | Pending | Pending |
+| Backend pytest count | 226 passed | 273 passed; one known Starlette `TestClient`/httpx deprecation warning | 352 passed; same warning | 393 passed; same warning | 432 passed; same warning | Pending | Pending |
+| Focused backend suite | 20 isolation tests | 65 route/import/storage/isolation tests | 128 isolation/integration tests | 36 Stage 6 domain/repository/coordinator/actions/API tests passed | 34 Vision core/Follow/API tests passed | Pending | Pending |
+| Frontend Vitest count | 54 passed / 7 files | 71 passed / 8 files | 85 passed / 8 files | 174 passed / 12 files; focused Studio 89/4 files | 190 passed / 14 files; focused Vision 16/2 files | Pending | Pending |
+| Ruff | Pass | Pass | Pass | Pass | Pass | Pending | Pending |
+| Mypy | Pass / 98 files | Pass / 112 files | Pass / 125 source files | Pass / 141 source files | Pass / 168 source files | Pending | Pending |
+| Ruff format check | Pass / 98 files | Pass / 112 files | Pass / 125 files | Pass / 141 files | Pass / 168 files | Pending | Pending |
+| ESLint | Pass | Pass | Pass | Pass | Pass | Pending | Pending |
+| TypeScript | Pass | Pass | Pass | Pass | Pass | Pending | Pending |
+| Vite build | Pass / 1,616 modules; JS 242.41 kB (gzip 76.45 kB) | Pass / 1,621 modules; CSS 32.80/7.10 gzip kB; JS 278.61/85.19 gzip kB | Pass / 1,624 modules; CSS 40.70/8.59 gzip kB; JS 305.54/91.97 gzip kB | Pass / 1,635 modules; HTML 0.56/0.33 gzip kB; CSS 57.26/11.47 gzip kB; JS 394.58/114.40 gzip kB | Pass / Vite 6.4.3, 1,638 modules; HTML 0.56/0.34 gzip kB; CSS 64.19/12.87; JS 422.12/121.76 | Pending | Pending |
+| Schema determinism | Pass / byte-identical | Pass / byte-identical with hashes recorded | Pass / unchanged seven artifacts | Pass / two fresh generations byte-identical; final temp tree matches tracked | Pass / three Vision artifacts included; full tree deterministic/current | Pending | Pending |
+| `uv lock --check` | Pass / 38 packages | Pass / 44 packages | Pass / 44 packages | Pass / 44 packages | Pass / 44 packages | Pending | Pending |
+| npm audit | Pass / 0 vulnerabilities | Pass / 0 vulnerabilities | Pass / 0 vulnerabilities | Pass / 0 vulnerabilities | Pass / 0 vulnerabilities | Pending | Pending |
+| Python runtime audit | Pass / no known vulnerabilities | Pass / no known vulnerabilities | Pass / no known vulnerabilities | Not rerun; dependencies/lockfiles unchanged, no pass inferred | Not rerun; dependencies/lockfiles unchanged, no pass inferred | Pending | Pending |
+| Independent audit | Pass | Pass / P1=0/P2=0 | Pass / P1=0/P2=0 | Pass / integrated and code-quality P1=0/P2=0 | Pass / P1=0/P2=0 | Pending | Pending |
+| Hardware isolation | Pass / focused 20-test suite | Pass / focused 65-test route/import/hardware suite; forbidden modules `[]` | Pass / focused 128-test suite | Pass / Dry Run/Fake only; no hardware access | Pass / Dry Run/Fake only; gateway command reports hardware false | Pending | Pending |
+| Camera isolation | Pass | Pass / forbidden modules `[]`; no camera path used | Pass / no camera path or dependency | Pass / no camera path or dependency used | Pass / OpenCV absent; lazy policy-first Spy; no open/enumeration | Pending | Pending |
+| Browser desktop/mobile/boundary | Pass | Pass at 1440 x 960 and exact 390 x 844; no horizontal overflow | Pass / workflow and responsive acceptance | Pass / 1440×960, 390×844, focus/overflow/conflict | Pass / real app 1440×960 and 390×844 Synthetic Select/Detect/Follow/Stop | Pending | Pending |
+| Console unhandled errors | Pass / `[]` | Pass / warnings and errors `[]` | Pass / warnings and errors `[]` | Pass / warnings and errors `[]` | Pass / warning and error logs `[]` | Pending | Pending |
 
 Exact commands, counts, versions, durations, failures/fixes, and skipped items are added
 only after execution. Stage 4 values are the final post-fix root/focused gates. Stage 5
@@ -352,7 +372,10 @@ values are the final post-refactor implementation gates before its dedicated com
   322/680 with container-local overflow; final post-refactor fresh 390×844 tab had no
   desktop-layout residue and a focusable/closable Inspector drawer; focus restoration
   was verified in the preceding pass; all desktop/mobile/conflict consoles `[]`
-- Stage 7 Synthetic Vision/Follow/Target Lost workflow: Pending
+- Stage 7 Synthetic Vision/Follow workflow: Pass — real app at 1440×960 and 390×844
+  completed exact-frame Select, person Detect, Follow, gateway completion, operator Stop,
+  and navigation/unmount lease cleanup; Target Lost/auto-stop passed backend/component
+  automation; browser warning/error logs `[]`
 - Stage 8 blocked Real/session/diagnostic UI workflow: Pending
 - Final combined Dry Run workflow at 1440×960: Pending
 - Final combined workflow at 390×844: Pending
@@ -376,7 +399,7 @@ unrun item with reason, never converted into a pass.
 | Compiled trajectory plan/cache/preview | 1-100 Hz compiler and 5-50 Hz HTTP; 600 s; 20,000 samples; 2,000 segments; 16 cached prepared plans; 1,000 preview points; 0.25-2x; 100 closed-loop traversals | Stage 5 compiler/playback/API/frontend tests pass |
 | Draft/recovery/list | 0-1,000 keyframes; 999 default-edge markers; at most 1,000 trusted Legacy snapshot digests; four MiB/entity; 5,000 root JSON entities; 10,000 scanned entries; 64 MiB aggregate; list page 1-50; compile 5-50 Hz | Stage 6 backend/integration tests and audit evidence |
 | Studio undo/redo | Default 100 documents; defensive configurable cap 500; autosave acknowledgements add no history | Reducer, frontend integration, and browser evidence pass |
-| Vision FPS/resolution/queue/one source/follow | Pending Stage 7 | Pending |
+| Vision FPS/resolution/queue/one source/follow | One Synthetic source; 12 fps/640×360 default; 30 fps/1280×720 max; 4 default/16 max clients; one latest slot; 64 frames + 32 MiB history; 8 MiB/frame; one Follow lease; public TTL 0.25-2 s | Stage 7 backend/component/resource tests and desktop/mobile browser evidence pass |
 | Pose/Motion persistence/list bounds | Four MiB/entity; 5,000 root JSON entities; 10,000 scanned root entries; 64 MiB aggregate; page size 1-50; page 1-100000; search max 200; at most 32 Tag filters; stable UUID tie-break | Final repository/API/root gates and independent audit pass |
 | Motion-creation source list | First 50 Pose summaries by name; full entities fetched and revisions rechecked on submit | Stage 4 frontend tests pass |
 | Legacy import | One explicit file/directory; immediate regular JSON only; four MiB/file; 2,000 scanned entries; 1,000 selected files; 32 MiB aggregate; 1,000 actions/file and 2,000 total; 2-1,000 keyframes/action and 20,000 total; 2,000 report entries | Final importer/root gates and independent audit pass |
@@ -395,16 +418,16 @@ unrun item with reason, never converted into a pass.
 | 3 | `docs/stage-reports/stage-03-kinematics-and-control.md` |
 | 4 | `docs/stage-reports/stage-04-library.md` (GREEN / complete) |
 | 5 | `docs/stage-reports/stage-05-trajectory-and-playback.md` (GREEN / complete) |
-| 6 | `docs/stage-reports/stage-06-studio-timeline.md` (implementation evidence recorded; dedicated commit/push Pending) |
-| 7 | Pending |
+| 6 | `docs/stage-reports/stage-06-studio-timeline.md` (complete in pushed `37783bdf8c01146d3a312980dbe4a25716e5468c`) |
+| 7 | `docs/stage-reports/stage-07-vision-following.md` (implementation/browser/audit GREEN; commit/push Pending) |
 | 8 | Pending |
 
 ## Unresolved items
 
-1. Create and push the Stage 6 dedicated commit without fabricating that commit's
+1. Create and push the Stage 7 dedicated commit without fabricating that commit's
    self-SHA inside its own contents.
-2. Execute Stages 7-8 in order without pre-building out-of-scope behavior.
-3. Append later route/schema/resource inventories only from exact executed results and
+2. Execute Stage 8 without pre-building out-of-scope behavior.
+3. Append Stage 8 route/schema/resource inventories only from exact executed results and
    completed Stages.
 4. Repeat dependency/license/vulnerability review for later additions and final release.
 5. Run later and final browser/error workflows without unauthorized hardware/camera access.
@@ -420,7 +443,9 @@ unrun item with reason, never converted into a pass.
 - Stage 4 remote branch: `origin/codex/v1-autonomous-completion` (pushed)
 - Stage 5 remote tip: `114f2a579df236b4824b23c9a0aae320a83a9a07`
 - Stage 5 remote branch: `origin/codex/v1-autonomous-completion` (pushed)
-- Final worktree status: Pending; Stage 6 changes are intentionally uncommitted during
+- Stage 6 remote tip: `37783bdf8c01146d3a312980dbe4a25716e5468c`
+- Stage 6 remote branch: `origin/codex/v1-autonomous-completion` (pushed)
+- Final worktree status: Pending; Stage 7 changes are intentionally uncommitted during
   implementation
 - Final commit: Pending
 - Six Stage commits present: Pending
@@ -442,7 +467,11 @@ final independent audit P1=0/P2=0 keep Draft compile non-executable and persiste
 Goto on the Dry Run/Fake gateway path. Goto read/recovery/check/submit is linearized
 against autosave, and the God-Object findings are closed by bounded backend collaborators
 and composed frontend sessions. The final response must still include the exact user-required statement
-after later Stages and final isolation verification; a Stage pass does not imply a later
+after later Stages and final isolation verification. Stage 7's 432-test backend gate,
+focused 34-test Vision core/Follow/API selection, 190-test frontend gate, focused 16-test
+Vision selection, desktop/mobile browser evidence, and independent audit P1=0/P2=0 used
+only Synthetic/Dry Run/Fake paths. OpenCV is absent, no camera was opened/enumerated,
+and all Vision motion entered the shared safety gateway. A Stage pass does not imply a later
 or final pass.
 
 The autonomous task must stop and report if a test opens a serial port or camera, a

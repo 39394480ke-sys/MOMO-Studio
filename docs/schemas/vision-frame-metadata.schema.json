@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "description": "Identity, time, source, and explicit dimensions for one captured frame.",
+  "properties": {
+    "captured_at": {
+      "format": "date-time",
+      "title": "Captured At",
+      "type": "string"
+    },
+    "frame_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "title": "Frame Id",
+      "type": "string"
+    },
+    "height_px": {
+      "maximum": 4096,
+      "minimum": 1,
+      "title": "Height Px",
+      "type": "integer"
+    },
+    "source_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "width_px": {
+      "maximum": 4096,
+      "minimum": 1,
+      "title": "Width Px",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "frame_id",
+    "source_id",
+    "captured_at",
+    "width_px",
+    "height_px"
+  ],
+  "title": "FrameMetadata",
+  "type": "object"
+}

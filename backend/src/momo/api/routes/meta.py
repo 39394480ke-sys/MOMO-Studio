@@ -63,6 +63,12 @@ def product_scope(settings: SettingsDependency) -> ProductScopeResponse:
             "compiler-backed draft validation and bounded non-executable preview",
             "formal Motion Save and Save As after successful Dry Run preflight",
         ],
+        stage_7_available=[
+            "deterministic bounded Synthetic vision frames without camera access",
+            "normalized manual target selection and honest provider capabilities",
+            "person and face detection against the Synthetic fixture",
+            "lease-bound Dry Run Follow through the Motion Safety Gateway",
+        ],
         included_in_first_version=[
             "single active MOMO V1 or V2 robot",
             "joint and Cartesian control",

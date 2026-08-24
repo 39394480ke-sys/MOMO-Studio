@@ -57,6 +57,38 @@ locked-runtime `pip-audit` reported no known vulnerabilities, and the frontend p
 audit reported zero vulnerabilities. These checks do not replace distribution-time
 license-file collection or vulnerability review.
 
+### Stage 7 optional Vision providers
+
+Stage 7 adds a project-written optional OpenCV camera adapter shell and unavailable
+capability descriptions; it does **not** add `opencv-python`, `opencv-contrib-python`,
+`cv2`, or another OpenCV distribution to `backend/pyproject.toml` or `backend/uv.lock`.
+The normal composition does not import OpenCV. The optional factory checks the complete
+camera grant before a lazy import, and construction does not open a device. No camera
+was opened or enumerated during implementation or verification.
+
+The capability ledger mentions an optional OpenCV live tracker, built-in HOG person
+detector, and Haar-based face detector. All are unavailable in the Stage 7 composition.
+No executable detector/tracker implementation, HOG people-detector coefficients, Haar
+cascade file, model weight, binary, or external asset was copied, vendored, installed,
+or downloaded by this Stage. A capability name is not a provenance or redistribution
+approval.
+
+Before any OpenCV provider is distributed or activated, record and review:
+
+1. the exact selected package, version/build, canonical source, license files, bundled
+   third-party notices, native/transitive components, and platform wheels;
+2. the exact tracker algorithm/module and any patent or build-configuration constraints;
+3. the origin, author/copyright, license, version, and checksum of the HOG default people
+   detector data/implementation used by the selected build;
+4. the exact Haar cascade filename/path, original upstream source, author/copyright,
+   license, version, checksum, attribution, and redistribution terms; and
+5. camera/device behavior and field verification separate from software licensing.
+
+The available Synthetic person/face detectors and tracker are MOMO Studio deterministic
+scene fixtures written for repository tests and browser acceptance. They contain no
+third-party weights or training data and must not be represented as a general-purpose
+learned model.
+
 ## Project-generated design reference
 
 `docs/design/stage-01-shell-concept.png` was generated specifically for this repository on 2026-08-23 with OpenAI's built-in image-generation tool from a MOMO Studio Stage 1 UI brief. It used no Legacy image, robot asset, logo, screenshot or other third-party reference input. The file is design evidence only and is not rendered by the product.

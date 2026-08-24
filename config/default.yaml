@@ -5,6 +5,8 @@ real_motion_enabled: false
 serial_port: ""
 active_robot_variant: V2
 hardware_access: disabled
+camera_access_policy: synthetic_only
+live_camera_device_id: ""
 runtime_state_directory: data/runtime/robots
 profile_directory: robot_profiles
 calibration_directory: calibration/examples
@@ -15,3 +17,8 @@ motion_draft_directory: data/drafts
 motion_update_hz: 25.0
 jog_lease_ttl_ms: 400
 robot_state_freshness_limit_s: 5.0
+vision_source_id: synthetic-stage7
+vision_frame_width_px: 640
+vision_frame_height_px: 360
+vision_max_fps: 12.0
+vision_max_stream_clients: 4

@@ -11,6 +11,7 @@ from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.application.services.studio_service import StudioApplicationService
 from momo.application.services.trajectory_service import TrajectoryApplicationService
+from momo.application.services.vision_service import VisionApplicationService
 from momo.settings import Settings
 
 
@@ -44,3 +45,7 @@ def get_trajectory_service(request: Request) -> TrajectoryApplicationService:
 
 def get_studio_service(request: Request) -> StudioApplicationService:
     return cast(StudioApplicationService, request.app.state.studio_service)
+
+
+def get_vision_service(request: Request) -> VisionApplicationService:
+    return cast(VisionApplicationService, request.app.state.vision_service)

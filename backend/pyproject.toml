@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "momo-studio-backend"
 version = "0.1.0"
-description = "Stage 4 Dry Run control and Pose/Motion Library for MOMO Studio"
+description = "Stage 7 Dry Run Studio with safe Synthetic vision following"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",

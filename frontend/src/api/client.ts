@@ -61,6 +61,15 @@ import type {
   UpdateMotionDraftRequest,
   UpdateMotionRequest,
   UpdatePoseRequest,
+  CameraAccessPolicy,
+  NormalizedBoundingBox,
+  StartVisionFollowRequest,
+  VisionCapabilities,
+  VisionDetectionResponse,
+  VisionFollowLeaseResponse,
+  VisionProviderCapability,
+  VisionStatus,
+  VisionTrackingState,
 } from './types';
 
 const COMMAND_STATES = new Set<MotionCommandState>([
@@ -130,6 +139,12 @@ function signedFiniteNumber(value: unknown, field: string): number {
     throw new TypeError(`Backend returned an invalid ${field}`);
   }
   return value;
+}
+
+function unitIntervalNumber(value: unknown, field: string): number {
+  const numeric = finiteNumber(value, field);
+  if (numeric > 1) throw new TypeError(`Backend returned an invalid ${field}`);
+  return numeric;
 }
 
 function integerValue(value: unknown, field: string, minimum = 0): number {
@@ -944,5 +959,262 @@ export async function gotoMotionDraftKeyframe(
   return normalizeSubmission(await postJson<unknown>(
     `${studioDraftPath(draftId)}/keyframes/${encodeURIComponent(keyframeId)}/goto`,
     request,
+  ));
+}
+
+function cameraAccessPolicy(value: unknown): CameraAccessPolicy {
+  if (value !== 'DISABLED' && value !== 'SYNTHETIC_ONLY' && value !== 'LIVE_CAMERA_ALLOWED') {
+    throw new TypeError('Backend returned an invalid camera access policy');
+  }
+  return value;
+}
+
+function normalizedBoundingBox(value: unknown, field: string): NormalizedBoundingBox {
+  if (!isRecord(value)) throw new TypeError(`Backend returned an invalid ${field}`);
+  const x = signedFiniteNumber(value.x, `${field} x`);
+  const y = signedFiniteNumber(value.y, `${field} y`);
+  const width = finiteNumber(value.width, `${field} width`);
+  const height = finiteNumber(value.height, `${field} height`);
+  if (width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > 1 || y + height > 1) {
+    throw new TypeError(`Backend returned an out-of-range ${field}`);
+  }
+  return { x, y, width, height };
+}
+
+function visionCapability(value: unknown, field: string): VisionProviderCapability {
+  if (!isRecord(value)) throw new TypeError(`Backend returned an invalid ${field}`);
+  const providerId = stringValue(value.provider_id);
+  const kind = stringValue(value.kind);
+  const modelSource = stringValue(value.model_source);
+  const notice = stringValue(value.notice);
+  if (
+    !providerId || !kind || !modelSource || !notice ||
+    typeof value.available !== 'boolean' || typeof value.active !== 'boolean' ||
+    (!value.available && value.active)
+  ) {
+    throw new TypeError(`Backend returned an invalid ${field}`);
+  }
+  return {
+    provider_id: providerId,
+    kind,
+    available: value.available,
+    active: value.active,
+    model_source: modelSource,
+    notice,
+    reason: optionalString(value.reason, `${field} reason`) ?? null,
+  };
+}
+
+export function normalizeVisionCapabilities(value: unknown): VisionCapabilities {
+  if (!isRecord(value) || value.real_follow_allowed !== false) {
+    throw new TypeError('Backend returned invalid Vision capabilities');
+  }
+  const blockedReason = stringValue(value.real_follow_blocked_reason);
+  if (!blockedReason) throw new TypeError('Vision capabilities omitted the Real Follow block');
+  return {
+    camera_access_policy: cameraAccessPolicy(value.camera_access_policy),
+    source: visionCapability(value.source, 'Vision source capability'),
+    trackers: boundedArray(value.trackers, 'Vision tracker capabilities', 16).map(
+      (item, index) => visionCapability(item, `Vision tracker capability ${index}`),
+    ),
+    detectors: boundedArray(value.detectors, 'Vision detector capabilities', 16).map(
+      (item, index) => visionCapability(item, `Vision detector capability ${index}`),
+    ),
+    stream: visionCapability(value.stream, 'Vision stream capability'),
+    real_follow_allowed: false,
+    real_follow_blocked_reason: blockedReason,
+  };
+}
+
+export function normalizeVisionStatus(value: unknown): VisionStatus {
+  if (!isRecord(value) || !isRecord(value.follow) || value.dry_run !== true) {
+    throw new TypeError('Backend returned an invalid Vision status');
+  }
+  const sourceState = stringValue(value.source_state);
+  const robotState = stringValue(value.robot_state);
+  const blockedReason = stringValue(value.real_follow_blocked_reason);
+  if (!sourceState || !robotState || !blockedReason) {
+    throw new TypeError('Backend returned an incomplete Vision status');
+  }
+  const frame = value.latest_frame;
+  let latestFrame: VisionStatus['latest_frame'] = null;
+  if (frame !== null) {
+    if (!isRecord(frame)) throw new TypeError('Backend returned invalid Vision frame metadata');
+    const frameId = stringValue(frame.frame_id);
+    const capturedAt = stringValue(frame.captured_at);
+    const sourceId = stringValue(frame.source_id);
+    if (!frameId || !capturedAt || !sourceId) {
+      throw new TypeError('Backend returned incomplete Vision frame metadata');
+    }
+    const widthPx = integerValue(frame.width_px, 'Vision frame width', 1);
+    const heightPx = integerValue(frame.height_px, 'Vision frame height', 1);
+    if (widthPx > 4096 || heightPx > 4096 || widthPx * heightPx > 1920 * 1080) {
+      throw new TypeError('Backend returned oversized Vision frame metadata');
+    }
+    latestFrame = {
+      frame_id: frameId,
+      width_px: widthPx,
+      height_px: heightPx,
+      captured_at: capturedAt,
+      source_id: sourceId,
+      age_ms: finiteNumber(frame.age_ms, 'Vision frame age'),
+    };
+  }
+  const selection = value.selection;
+  let parsedSelection: VisionStatus['selection'] = null;
+  if (selection !== null) {
+    if (!isRecord(selection) || !stringValue(selection.frame_id)) {
+      throw new TypeError('Backend returned an invalid Vision selection');
+    }
+    parsedSelection = {
+      frame_id: String(selection.frame_id),
+      bounding_box: normalizedBoundingBox(selection.bounding_box, 'Vision selection box'),
+    };
+  }
+  const tracking = value.tracking;
+  let parsedTracking: VisionStatus['tracking'] = null;
+  if (tracking !== null) {
+    if (!isRecord(tracking)) throw new TypeError('Backend returned an invalid tracking result');
+    const frameId = stringValue(tracking.frame_id);
+    const sourceId = stringValue(tracking.source_id);
+    const capturedAt = stringValue(tracking.captured_at);
+    const trackingStatus = stringValue(tracking.status);
+    if (
+      !frameId || !sourceId || !capturedAt ||
+      !trackingStatus || !['LOCKED', 'LOST', 'STALE', 'FAULTED'].includes(trackingStatus)
+    ) {
+      throw new TypeError('Backend returned an invalid tracking result');
+    }
+    const trackingBox = tracking.bounding_box === null
+      ? null
+      : normalizedBoundingBox(tracking.bounding_box, 'tracking box');
+    if ((trackingStatus === 'LOCKED') !== (trackingBox !== null)) {
+      throw new TypeError('Backend returned an incoherent tracking box');
+    }
+    parsedTracking = {
+      frame_id: frameId,
+      source_id: sourceId,
+      captured_at: capturedAt,
+      bounding_box: trackingBox,
+      confidence: unitIntervalNumber(tracking.confidence, 'tracking confidence'),
+      status: trackingStatus as VisionTrackingState,
+      error: optionalString(tracking.error, 'tracking error') ?? null,
+    };
+  }
+  const follow = value.follow;
+  if (typeof follow.active !== 'boolean') throw new TypeError('Backend returned invalid follow state');
+  const followLeaseId = optionalString(follow.lease_id, 'follow lease id') ?? null;
+  const followExpiresAt = optionalString(follow.expires_at, 'follow expiry') ?? null;
+  if (follow.active && (!followLeaseId || !followExpiresAt)) {
+    throw new TypeError('Backend returned an active Follow without a lease');
+  }
+  return {
+    camera_access_policy: cameraAccessPolicy(value.camera_access_policy),
+    source_state: sourceState,
+    latest_frame: latestFrame,
+    selection: parsedSelection,
+    tracking: parsedTracking,
+    follow: {
+      active: follow.active,
+      lease_id: followLeaseId,
+      expires_at: followExpiresAt,
+      stop_reason: optionalString(follow.stop_reason, 'follow stop reason') ?? null,
+      error_x: optionalSignedNumber(follow.error_x, 'follow x error') ?? null,
+      error_y: optionalSignedNumber(follow.error_y, 'follow y error') ?? null,
+      ema_error_x: optionalSignedNumber(follow.ema_error_x, 'follow EMA x error') ?? null,
+      ema_error_y: optionalSignedNumber(follow.ema_error_y, 'follow EMA y error') ?? null,
+      last_command_id: optionalString(follow.last_command_id, 'follow command id') ?? null,
+    },
+    robot_state: robotState,
+    dry_run: true,
+    real_follow_blocked_reason: blockedReason,
+  };
+}
+
+function normalizeVisionFollowLease(value: unknown): VisionFollowLeaseResponse {
+  if (!isRecord(value)) throw new TypeError('Backend returned an invalid Follow lease');
+  const leaseId = stringValue(value.lease_id);
+  const expiresAt = stringValue(value.expires_at);
+  if (!leaseId || !expiresAt) throw new TypeError('Backend returned an incomplete Follow lease');
+  return { lease_id: leaseId, expires_at: expiresAt, status: normalizeVisionStatus(value.status) };
+}
+
+export const visionFrameUrl = `${API_BASE_URL}/vision/frame`;
+export const visionStreamUrl = `${API_BASE_URL}/vision/stream`;
+
+export async function getVisionCapabilities(signal?: AbortSignal): Promise<VisionCapabilities> {
+  return normalizeVisionCapabilities(await requestJson<unknown>('/vision/capabilities', { signal }));
+}
+
+export async function getVisionStatus(signal?: AbortSignal): Promise<VisionStatus> {
+  return normalizeVisionStatus(await requestJson<unknown>('/vision/status', { signal }));
+}
+
+export async function selectVisionTarget(
+  frameId: string,
+  boundingBox: NormalizedBoundingBox,
+): Promise<VisionStatus> {
+  return normalizeVisionStatus(await postJson<unknown>('/vision/selection', {
+    frame_id: frameId,
+    bounding_box: boundingBox,
+  }));
+}
+
+export async function clearVisionTarget(): Promise<VisionStatus> {
+  return normalizeVisionStatus(await requestJson<unknown>('/vision/selection', { method: 'DELETE' }));
+}
+
+export async function detectVisionTarget(
+  detector: 'person' | 'face',
+  frameId: string,
+): Promise<VisionDetectionResponse> {
+  const value = await postJson<unknown>(`/vision/detect/${detector}`, { frame_id: frameId });
+  if (!isRecord(value)) throw new TypeError('Backend returned an invalid detection response');
+  return {
+    capability: visionCapability(value.capability, `${detector} detector capability`),
+    detections: boundedArray(value.detections, `${detector} detections`, 100).map((item, index) => {
+      if (!isRecord(item)) throw new TypeError(`Backend returned invalid detection ${index}`);
+      const detectionId = stringValue(item.detection_id);
+      const detectionFrameId = stringValue(item.frame_id);
+      const sourceId = stringValue(item.source_id);
+      const capturedAt = stringValue(item.captured_at);
+      const label = stringValue(item.label);
+      if (!detectionId || !detectionFrameId || !sourceId || !capturedAt || !label) {
+        throw new TypeError(`Backend returned incomplete detection ${index}`);
+      }
+      return {
+        detection_id: detectionId,
+        frame_id: detectionFrameId,
+        source_id: sourceId,
+        captured_at: capturedAt,
+        bounding_box: normalizedBoundingBox(item.bounding_box, `detection ${index} box`),
+        confidence: unitIntervalNumber(item.confidence, `detection ${index} confidence`),
+        label,
+      };
+    }),
+  };
+}
+
+export async function resetVisionTracking(): Promise<VisionStatus> {
+  return normalizeVisionStatus(await postJson<unknown>('/vision/tracking/reset', {}));
+}
+
+export async function startVisionFollow(
+  request: StartVisionFollowRequest,
+): Promise<VisionFollowLeaseResponse> {
+  return normalizeVisionFollowLease(await postJson<unknown>('/vision/follow/start', request));
+}
+
+export async function heartbeatVisionFollow(leaseId: string): Promise<VisionFollowLeaseResponse> {
+  return normalizeVisionFollowLease(await postJson<unknown>(
+    `/vision/follow/${encodeURIComponent(leaseId)}/heartbeat`,
+    {},
+  ));
+}
+
+export async function stopVisionFollow(leaseId: string): Promise<VisionStatus> {
+  return normalizeVisionStatus(await postJson<unknown>(
+    `/vision/follow/${encodeURIComponent(leaseId)}/stop`,
+    {},
   ));
 }
