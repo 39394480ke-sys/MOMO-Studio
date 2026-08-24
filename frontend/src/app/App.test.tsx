@@ -19,7 +19,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('MOMO Studio Stage 5 shell', () => {
+describe('MOMO Studio Stage 6 shell', () => {
   it.each([
     ['/control', 'Control'],
     ['/studio', 'Studio'],
@@ -30,16 +30,17 @@ describe('MOMO Studio Stage 5 shell', () => {
     mockStage3Backend();
     renderRoute(path);
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeVisible();
-    expect(screen.getByText(/Stage 5\s*·\s*Trajectory & Playback/)).toBeVisible();
+    expect(screen.getByText(/Stage 6\s*·\s*Studio Timeline Authoring/)).toBeVisible();
   });
 
-  it('keeps Studio authoring truthfully gated while Library is active', async () => {
+  it('opens the active Studio timeline authoring workspace', async () => {
     mockStage3Backend();
     const view = renderRoute('/library');
     expect(await screen.findByText(/Stage 5 · Compiled Dry Run playback/)).toBeVisible();
     view.unmount();
     renderRoute('/studio');
-    expect(await screen.findByText(/scheduled for Stage 6/)).toBeVisible();
+    expect(await screen.findByText('Blank Motion draft')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Capture current/ })).toBeVisible();
   });
 
   it('switches to V1 in Settings and exposes exactly the enabled joint set', async () => {

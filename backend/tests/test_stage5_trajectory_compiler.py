@@ -898,7 +898,7 @@ def test_preflight_binding_and_readiness_mismatches_fail_closed(
             stop_capable=case != "stop",
             control_mode=ControlMode.REAL if case == "control_mode" else ControlMode.DRY_RUN,
             source=(
-                MotionCommandSource.STUDIO if case == "source" else MotionCommandSource.LIBRARY
+                MotionCommandSource.CONTROL if case == "source" else MotionCommandSource.LIBRARY
             ),
             real_readiness=(
                 RealReadiness.READY

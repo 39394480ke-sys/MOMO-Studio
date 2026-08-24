@@ -11,6 +11,7 @@ calibration_directory: calibration/examples
 kinematics_model_directory: kinematics_models
 pose_directory: data/poses
 motion_library_directory: data/motions
+motion_draft_directory: data/drafts
 motion_update_hz: 25.0
 jog_lease_ttl_ms: 400
 robot_state_freshness_limit_s: 5.0

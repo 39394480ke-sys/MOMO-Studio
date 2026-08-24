@@ -12,7 +12,7 @@ import threading
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Generic, Protocol, TypeVar, cast
+from typing import Any, Generic, Protocol, TypeVar, cast
 from uuid import UUID
 
 from jsonschema import Draft202012Validator
@@ -59,11 +59,18 @@ class AtomicJsonEntityRepository(Generic[EntityT]):
     reconstructed by its Pydantic domain model.
     """
 
-    def __init__(self, directory: Path, model: type[EntityT], clock: Clock) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        model: type[EntityT],
+        clock: Clock,
+        *,
+        json_schema: dict[str, Any] | None = None,
+    ) -> None:
         self.directory = directory.resolve()
         self.quarantine_directory = self.directory / "quarantine"
         self.model = model
-        schema = model.model_json_schema(mode="serialization")
+        schema = json_schema or model.model_json_schema(mode="serialization")
         Draft202012Validator.check_schema(schema)
         self._validator = Draft202012Validator(schema)
         self.clock = clock

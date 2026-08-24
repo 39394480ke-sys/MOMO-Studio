@@ -4,7 +4,7 @@
 
 `RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases.
 `ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability
-gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 5 continues to permit only
+gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 6 continues to permit only
 `DRY_RUN` plus `DISABLED`; the other enum members reserve vocabulary and grant no
 current capability.
 
@@ -179,8 +179,10 @@ accepted execution samples, and Stop events.
 Stage 3 defines one command vocabulary for Joint Move, Joint Jog, Home, Cartesian Jog,
 and Move Pose. Stage 4 admits exactly one Library movement intent: Goto is a
 `LIBRARY`-source `MOVE_JOINTS` command after persisted-snapshot compatibility checks.
-Playback, Studio, and Vision sources remain reserved. An
-immutable command carries a unique command ID, source, robot identity, expected state
+Stage 5 adds digest-bound Playback ownership. Stage 6 admits one Studio movement intent:
+persisted-keyframe Goto becomes a `STUDIO`-source `MOVE_JOINTS` command after Draft
+revision and snapshot compatibility checks. Vision remains reserved. An immutable
+command carries a unique command ID, source, robot identity, expected state
 sequence, Profile and Kinematics fingerprints, explicit unit-bearing target or delta,
 timing intent, and idempotency identity. Clients cannot select a concrete executor or
 driver.
@@ -236,12 +238,69 @@ A `MotionKeyframe` embeds a complete `PoseSnapshot`; optional `source_pose_id` i
 provenance only. `Motion` owns those copies, so editing or deleting a source Pose cannot
 alter playback data. A formal Motion contains at least two keyframes; its first
 keyframe has no incoming transition and every later keyframe has one. Stage 4 preserves
-those playable invariants rather than introducing an incomplete editing shape; Stage 6
-will use a separate `MotionDraft`. Motion schema `2.0.0` may carry typed, bounded
+those playable invariants rather than introducing an incomplete editing shape. Stage 6
+uses a separate `MotionDraft`. Motion schema `2.0.0` may carry typed, bounded
 `LegacyImportMetadata` for importer-owned provenance; Library API clients cannot set it.
 Stage 3 Move Pose remains an explicit transient TCP target. Stage 4 adds storage and
 Library workflows. Stage 5 compiles stored Motion revisions and plays only accepted
 prepared plans.
+
+## MotionDraft and editor contracts
+
+`MotionDraft` schema `1.0.0` is recoverable authoring state, never a weakened Motion. It
+contains its own UUID/revision/timestamps, optional coherent source Motion UUID/revision,
+name/description/variant, zero to 1,000 embedded keyframes, playback defaults, tags,
+bounded `MotionDraftEditorMetadata`, optional typed server-owned `source_metadata`, a
+bounded server-owned `trusted_legacy_snapshot_sha256` registry, and an optional
+`MotionDraftSaveIntent`. Zero or one keyframe is valid Draft state but cannot convert to
+a formal Motion.
+
+Draft keyframes retain the formal snapshot, variant, fingerprint, explicit-unit,
+unique-ID, and transition-shape invariants. The first keyframe has no incoming
+transition; every later keyframe has one. `source_pose_id` remains provenance only.
+Editor metadata contains bounded selection/playhead/zoom/scroll values plus exact
+`MotionDraftDefaultEdge(from_keyframe_id, to_keyframe_id)` values. Each default marker
+must identify a current directed adjacency whose target transition is exactly one-second
+Joint Smoothstep.
+
+Opening an imported Motion seeds the trust registry with canonical SHA-256 identities
+for its exact snapshots whose source state sequence is unavailable. Canonical sorted-key,
+compact JSON makes mapping insertion order irrelevant while covering every snapshot
+field and rejecting non-finite numbers. Reorder, duplicate, delete/autosave, and Undo
+restoration of a trusted snapshot remain valid; replacement or fabrication does not.
+API clients cannot set either server-owned provenance field, and autosave, recovery,
+rebind, abandon, and conflict fork preserve them.
+
+The frontend reducer owns segment settings as explicit directed edges. Reorder preserves
+an edge only if the exact source-to-target adjacency survives; newly formed adjacencies
+receive the explicit editor default, including a former first keyframe moved later.
+Conversion to Motion attaches edges to target `incoming_transition` values only after
+the ordered adjacency is known. Undo/Redo is bounded; autosave acknowledgements do not
+become edit-history entries.
+
+Draft validation and compilation remain backend operations. A compile candidate passes
+through the Stage 5 compiler but returns `executable=false`, is not cached for playback,
+and cannot be dispatched. Only a separately persisted formal Motion revision can enter
+the normal preflight/digest/playback path.
+
+`MotionDraftSaveIntent` is a write-ahead cross-repository reconciliation marker. It
+binds operation kind, operation UUID, target Motion UUID/revision/name/creation time,
+expected source revision, and start time. Save first advances the Draft with the marker,
+then persists the formal Motion through the Library revision lease, then advances the
+Draft again to bind the source and clear the marker. Recovery semantically matches the
+target; it never creates a duplicate automatically or adopts a later revision for
+overwrite. For a known-source Save, an advanced target binds the known UUID while
+retaining the intended stale source revision so the next Save conflicts. For a fresh
+Save or Save As, an advanced or semantically mismatched target cannot be proven and the
+marker remains fail-closed. Semantic identity includes typed source metadata.
+
+A retained marker can be released only by an exact operator request containing the
+current Draft revision, the marker operation UUID, and the literal confirmation. The
+raw Draft CAS clears only that marker and never creates, updates, adopts, or deletes a
+Motion. Every Studio revision conflict carries bounded `MotionDraft` or `Motion` entity
+scope; missing/unknown scope fails closed. Conflict Save As first captures the local
+document, loads the authoritative Draft, exact-revision forks the server-owned entity,
+PUTs the captured local content onto that fork, then rebinds and saves a fresh Motion.
 
 ## Trajectory, preflight, and playback
 
@@ -278,10 +337,15 @@ specified in `docs/trajectory-semantics.md`. All Stage 5 results remain
 
 ## Entity repositories and revisions
 
-Pose and Motion persist independently under UUID filenames. Every read validates the
-generated JSON Schema, Pydantic model, and filename/document UUID equality. Every create
-starts at revision 1. An update or delete carries `expected_revision`; an update advances
-exactly once, and stale revisions return a structured conflict rather than overwriting.
+Pose, Motion, and MotionDraft persist independently under UUID filenames and disjoint
+server-owned roots. Every read validates the generated JSON Schema, Pydantic model, and
+filename/document UUID equality. Every create starts at revision 1. An update or delete
+carries `expected_revision`; an ordinary update advances exactly once, and stale
+revisions return a structured conflict rather than overwriting. A successful formal
+Draft save advances twice—intent then rebind—because both durable states are explicit.
+A provenance-preserving fork takes only the exact authoritative Draft revision, clones
+it under a fresh UUID at revision 1 with any formal-save marker cleared, and leaves the
+original untouched.
 Duplicate display names are valid because identity is the UUID.
 
 Storage writes a bounded JSON payload to a temporary sibling, flushes and `fsync`s the
@@ -293,11 +357,27 @@ regular-entity bytes, and four MiB per entity; overflow raises a structured capa
 error instead of a partial result. The repository lock protects a single backend
 process/repository instance only.
 
+The MotionDraft recovery schema is stricter than an API create schema: every serialized
+field is required recursively, including defaulted fields, server-owned provenance/trust,
+and nested keyframe/edge/save-intent identities. Recovery never reconstructs omitted
+past state from current defaults.
+Configured runtime/Profile/Calibration/Kinematics/Pose/Motion/Draft roots are validated
+as pairwise disjoint before repository construction, including equal, nested,
+resolved/symlink, NFC-Unicode-normalized, and case-folded aliases.
+
 Goto loads an immutable Pose, requires the expected entity revision, and compares
 variant, exact enabled-joint/unit set, Profile fingerprint, Kinematics fingerprint, and
 joint-state validity against the active robot. Only then does it create a Joint Motion
 for the normal Motion application service and gateway. A repository cannot dispatch an
 executor or driver.
+
+Studio Goto applies the same pattern to a Draft/keyframe pair. It requires the expected
+persisted Draft revision, reloads the embedded keyframe snapshot, validates variant,
+exact joint/unit membership, Profile/Kinematics fingerprints, and joint state, then
+submits `STUDIO` + `MOVE_JOINTS` through the normal motion service and safety gateway.
+The browser does not supply the Joint target. The Studio mutation lock linearizes Draft
+recovery, revision/keyframe checks, and command submission against autosave, so the
+checked persisted frame cannot be replaced inside the check-to-submit interval.
 
 Nested lists/maps are frozen using JSON-serializable immutable containers. JSON round trips preserve meaning and do not expose `mappingproxy` or another non-serializable type.
 
@@ -317,3 +397,9 @@ an explicit reviewed migration path. The exact decision is recorded in ADR 0011.
 4 round-trip and compatibility tests pass, and two consecutive generated Pose/Motion
 schema artifacts were byte-identical; their exact SHA-256 values are recorded in the
 Stage report.
+
+Stage 6 adds MotionDraft schema `1.0.0` without modifying Motion schema `2.0.0`. Its
+generated artifact is `docs/schemas/motion-draft.schema.json`. Round-trip, corrupt-file,
+missing nested identity, and schema-current tests are included in the current 393-test
+backend pass. Two fresh temporary generations were byte-identical, and a final generated
+temporary tree matched the tracked schema artifacts.

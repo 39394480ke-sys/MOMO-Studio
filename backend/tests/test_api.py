@@ -52,7 +52,7 @@ def test_health_api_is_dry_run_and_real_motion_is_disabled() -> None:
         "status": "ok",
         "product": "MOMO Studio",
         "version": "0.1.0",
-        "stage": 5,
+        "stage": 6,
         "control_mode": "DRY_RUN",
         "hardware_access_policy": "DISABLED",
         "real_motion_enabled": False,
@@ -70,12 +70,16 @@ def test_meta_and_product_scope_apis() -> None:
     scope_response = get(app, "/api/v1/meta/product-scope")
     assert scope_response.status_code == 200
     scope = scope_response.json()
-    assert scope["stage"] == 5
+    assert scope["stage"] == 6
     assert "mesh-free FK and IK" in scope["stage_3_available"]
     assert "coherent FK-backed Pose capture" in scope["stage_4_available"]
     assert (
         "whole-plan preflight with immutable digest-bound prepared trajectories"
         in scope["stage_5_available"]
+    )
+    assert (
+        "atomic recoverable MotionDraft autosave with revision conflicts"
+        in scope["stage_6_available"]
     )
     assert scope["release"] == "first_version"
     assert "single active MOMO V1 or V2 robot" in scope["included_in_first_version"]
@@ -125,6 +129,17 @@ def test_stage_three_exposes_reviewed_motion_api_and_read_only_websocket() -> No
         "/api/v1/robot/profile": frozenset({"get"}),
         "/api/v1/robot/stop": frozenset({"post"}),
         "/api/v1/robot/variant": frozenset({"put"}),
+        "/api/v1/studio/capture": frozenset({"post"}),
+        "/api/v1/studio/drafts": frozenset({"get", "post"}),
+        "/api/v1/studio/drafts/from-motion/{motion_id}": frozenset({"post"}),
+        "/api/v1/studio/drafts/{draft_id}": frozenset({"get", "put", "delete"}),
+        "/api/v1/studio/drafts/{draft_id}/compile": frozenset({"post"}),
+        "/api/v1/studio/drafts/{draft_id}/fork": frozenset({"post"}),
+        "/api/v1/studio/drafts/{draft_id}/keyframes/{keyframe_id}/goto": frozenset({"post"}),
+        "/api/v1/studio/drafts/{draft_id}/save": frozenset({"post"}),
+        "/api/v1/studio/drafts/{draft_id}/save-as": frozenset({"post"}),
+        "/api/v1/studio/drafts/{draft_id}/save-intent/abandon": frozenset({"post"}),
+        "/api/v1/studio/drafts/{draft_id}/validate": frozenset({"post"}),
         "/api/v1/trajectory/{digest}/preview": frozenset({"get"}),
     }
 

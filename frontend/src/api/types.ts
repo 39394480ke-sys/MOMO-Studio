@@ -283,6 +283,15 @@ export interface MotionPlaybackDefaults {
   speed_multiplier: number;
 }
 
+export interface LegacyImportMetadata {
+  importer: 'momo.tools.import_legacy_actions';
+  source_file_name: string;
+  source_sha256: string;
+  legacy_id: string | null;
+  legacy_source: string | null;
+  warnings: string[];
+}
+
 export interface MotionSummary {
   id: string;
   name: string;
@@ -301,6 +310,146 @@ export interface MotionEntity extends Omit<MotionSummary, 'keyframe_count' | 'to
   schema_version: '2.0.0';
   keyframes: MotionKeyframe[];
   playback_defaults: MotionPlaybackDefaults;
+  /** Importer-owned sanitized provenance; clients must never submit it. */
+  source_metadata: LegacyImportMetadata | null;
+}
+
+export interface MotionDraftEditorMetadata {
+  selected_keyframe_id: string | null;
+  playhead_s: number;
+  timeline_zoom: number;
+  timeline_scroll_s: number;
+  default_edges: Array<{
+    from_keyframe_id: string;
+    to_keyframe_id: string;
+  }>;
+}
+
+export interface MotionDraftSaveIntent {
+  operation_id: string;
+  kind: 'SAVE' | 'SAVE_AS';
+  target_motion_id: string;
+  target_motion_revision: number;
+  expected_motion_revision: number | null;
+  target_name: string;
+  target_motion_created_at: string;
+  started_at: string;
+}
+
+export interface MotionDraft {
+  schema_version: '1.0.0';
+  id: string;
+  source_motion_id: string | null;
+  source_motion_revision: number | null;
+  name: string;
+  description: string;
+  robot_variant: RobotVariant;
+  keyframes: MotionKeyframe[];
+  playback_defaults: MotionPlaybackDefaults;
+  tags: string[];
+  /** Importer-owned sanitized provenance; clients must never submit it. */
+  source_metadata: LegacyImportMetadata | null;
+  /** Backend-owned trust registry for embedded Legacy snapshots; clients must never submit it. */
+  trusted_legacy_snapshot_sha256: string[];
+  editor_metadata: MotionDraftEditorMetadata;
+  /** Backend-owned write-ahead recovery marker; clients must never submit it. */
+  save_intent: MotionDraftSaveIntent | null;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MotionDraftSummary {
+  id: string;
+  source_motion_id: string | null;
+  source_motion_revision: number | null;
+  name: string;
+  robot_variant: RobotVariant;
+  keyframe_count: number;
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+
+export interface CreateMotionDraftRequest {
+  name: string;
+  description?: string;
+  robot_variant: RobotVariant;
+  keyframes?: MotionKeyframe[];
+  playback_defaults?: MotionPlaybackDefaults;
+  tags?: string[];
+  editor_metadata?: MotionDraftEditorMetadata;
+}
+
+export interface UpdateMotionDraftRequest {
+  expected_revision: number;
+  name: string;
+  description: string;
+  robot_variant: RobotVariant;
+  keyframes: MotionKeyframe[];
+  playback_defaults: MotionPlaybackDefaults;
+  tags: string[];
+  editor_metadata: MotionDraftEditorMetadata;
+}
+
+export interface ForkMotionDraftRequest {
+  expected_revision: number;
+}
+
+export interface AbandonMotionDraftSaveIntentRequest {
+  expected_revision: number;
+  operation_id: string;
+  confirm: 'ABANDON_FORMAL_SAVE';
+}
+
+export interface MotionDraftIssue {
+  code: string;
+  message: string;
+}
+
+export interface MotionDraftValidation {
+  draft_id: string;
+  draft_revision: number;
+  valid: boolean;
+  issues: MotionDraftIssue[];
+}
+
+export interface CompileMotionDraftRequest {
+  expected_revision: number;
+  sample_rate_hz?: number;
+}
+
+export interface MotionDraftCompileResponse {
+  draft_id: string;
+  draft_revision: number;
+  preflight: TrajectoryPreflightReport;
+  preview: TrajectoryPreview | null;
+  executable: false;
+}
+
+export interface SaveMotionDraftRequest {
+  expected_revision: number;
+  expected_source_revision?: number | null;
+  sample_rate_hz?: number;
+}
+
+export interface SaveAsMotionDraftRequest {
+  expected_revision: number;
+  name?: string;
+  sample_rate_hz?: number;
+}
+
+export interface GotoMotionDraftKeyframeRequest {
+  expected_revision: number;
+  duration_s: number;
+  speed_scale: number;
+  idempotency_key: string;
+}
+
+export interface MotionDraftSaveResponse {
+  draft: MotionDraft;
+  motion: MotionEntity;
+  preflight: TrajectoryPreflightReport;
 }
 
 export interface CreateMotionKeyframeRequest {

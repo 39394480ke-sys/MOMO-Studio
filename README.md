@@ -57,6 +57,27 @@ See the [Stage 5 report](docs/stage-reports/stage-05-trajectory-and-playback.md)
 [compiled trajectory decision](docs/adr/0012-compiled-trajectory-and-digest.md), and
 [trajectory semantics](docs/trajectory-semantics.md).
 
+Stage 6 implementation gates pass: 393 backend tests, an independently rerun 36-test
+Stage 6 domain/repository/coordinator/actions/API selection, 174 frontend tests across
+12 files, and a focused 89-test Studio selection pass. Ruff and Ruff format pass across
+141 files, strict mypy passes across 141 source files, ESLint/TypeScript/build and
+isolated desktop/mobile browser acceptance pass, and the final independent integrated
+audit closes at P1=0/P2=0. The backend is split into a bounded Draft/compile facade,
+formal-save coordinator, and robot-actions collaborator; the frontend composes separate
+Draft, Motion, Pose, and dirty-navigation sessions around the pure reducer. The implementation keeps incomplete work in a separate strict
+`MotionDraft` schema, preserves explicit directed-edge/default semantics, reconciles
+cross-repository formal saves with a fail-closed write-ahead intent and exact operator
+release, compiles non-executable previews only on the backend, and routes
+persisted-keyframe Goto through the existing Dry Run Motion Safety Gateway. Conflict
+Save As uses an authoritative, provenance-preserving Draft fork without overwriting the
+original Draft or Motion.
+
+Lock and npm vulnerability gates also pass; the dedicated commit and push evidence
+remain Pending, so Stage 6 is not yet marked complete. See the
+[live Stage 6 report](docs/stage-reports/stage-06-studio-timeline.md),
+[MotionDraft decision](docs/adr/0013-motion-draft-and-timeline-editor.md), and
+[Studio workflow](docs/studio-user-workflow.md).
+
 ## Develop locally
 
 Requirements: Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and a current Node.js/npm release. `make install` consumes both committed lockfiles.
@@ -90,21 +111,22 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
 
 - `backend/` — FastAPI factory, application services, domain models, ports/adapters, schema generator, tests.
 - `frontend/` — React/Vite application, REST fallback, lifecycle/motion controls,
-  Pose/Motion Library and playback, diagnostics, and tests.
+  Pose/Motion Library and playback, Studio timeline authoring, diagnostics, and tests.
 - `kinematics_models/` — mesh-free, fingerprinted V1/V2 provisional Dry Run serial chains.
 - `config/default.yaml` — safe repository defaults; Real mode and non-disabled hardware access remain rejected.
 - `robot_profiles/` — fingerprinted product-contract examples, never device-ready profiles.
 - `calibration/examples/` — synthetic template calibrations, never real-device calibration.
-- `data/examples/` — reviewed schema examples; operational Pose/Motion/runtime and
+- `data/examples/` — reviewed schema examples; operational Pose/Motion/Draft/runtime and
   quarantine data is ignored.
 - `docs/` — product, architecture, safety, domain, ADR, audit, and Stage evidence.
 
 ## First-version scope
 
 First-version scope includes connection, Dry Run/Real modes, joint and Cartesian
-control, FK/IK, poses, keyframes, motions, library/playback, camera-fed vision following,
-device diagnostics, and safety checks for one active robot. Only the completed Stages
-listed above are currently evidence-backed.
+control, FK/IK, poses, keyframes, motions, Studio authoring, library/playback,
+camera-fed vision following, device diagnostics, and safety checks for one active
+robot. Only completed Stages—and the explicitly identified Stage 6 implementation
+evidence above—are currently evidence-backed.
 
 Explicitly excluded: PyQt or another standalone GUI, AI/voice/natural-language control, gesture control, cinematic director/subject-lock directing, photography or video recording, grippers, teach mode, PyBullet product windows, community features, Camera Hub media management, and multi-arm product workflows.
 
@@ -114,8 +136,10 @@ and the complete [Stage 3 report](docs/stage-reports/stage-03-kinematics-and-con
 
 ## Later stages
 
-Stage 5 implementation and code/browser evidence are GREEN after the dedicated Stage 4
-commit. Studio, Vision, and the Real hardware boundary remain later Stage work. Every
+Stage 5 implementation and code/browser evidence are GREEN. Stage 6 Studio is the
+current worktree scope; its implementation and integrated audit are green while the
+dedicated commit/push delivery gate remains open. Vision and the Real hardware boundary
+remain later Stage work. Every
 later motion source must reuse the Motion Safety Gateway rather than introducing a
 route-to-driver shortcut. Real hardware remains field-acceptance gated.
 

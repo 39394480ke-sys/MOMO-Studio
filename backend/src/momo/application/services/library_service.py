@@ -32,6 +32,7 @@ from momo.domain.errors import (
 )
 from momo.domain.motion import LegacyImportMetadata, Motion, MotionKeyframe, PlaybackDefaults
 from momo.domain.motion_command import JointMovePayload, MotionCommand
+from momo.domain.motion_draft import legacy_snapshot_sha256
 from momo.domain.motion_preflight import MotionAccepted
 from momo.domain.pose import Pose, PoseSnapshot, SnapshotJointState
 from momo.ports.clock import Clock
@@ -42,6 +43,7 @@ EntityT = TypeVar("EntityT", Pose, Motion)
 EntityModelT = TypeVar("EntityModelT", bound=BaseModel)
 CAPTURE_ATTEMPTS = 3
 COPY_SUFFIX = " Copy"
+TrustedLegacySnapshotDigests = frozenset[str]
 
 
 class LibraryApplicationService:
@@ -403,6 +405,44 @@ class LibraryApplicationService:
             if not deleted:
                 raise EntityNotFoundError("Motion was not found")
 
+    async def persist_motion_candidate(
+        self,
+        motion: Motion,
+        *,
+        expected_revision: int | None,
+        trusted_legacy_snapshot_sha256: TrustedLegacySnapshotDigests = frozenset(),
+    ) -> Motion:
+        """Persist a compiler-validated Studio candidate under the playback revision fence.
+
+        Studio performs its expensive compile before entering this shared lock. The
+        revision is then resolved again here, so a concurrent playback lease or
+        Library mutation cannot be bypassed by a raw repository write.
+        """
+
+        self._reject_client_owned_provenance(
+            tuple(keyframe.pose_snapshot for keyframe in motion.keyframes)
+        )
+        candidate_trust = (
+            trusted_legacy_snapshot_sha256 if motion.source_metadata is not None else frozenset()
+        )
+        for keyframe in motion.keyframes:
+            await self._validate_client_snapshot(
+                keyframe.pose_snapshot,
+                trusted_legacy_snapshot_sha256=candidate_trust,
+            )
+        async with self._motion_mutation_lock:
+            if expected_revision is None:
+                if motion.revision != 1:
+                    raise EntityInvalidError("New Motion candidates must begin at revision 1")
+                await self.motions.save(motion)
+                return motion
+            current = await self.get_motion(motion.id)
+            self._check_revision(current.revision, expected_revision)
+            if motion.revision != expected_revision + 1:
+                raise EntityInvalidError("Updated Motion revision must increment exactly once")
+            await self.motions.save(motion, expected_revision=expected_revision)
+            return motion
+
     @staticmethod
     def _check_revision(actual: int, expected: int) -> None:
         if actual != expected:
@@ -425,11 +465,20 @@ class LibraryApplicationService:
                     details={"checks": checks},
                 )
 
-    async def _validate_client_snapshot(self, snapshot: PoseSnapshot) -> None:
+    async def _validate_client_snapshot(
+        self,
+        snapshot: PoseSnapshot,
+        *,
+        trusted_legacy_snapshot_sha256: TrustedLegacySnapshotDigests = frozenset(),
+    ) -> None:
         profile = self.robot.profile_service.get_profile(snapshot.robot_variant)
         model = self.kinematics.model_for(profile)
         checks: list[str] = []
-        if snapshot.state_sequence is None:
+        trusted_null_sequence = (
+            snapshot.state_sequence is None
+            and legacy_snapshot_sha256(snapshot) in trusted_legacy_snapshot_sha256
+        )
+        if snapshot.state_sequence is None and not trusted_null_sequence:
             checks.append("state_sequence")
         if snapshot.profile_fingerprint != profile.fingerprint:
             checks.append("profile_fingerprint")
@@ -441,11 +490,13 @@ class LibraryApplicationService:
         except ValueError:
             checks.append("joint_state")
             joint_state_valid = False
-        if snapshot.state_sequence is not None and joint_state_valid:
+        if (snapshot.state_sequence is not None or trusted_null_sequence) and joint_state_valid:
             forward = await self.kinematics.forward(
                 profile,
                 snapshot.joint_state,
-                state_sequence=snapshot.state_sequence,
+                state_sequence=(
+                    snapshot.state_sequence if snapshot.state_sequence is not None else 0
+                ),
                 robot_id="library-validation",
             )
             if snapshot.tcp_pose != forward.tcp_pose:

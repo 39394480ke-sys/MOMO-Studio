@@ -1,0 +1,708 @@
+{
+  "$defs": {
+    "DomainUnit": {
+      "description": "Canonical persisted units at the domain/UI boundary.",
+      "enum": [
+        "deg",
+        "mm"
+      ],
+      "title": "DomainUnit",
+      "type": "string"
+    },
+    "Easing": {
+      "enum": [
+        "LINEAR",
+        "SMOOTHSTEP",
+        "EASE_IN_OUT"
+      ],
+      "title": "Easing",
+      "type": "string"
+    },
+    "JsonValue": {},
+    "LegacyImportMetadata": {
+      "additionalProperties": false,
+      "description": "Sanitized importer-owned provenance; never accepts raw servo or path data.",
+      "properties": {
+        "importer": {
+          "const": "momo.tools.import_legacy_actions",
+          "default": "momo.tools.import_legacy_actions",
+          "title": "Importer",
+          "type": "string"
+        },
+        "legacy_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Legacy Id"
+        },
+        "legacy_source": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Legacy Source"
+        },
+        "source_file_name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source File Name",
+          "type": "string"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "importer",
+        "source_file_name",
+        "source_sha256",
+        "legacy_id",
+        "legacy_source",
+        "warnings"
+      ],
+      "title": "LegacyImportMetadata",
+      "type": "object"
+    },
+    "MotionDraftDefaultEdge": {
+      "additionalProperties": false,
+      "description": "Recoverable UI provenance for an adjacency that still uses editor defaults.",
+      "properties": {
+        "from_keyframe_id": {
+          "format": "uuid",
+          "title": "From Keyframe Id",
+          "type": "string"
+        },
+        "to_keyframe_id": {
+          "format": "uuid",
+          "title": "To Keyframe Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_keyframe_id",
+        "to_keyframe_id"
+      ],
+      "title": "MotionDraftDefaultEdge",
+      "type": "object"
+    },
+    "MotionDraftEditorMetadata": {
+      "additionalProperties": false,
+      "description": "Small, bounded view state that is safe to recover after a crash.",
+      "properties": {
+        "default_edges": {
+          "items": {
+            "$ref": "#/$defs/MotionDraftDefaultEdge"
+          },
+          "maxItems": 999,
+          "title": "Default Edges",
+          "type": "array"
+        },
+        "playhead_s": {
+          "default": 0.0,
+          "maximum": 600,
+          "minimum": 0,
+          "title": "Playhead S",
+          "type": "number"
+        },
+        "selected_keyframe_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Keyframe Id"
+        },
+        "timeline_scroll_s": {
+          "default": 0.0,
+          "maximum": 600,
+          "minimum": 0,
+          "title": "Timeline Scroll S",
+          "type": "number"
+        },
+        "timeline_zoom": {
+          "default": 1.0,
+          "maximum": 8.0,
+          "minimum": 0.25,
+          "title": "Timeline Zoom",
+          "type": "number"
+        }
+      },
+      "required": [
+        "selected_keyframe_id",
+        "playhead_s",
+        "timeline_zoom",
+        "timeline_scroll_s",
+        "default_edges"
+      ],
+      "title": "MotionDraftEditorMetadata",
+      "type": "object"
+    },
+    "MotionDraftSaveIntent": {
+      "additionalProperties": false,
+      "description": "Write-ahead marker used to reconcile a cross-repository formal save.",
+      "properties": {
+        "expected_motion_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Motion Revision"
+        },
+        "kind": {
+          "enum": [
+            "SAVE",
+            "SAVE_AS"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "target_motion_created_at": {
+          "format": "date-time",
+          "title": "Target Motion Created At",
+          "type": "string"
+        },
+        "target_motion_id": {
+          "format": "uuid",
+          "title": "Target Motion Id",
+          "type": "string"
+        },
+        "target_motion_revision": {
+          "minimum": 1,
+          "title": "Target Motion Revision",
+          "type": "integer"
+        },
+        "target_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Target Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "kind",
+        "target_motion_id",
+        "target_motion_revision",
+        "expected_motion_revision",
+        "target_name",
+        "target_motion_created_at",
+        "started_at"
+      ],
+      "title": "MotionDraftSaveIntent",
+      "type": "object"
+    },
+    "MotionKeyframe": {
+      "additionalProperties": false,
+      "description": "A complete embedded snapshot plus its incoming transition metadata.",
+      "properties": {
+        "hold_s": {
+          "default": 0.0,
+          "maximum": 600,
+          "minimum": 0,
+          "title": "Hold S",
+          "type": "number"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "incoming_transition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MotionTransition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "pose_snapshot": {
+          "$ref": "#/$defs/PoseSnapshot"
+        },
+        "source_pose_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pose Id"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "pose_snapshot",
+        "source_pose_id",
+        "hold_s",
+        "incoming_transition"
+      ],
+      "title": "MotionKeyframe",
+      "type": "object"
+    },
+    "MotionMode": {
+      "enum": [
+        "JOINT",
+        "CARTESIAN_LINEAR"
+      ],
+      "title": "MotionMode",
+      "type": "string"
+    },
+    "MotionTransition": {
+      "additionalProperties": false,
+      "description": "Movement from the previous keyframe into its owning keyframe.",
+      "properties": {
+        "duration_s": {
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "easing": {
+          "$ref": "#/$defs/Easing",
+          "default": "SMOOTHSTEP"
+        },
+        "motion_mode": {
+          "$ref": "#/$defs/MotionMode"
+        }
+      },
+      "required": [
+        "duration_s",
+        "motion_mode",
+        "easing"
+      ],
+      "title": "MotionTransition",
+      "type": "object"
+    },
+    "PlaybackDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "loop": {
+          "default": false,
+          "title": "Loop",
+          "type": "boolean"
+        },
+        "speed_multiplier": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "maximum": 4,
+          "title": "Speed Multiplier",
+          "type": "number"
+        }
+      },
+      "required": [
+        "loop",
+        "speed_multiplier"
+      ],
+      "title": "PlaybackDefaults",
+      "type": "object"
+    },
+    "PoseSnapshot": {
+      "additionalProperties": false,
+      "description": "An embedded, reproducible capture independent of named Pose files.",
+      "properties": {
+        "calibration_fingerprint": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Calibration Fingerprint"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "hardware_snapshot": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hardware Snapshot"
+        },
+        "joint_state": {
+          "$ref": "#/$defs/SnapshotJointState"
+        },
+        "kinematics_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Kinematics Fingerprint",
+          "type": "string"
+        },
+        "profile_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Profile Fingerprint",
+          "type": "string"
+        },
+        "robot_variant": {
+          "$ref": "#/$defs/RobotVariant"
+        },
+        "state_sequence": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "State Sequence"
+        },
+        "tcp_pose": {
+          "$ref": "#/$defs/TcpPose"
+        }
+      },
+      "required": [
+        "robot_variant",
+        "joint_state",
+        "tcp_pose",
+        "profile_fingerprint",
+        "kinematics_fingerprint",
+        "state_sequence",
+        "hardware_snapshot",
+        "calibration_fingerprint",
+        "captured_at"
+      ],
+      "title": "PoseSnapshot",
+      "type": "object"
+    },
+    "QuaternionXYZW": {
+      "additionalProperties": false,
+      "description": "Finite, non-zero quaternion normalized into canonical storage form.",
+      "properties": {
+        "w": {
+          "title": "W",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z",
+        "w"
+      ],
+      "title": "QuaternionXYZW",
+      "type": "object"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    },
+    "SnapshotJointState": {
+      "additionalProperties": false,
+      "description": "Persisted snapshot state with explicit, non-null domain units.",
+      "properties": {
+        "positions": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "type": "number"
+            }
+          },
+          "title": "Positions",
+          "type": "object"
+        },
+        "units": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "$ref": "#/$defs/DomainUnit"
+            }
+          },
+          "title": "Units",
+          "type": "object"
+        }
+      },
+      "required": [
+        "positions",
+        "units"
+      ],
+      "title": "SnapshotJointState",
+      "type": "object"
+    },
+    "TcpPose": {
+      "additionalProperties": false,
+      "description": "Canonical TCP pose: millimetres and a normalized XYZW quaternion.",
+      "properties": {
+        "frame": {
+          "default": "base",
+          "minLength": 1,
+          "title": "Frame",
+          "type": "string"
+        },
+        "orientation_quaternion_xyzw": {
+          "$ref": "#/$defs/QuaternionXYZW"
+        },
+        "position_mm": {
+          "$ref": "#/$defs/Vector3"
+        }
+      },
+      "required": [
+        "frame",
+        "position_mm",
+        "orientation_quaternion_xyzw"
+      ],
+      "title": "TcpPose",
+      "type": "object"
+    },
+    "Vector3": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "title": "Vector3",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Autosaved authoring state; unlike Motion, zero or one keyframe is valid.\n\nDrafts retain every non-cardinality Motion invariant so a two-or-more-frame\ndraft has an unambiguous conversion boundary. They are not accepted by any\nplayback port or executor.",
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 5000,
+      "title": "Description",
+      "type": "string"
+    },
+    "editor_metadata": {
+      "$ref": "#/$defs/MotionDraftEditorMetadata"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "keyframes": {
+      "items": {
+        "$ref": "#/$defs/MotionKeyframe"
+      },
+      "maxItems": 1000,
+      "title": "Keyframes",
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "playback_defaults": {
+      "$ref": "#/$defs/PlaybackDefaults"
+    },
+    "revision": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "robot_variant": {
+      "$ref": "#/$defs/RobotVariant"
+    },
+    "save_intent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MotionDraftSaveIntent"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_metadata": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LegacyImportMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "source_motion_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Motion Id"
+    },
+    "source_motion_revision": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Motion Revision"
+    },
+    "tags": {
+      "items": {
+        "maxLength": 64,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Tags",
+      "type": "array"
+    },
+    "trusted_legacy_snapshot_sha256": {
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 1000,
+      "title": "Trusted Legacy Snapshot Sha256",
+      "type": "array"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "source_motion_id",
+    "source_motion_revision",
+    "name",
+    "description",
+    "robot_variant",
+    "keyframes",
+    "playback_defaults",
+    "tags",
+    "source_metadata",
+    "trusted_legacy_snapshot_sha256",
+    "editor_metadata",
+    "save_intent",
+    "revision",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "MotionDraft",
+  "type": "object"
+}

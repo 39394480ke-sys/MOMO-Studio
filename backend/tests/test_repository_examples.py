@@ -1,15 +1,17 @@
-"""Committed Stage 1 examples must stay synchronized with domain contracts."""
+"""Committed examples must stay synchronized with current Dry Run boundaries."""
 
+import asyncio
 import json
 from pathlib import Path
 
 import yaml
 from scripts.generate_schemas import generate_schemas
 
+from momo.bootstrap import build_application_services, build_robot_service
 from momo.domain.motion import Motion
 from momo.domain.pose import Pose
 from momo.domain.robot import RobotProfile
-from momo.settings import repository_root
+from momo.settings import Settings, repository_root
 
 
 def test_committed_pose_and_motion_examples_validate() -> None:
@@ -27,6 +29,28 @@ def test_committed_pose_and_motion_examples_validate() -> None:
     ]
     canonical_quaternion = motion.keyframes[1].pose_snapshot.tcp_pose.orientation_quaternion_xyzw
     assert canonical_quaternion.model_dump(mode="json") == raw_quaternion
+
+    async def verify_current_boundaries() -> None:
+        settings = Settings()
+        robot = build_robot_service(settings)
+        services = build_application_services(settings, robot)
+        snapshots = (pose.snapshot, *(frame.pose_snapshot for frame in motion.keyframes))
+        for snapshot in snapshots:
+            profile = robot.profile_service.get_profile(snapshot.robot_variant)
+            model = services.kinematics.model_for(profile)
+            assert snapshot.profile_fingerprint == profile.fingerprint
+            assert snapshot.kinematics_fingerprint == model.fingerprint
+            snapshot.validate_against(profile)
+            assert snapshot.state_sequence is not None
+            forward = await services.kinematics.forward(
+                profile,
+                snapshot.joint_state,
+                state_sequence=snapshot.state_sequence,
+                robot_id="example-validation",
+            )
+            assert forward.tcp_pose == snapshot.tcp_pose
+
+    asyncio.run(verify_current_boundaries())
 
 
 def test_committed_robot_profile_examples_validate() -> None:

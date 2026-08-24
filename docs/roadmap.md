@@ -80,11 +80,33 @@ lint/type/format/build/schema/lock/dependency, focused isolation, and desktop/mo
 browser checks are green. Cartesian behavior remains provisional until physical
 kinematics acceptance.
 
-## Stage 6 - Studio (not started)
+## Stage 6 - Studio (implementation green; delivery pending)
 
-Planned scope: Draft persistence, timeline/keyframes, reorder/duplicate/delete,
-duration/hold/easing/mode editing, bounded undo/redo and autosave, preview/preflight,
-playback integration, and Save/Save As without mutating embedded snapshots.
+The current Stage 6 worktree implements:
+
+- independent recursively strict `MotionDraft` schema `1.0.0` with zero-or-more
+  keyframes, typed server-owned source metadata, bounded canonical Legacy-snapshot trust,
+  and no weakening of formal Motion cardinality;
+- UUID/atomic/CAS autosave, bounded recovery/quarantine, recursively required persisted
+  fields, and pairwise-disjoint storage roots including case/Unicode aliases;
+- directed-edge reorder semantics with persisted editor-default provenance and a pure
+  bounded Undo/Redo reducer;
+- Capture, add from Pose, replace, reorder, duplicate/delete, duration/hold/easing/mode,
+  keyboard editing, and desktop/mobile Studio workspace implementation;
+- backend-only validation/compile with `executable=false`, fail-closed write-ahead
+  Save/Save As reconciliation, exact operator marker release, structured Draft/Motion
+  conflict scope, and provenance-preserving conflict forks that retain local edits;
+- persisted-keyframe `STUDIO` Goto through the existing Dry Run Motion Safety Gateway;
+- formal Motion handoff to the existing revision/digest-bound Stage 5 playback path.
+
+Current implementation evidence is GREEN: 393 backend tests, a focused 36-test
+Stage 6 domain/repository/coordinator/actions/API selection, 174 frontend tests across 12
+files, a focused 89-test Studio selection, Ruff/format over 141 files, strict mypy over
+141 source files, ESLint/TypeScript/build, schema determinism, lock/npm-audit gates, isolated
+desktop/mobile browser acceptance, and final independent integrated audit P1=0/P2=0.
+The oversized service/hook findings were closed by bounded backend coordinators/actions
+and composed frontend session hooks. The dedicated commit and push evidence remain
+Pending; Stage 6 is not complete until that delivery gate closes.
 
 ## Stage 7 - Vision and safe following (not started)
 
@@ -109,8 +131,8 @@ Calibration, Kinematics, device, operator, and field-acceptance gate is satisfie
 
 ## Evidence still required
 
-- Stage 5 containing commit SHA/remote-state recording plus Stage 6-8 implementation,
-  verification, and one dedicated commit per Stage;
+- Stage 6 dedicated commit/push, and Stage 7-8 implementation, verification, and one
+  dedicated commit per remaining Stage;
 - physically verified V1/V2 geometry, frames, joint limits, Homes, directions, Servo
   IDs, scales, raw bounds, modes, workspace, FK references, IK tolerances, and dynamics;
 - reviewed production Calibration lifecycle and independent device/field acceptance;

@@ -117,6 +117,7 @@ const fullMotion: MotionEntity = {
   ],
   playback_defaults: { loop: false, speed_multiplier: 1 },
   tags: ['demo'],
+  source_metadata: null,
   created_at: '2026-08-24T02:00:00Z',
   updated_at: '2026-08-24T02:00:00Z',
   revision: 4,

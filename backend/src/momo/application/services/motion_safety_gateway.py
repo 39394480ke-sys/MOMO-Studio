@@ -175,13 +175,13 @@ class MotionSafetyGateway:
             "another motion is already active",
         )
         accepted_source = command.source is MotionCommandSource.CONTROL or (
-            command.source is MotionCommandSource.LIBRARY
+            command.source in {MotionCommandSource.LIBRARY, MotionCommandSource.STUDIO}
             and command.command_type is MotionCommandType.MOVE_JOINTS
         )
         check(
             accepted_source,
             "command_source",
-            "Only CONTROL intents and Library Goto joint moves are accepted",
+            "Only CONTROL intents and persisted Library/Studio Goto joint moves are accepted",
         )
         checks.append(
             PreflightCheck(

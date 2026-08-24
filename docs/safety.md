@@ -1,17 +1,20 @@
 # Safety
 
-## Stage 5 safety boundary
+## Stage 6 safety boundary
 
-Stages 3 and 4 are complete. Stage 5 adds deterministic trajectory compilation,
-whole-path preflight, digest-bound preview, and bounded playback. The entire application
-remains Dry Run only and structurally unable to command physical hardware:
+Stages 3-5 are complete. Stage 6 Studio implementation evidence is green across backend,
+frontend, isolated browser acceptance, and final independent integrated audit
+P1=0/P2=0. Its dedicated commit/push delivery evidence remains Pending. It adds
+recoverable MotionDraft authoring, compiler-backed non-executable preview, fail-closed write-ahead formal Save,
+and persisted-keyframe Goto without widening the hardware boundary. The entire
+application remains Dry Run only and structurally unable to command physical hardware:
 
 - settings require `control_mode=DRY_RUN`, `real_motion_enabled=false`, and
   `hardware_access_policy=DISABLED`;
 - the composition root may inject only in-memory Dry Run motion implementations;
 - no serial or Feetech adapter/dependency is available through the product path;
-- no startup, Connect, Capture, Goto, import, compile, playback, route, WebSocket,
-  executor, or kinematics
+- no startup, Connect, Capture, Draft recovery, Goto, import, compile, Save, playback,
+  route, WebSocket, executor, or kinematics
   operation may enumerate, scan, read, write, Home, torque, calibrate, or move a device;
 - Robot status, FK, command-status, Stop, diagnostics, lifecycle, and WebSocket contracts
   that carry hardware-access evidence report `hardware_accessed=false`; accepted-motion,
@@ -21,8 +24,9 @@ remains Dry Run only and structurally unable to command physical hardware:
 - no raw Servo, arbitrary register, arbitrary file, arbitrary Python, or driver-selection
   endpoint exists.
 
-The Stage report records exact executed code, browser, and isolation evidence; design
-documentation alone is not completion evidence.
+The Stage report records exact executed implementation evidence. Until the dedicated
+commit and push are recorded, Stage 6 remains delivery-incomplete; none of its evidence
+authorizes Real motion.
 
 ## Provisional kinematics are not Real authority
 
@@ -45,8 +49,9 @@ functions may convert them. Unit conversion cannot depend on the name `j10`.
 ## Unified Motion Safety Gateway
 
 There is one reviewed application admission point for every movement source. Joint
-Move, single/continuous Joint Jog, Home, Cartesian Jog, Move Pose, Library Goto, and
-later Playback, Studio, and Vision commands may not call an executor or driver directly.
+Move, single/continuous Joint Jog, Home, Cartesian Jog, Move Pose, Library Goto,
+Playback, and Studio Goto—as well as later Vision commands—may not call an executor or
+driver directly.
 
 The gateway owns one atomic admission coordinator for ordinary motion, trajectory
 preflight, and playback. Each final safety recheck and owner claim stays inside that
@@ -124,6 +129,21 @@ never degrades to Joint interpolation. Compilation, cache, samples, segments, du
 preview, rate, and loop count are all bounded. Playback uses monotonic absolute
 deadlines, skips overdue samples instead of bursting, and keeps Stop cancellable during
 validation, sleep, pause, state application, or looping.
+
+Stage 6 Draft compile uses the same Stage 5 compiler semantics but returns
+`executable=false`, never inserts a prepared plan into the playback cache, and never
+dispatches work. A Draft must become a formal Motion, pass the normal revision-bound
+preflight, and identify the exact prepared digest before Dry Run playback.
+
+Studio Goto accepts no browser-owned Joint target. The service reloads the requested
+keyframe from an expected persisted Draft revision, verifies the active variant, exact
+enabled-joint/unit set, Profile/Kinematics fingerprints, and snapshot validity, then
+submits `STUDIO` + `MOVE_JOINTS` through the ordinary motion service and this gateway.
+The Studio mutation lock remains held from Draft recovery through revision/keyframe
+checks and command submission, preventing an autosave from replacing the target in that
+interval.
+Stale, missing, incompatible, disconnected, busy, or policy-blocked state dispatches
+nothing.
 
 ## Dry Run executor
 
@@ -208,7 +228,7 @@ JSON, wrong schema/identity/variant/Profile, wrong joint/unit set, non-finite or
 out-of-range values. A saved connection never reconnects a device. Motion command
 admission separately checks current state sequence and Kinematics fingerprint.
 
-## Pose, Motion, and import safety
+## Pose, Motion, MotionDraft, and import safety
 
 Pose/Motion persistence accepts UUID identities, not display-name paths. The server owns
 both repository roots and their quarantine directories. Documents are capped at four
@@ -220,6 +240,41 @@ Repository work fails closed above 5,000 root JSON entities, 10,000 scanned root
 or 64 MiB aggregate regular-entity bytes. The current lock is
 repository-instance-local; multiple backend writer processes are not a supported
 configuration. Quarantine is best effort and has no automatic retention/pruning policy.
+
+MotionDraft uses an independent UUID root and a recursively strict persisted schema.
+Every serialized field—including nested keyframe UUIDs, directed default-edge identity,
+server-owned source metadata/Legacy trust, and formal-save intent identity—is required
+during recovery; defaults are not used to invent omitted past state. All configured
+runtime/Profile/Calibration/Kinematics/Pose/
+Motion/Draft roots must be pairwise disjoint before repository construction under
+resolved/ancestor relationships, existing filesystem identity, NFC Unicode
+normalization, and case folding. A Draft repository therefore cannot mistake a formal
+Motion document for corrupt Draft data and quarantine it.
+
+Save/Save As spans Draft and Motion repositories only through a write-ahead intent. The
+Draft marker is CAS-persisted before the Motion write; the formal candidate is persisted
+through the same Library mutation/revision lease used to fence Stage 5 playback; a
+second Draft CAS binds the exact source and clears the marker. Caller cancellation
+cannot cancel an in-flight intent-backed commit. Restart reconciliation verifies target
+identity and complete semantic content, never auto-creates a duplicate, and preserves a
+stale intended revision only for a known-source Save when a later writer has advanced,
+so the next Save conflicts. An advanced fresh/Save-As target, mismatched creation
+identity, or mismatched semantic content—including typed source metadata—retains the
+marker and fails closed. Exact-match recovery binds once without creating a duplicate.
+
+Imported null-sequence snapshots are admitted only when their full canonical SHA-256
+identity is present in the bounded server-owned Draft trust registry seeded from the
+source Motion. Sorted-key JSON ignores mapping insertion order but not field content;
+altered or fabricated snapshots remain rejected. Autosave, recovery, rebind, abandon,
+and provenance-preserving forks retain the registry without accepting it from clients.
+
+A retained formal-save marker can be abandoned only by an operator request bound to
+the exact Draft revision and operation UUID plus a fixed confirmation literal. That raw
+CAS clears only the marker; it never mutates a Motion. Studio conflicts identify only
+`MotionDraft` or `Motion`; missing/unknown scope and active formal-save recovery remain
+generic and fail closed. Conflict Save As captures local content before loading the
+authoritative Draft, forks that Draft at an exact revision, reapplies the captured local
+document, and saves a new Motion without overwriting the original Draft or Motion.
 
 Schema `1.0.0` Pose/Motion documents are not considered compatible with Stage 4
 `2.0.0`. Missing Profile/Kinematics fingerprints, units, variants, or observation
@@ -252,8 +307,8 @@ Do not scan/read/write Servos, enumerate devices, open a serial port, auto-conne
 auto-Home, change torque, read or overwrite real Calibration, or introduce a debug
 bypass. Do not expose raw-device access, arbitrary Python execution, arbitrary file
 access, or raw-servo HTTP/WebSocket endpoints. Do not commit ports, secrets, local
-Calibration, multi-turn runtime data, production Poses/Motions, import quarantine data,
-or captured media.
+Calibration, multi-turn runtime data, production Poses/Motions/Drafts, draft/save-intent
+recovery data, import quarantine data, or captured media.
 
 No API route may import a concrete hardware bus or driver. No later Stage may add a
 parallel motion path around the Stage 3 gateway.
@@ -338,3 +393,31 @@ completion, plus API update/delete fencing at the execution claim. Final indepen
 review passes P1=0/P2=0. Stage 5
 does not add a serial/camera dependency or persisted user schema, and cannot authorize
 Real Playback.
+
+## Stage 6 evidence status
+
+The current gate passes 393 backend tests plus an independently rerun 36-test Stage 6
+domain/repository/coordinator/actions/API selection, and 174 frontend tests across 12
+files plus an independently rerun 89-test Studio selection. Ruff/format and strict mypy
+pass across 141 backend files, ESLint/TypeScript/build pass, two fresh schema generations
+are byte-identical and the final temporary schema tree matches tracked artifacts,
+`uv lock --check` passes for 44 packages, and npm audit reports zero vulnerabilities.
+The final independent integrated and code-quality re-review reports P1=0/P2=0.
+
+Regressions cover strict nested persisted identity, corrupt Draft quarantine, disjoint
+storage roots including case and Unicode aliases, default-edge recovery, canonical
+Legacy trust and provenance preservation, fail-closed formal-save recovery and exact
+abandon, structured conflict scope and local-preserving fork, cancellation-shielded
+commit, source-revision/playback lease ordering, compile/save lock ordering, and
+persisted-keyframe `STUDIO` Goto linearized against autosave. Bounded backend
+formal-save/robot-action collaborators and composed frontend Draft/Motion/Pose/navigation
+hooks close the God-Object findings. The final post-refactor isolated real-backend browser
+run covers full Save, an external Motion conflict without overwrite, local-preserving
+fork/Save As, null recovery markers, and a fresh 390 x 844 mobile drawer. Earlier exact
+responsive measurements cover container-local Timeline overflow and focus restoration;
+all desktop/mobile console warnings/errors are `[]`.
+
+The dedicated commit and push remain Pending. Python runtime dependency audit was not
+rerun because Stage 6
+adds no dependency and changes neither lockfile; no passing result is inferred. None of
+this evidence authorizes Real preview, Real playback, or any physical Studio Goto.

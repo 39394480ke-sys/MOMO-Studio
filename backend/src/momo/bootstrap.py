@@ -11,6 +11,7 @@ from momo.adapters.kinematics.serial_chain import SerialChainKinematics
 from momo.adapters.motion.dry_run_motion_executor import DryRunMotionExecutor
 from momo.adapters.playback.latest_value_observer import LatestValuePlaybackObserver
 from momo.adapters.storage.file_calibration_repository import FileCalibrationRepository
+from momo.adapters.storage.file_motion_draft_repository import FileMotionDraftRepository
 from momo.adapters.storage.file_motion_repository import FileMotionRepository
 from momo.adapters.storage.file_pose_repository import FilePoseRepository
 from momo.adapters.storage.profile_repository import FileProfileRepository
@@ -25,6 +26,7 @@ from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.playback_service import PlaybackService
 from momo.application.services.profile_service import ProfileService
 from momo.application.services.robot_service import RobotApplicationService
+from momo.application.services.studio_service import StudioApplicationService
 from momo.application.services.trajectory_compiler import TrajectoryCompiler
 from momo.application.services.trajectory_service import (
     PlaybackSafetyValidator,
@@ -79,6 +81,7 @@ class ApplicationServices:
     library: LibraryApplicationService
     trajectory: TrajectoryApplicationService
     playback: PlaybackService
+    studio: StudioApplicationService
     playback_observer: LatestValuePlaybackObserver
 
 
@@ -114,11 +117,12 @@ def build_application_services(
         lease_ttl_ms=settings.jog_lease_ttl_ms,
     )
     motion.register_stop_hook(jog.stop_all)
+    motion_repository = FileMotionRepository(
+        _resolve_configured_path(settings.motion_library_directory, root), clock
+    )
     library = LibraryApplicationService(
         FilePoseRepository(_resolve_configured_path(settings.pose_directory, root), clock),
-        FileMotionRepository(
-            _resolve_configured_path(settings.motion_library_directory, root), clock
-        ),
+        motion_repository,
         robot_service,
         kinematics,
         motion,
@@ -132,15 +136,27 @@ def build_application_services(
         playback_observer,
     )
     gateway.register_external_motion_guard(lambda: playback.motion_active)
+    compiler = TrajectoryCompiler(kinematics)
     trajectory = TrajectoryApplicationService(
         library,
         robot_service,
         kinematics,
-        TrajectoryCompiler(kinematics),
+        compiler,
         playback,
         gateway.motion_admission,
     )
     motion.register_stop_hook(trajectory.shutdown)
+    studio = StudioApplicationService(
+        FileMotionDraftRepository(
+            _resolve_configured_path(settings.motion_draft_directory, root), clock
+        ),
+        library,
+        robot_service,
+        kinematics,
+        compiler,
+        motion,
+        clock,
+    )
     return ApplicationServices(
         kinematics=kinematics,
         motion=motion,
@@ -148,5 +164,6 @@ def build_application_services(
         library=library,
         trajectory=trajectory,
         playback=playback,
+        studio=studio,
         playback_observer=playback_observer,
     )

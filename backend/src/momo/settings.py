@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Self
+from unicodedata import normalize
 
 import yaml
 from pydantic import Field, field_validator, model_validator
@@ -16,6 +17,43 @@ from pydantic_settings import (
 
 from momo import __version__
 from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
+
+_STORAGE_DIRECTORY_FIELDS = (
+    "runtime_state_directory",
+    "profile_directory",
+    "calibration_directory",
+    "kinematics_model_directory",
+    "pose_directory",
+    "motion_library_directory",
+    "motion_draft_directory",
+)
+
+
+def _portable_path_key(path: Path) -> tuple[str, ...]:
+    """Conservatively identify aliases on the supported macOS filesystem.
+
+    APFS is commonly case-insensitive and Unicode-normalizing. Rejecting those
+    aliases on every platform is safer than allowing two repositories to
+    quarantine each other's documents after their directories are created.
+    """
+
+    return tuple(normalize("NFC", part).casefold() for part in path.parts)
+
+
+def _storage_paths_overlap(left: Path, right: Path) -> bool:
+    left_key = _portable_path_key(left)
+    right_key = _portable_path_key(right)
+    portable_overlap = (
+        left_key == right_key
+        or left_key == right_key[: len(left_key)]
+        or right_key == left_key[: len(right_key)]
+    )
+    if portable_overlap:
+        return True
+    try:
+        return left.exists() and right.exists() and left.samefile(right)
+    except OSError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -45,6 +83,7 @@ class Settings(BaseSettings):
     kinematics_model_directory: str = "kinematics_models"
     pose_directory: str = "data/poses"
     motion_library_directory: str = "data/motions"
+    motion_draft_directory: str = "data/drafts"
     motion_update_hz: float = Field(default=25.0, ge=20, le=100)
     jog_lease_ttl_ms: int = Field(default=400, ge=250, le=500)
     robot_state_freshness_limit_s: float = Field(default=5.0, gt=0, le=60)
@@ -105,6 +144,25 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Stage 3 requires hardware_access=DISABLED; no hardware adapter is available"
             )
+        root = repository_root()
+        resolved = {
+            field: (
+                path.resolve()
+                if (path := Path(getattr(self, field))).is_absolute()
+                else (root / path).resolve()
+            )
+            for field in _STORAGE_DIRECTORY_FIELDS
+        }
+        fields = tuple(resolved)
+        for index, left_name in enumerate(fields):
+            left = resolved[left_name]
+            for right_name in fields[index + 1 :]:
+                right = resolved[right_name]
+                if _storage_paths_overlap(left, right):
+                    raise ValueError(
+                        "Configured storage directories must not overlap: "
+                        f"{left_name} and {right_name}"
+                    )
         return self
 
     @property

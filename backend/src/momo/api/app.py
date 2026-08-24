@@ -14,6 +14,7 @@ from momo.api.routes.meta import router as meta_router
 from momo.api.routes.motion import router as motion_router
 from momo.api.routes.playback import router as playback_router
 from momo.api.routes.robot import router as robot_router
+from momo.api.routes.studio import router as studio_router
 from momo.api.routes.ws_robot import router as ws_robot_router
 from momo.application.services.robot_service import RobotApplicationService
 from momo.bootstrap import build_application_services, build_robot_service
@@ -42,7 +43,7 @@ def create_app(
     app = FastAPI(
         title=f"{resolved_settings.product_name} API",
         version=resolved_settings.version,
-        description="Stage 5 Dry Run trajectory compilation and playback API.",
+        description="Stage 6 Dry Run Studio authoring, trajectory, and playback API.",
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
@@ -52,6 +53,7 @@ def create_app(
     app.state.jog_service = services.jog
     app.state.library_service = services.library
     app.state.trajectory_service = services.trajectory
+    app.state.studio_service = services.studio
     app.state.playback_service = services.playback
     app.state.playback_observer = services.playback_observer
     install_error_handlers(app)
@@ -63,5 +65,6 @@ def create_app(
     app.include_router(motion_router, prefix="/api/v1")
     app.include_router(library_router, prefix="/api/v1")
     app.include_router(playback_router, prefix="/api/v1")
+    app.include_router(studio_router, prefix="/api/v1")
     app.include_router(ws_robot_router, prefix="/api/v1")
     return app

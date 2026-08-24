@@ -1,10 +1,12 @@
 import { API_BASE_URL } from './config';
 import type {
+  AbandonMotionDraftSaveIntentRequest,
   BootstrapResponse,
   CalibrationStatus,
   CapturePoseRequest,
   CartesianJogRequest,
   CreateMotionRequest,
+  CreateMotionDraftRequest,
   CreatePoseRequest,
   DiagnosticsResponse,
   DuplicateEntityRequest,
@@ -12,7 +14,9 @@ import type {
   EntityPage,
   ErrorResponse,
   ForwardKinematicsResponse,
+  ForkMotionDraftRequest,
   GotoPoseRequest,
+  GotoMotionDraftKeyframeRequest,
   HealthResponse,
   HomeRequest,
   InverseKinematicsRequest,
@@ -25,6 +29,11 @@ import type {
   MotionCommandStatus,
   MotionCommandSubmission,
   MotionEntity,
+  MotionDraft,
+  MotionDraftCompileResponse,
+  MotionDraftSaveResponse,
+  MotionDraftSummary,
+  MotionDraftValidation,
   MotionSummary,
   MotionPreflightReport,
   MotionStopResponse,
@@ -34,6 +43,7 @@ import type {
   PlaybackStatus,
   PlayMotionRequest,
   PoseEntity,
+  PoseSnapshot,
   PoseSummary,
   PreflightMotionRequest,
   ProfileResponse,
@@ -45,6 +55,10 @@ import type {
   TrajectoryPreview,
   TrajectoryPreviewSegment,
   TrajectoryViolation,
+  CompileMotionDraftRequest,
+  SaveAsMotionDraftRequest,
+  SaveMotionDraftRequest,
+  UpdateMotionDraftRequest,
   UpdateMotionRequest,
   UpdatePoseRequest,
 } from './types';
@@ -291,6 +305,10 @@ function entityListPath(path: '/poses' | '/motions', query: EntityListQuery): st
 
 function entityPath(path: '/poses' | '/motions', entityId: string): string {
   return `${path}/${encodeURIComponent(entityId)}`;
+}
+
+function studioDraftPath(draftId: string): string {
+  return `/studio/drafts/${encodeURIComponent(draftId)}`;
 }
 
 function asPreflight(value: unknown): MotionPreflightReport | null {
@@ -797,4 +815,134 @@ export async function getTrajectoryPreview(
   return normalizeTrajectoryPreview(
     await requestJson<unknown>(`/trajectory/${encodeURIComponent(digest)}/preview`, { signal }),
   );
+}
+
+export function getMotionDrafts(
+  page = 1,
+  pageSize = 20,
+  signal?: AbortSignal,
+): Promise<EntityPage<MotionDraftSummary>> {
+  const query = new URLSearchParams({
+    page: String(Math.max(1, Math.trunc(page))),
+    page_size: String(Math.min(50, Math.max(1, Math.trunc(pageSize)))),
+  });
+  return requestJson(`/studio/drafts?${query.toString()}`, { signal });
+}
+
+export function createMotionDraft(request: CreateMotionDraftRequest): Promise<MotionDraft> {
+  return postJson('/studio/drafts', request);
+}
+
+export function createMotionDraftFromMotion(
+  motionId: string,
+  expectedRevision: number,
+): Promise<MotionDraft> {
+  return postJson(`/studio/drafts/from-motion/${encodeURIComponent(motionId)}`, {
+    expected_revision: expectedRevision,
+  });
+}
+
+export function getMotionDraft(
+  draftId: string,
+  signal?: AbortSignal,
+): Promise<MotionDraft> {
+  return requestJson(studioDraftPath(draftId), { signal });
+}
+
+export function forkMotionDraft(
+  draftId: string,
+  request: ForkMotionDraftRequest,
+): Promise<MotionDraft> {
+  return postJson(`${studioDraftPath(draftId)}/fork`, request);
+}
+
+export function updateMotionDraft(
+  draftId: string,
+  request: UpdateMotionDraftRequest,
+): Promise<MotionDraft> {
+  return putJson(studioDraftPath(draftId), request);
+}
+
+export function abandonMotionDraftSaveIntent(
+  draftId: string,
+  request: AbandonMotionDraftSaveIntentRequest,
+): Promise<MotionDraft> {
+  return postJson(`${studioDraftPath(draftId)}/save-intent/abandon`, request);
+}
+
+export function deleteMotionDraft(draftId: string, expectedRevision: number): Promise<void> {
+  const query = new URLSearchParams({ expected_revision: String(expectedRevision) });
+  return requestJson(`${studioDraftPath(draftId)}?${query.toString()}`, {
+    method: 'DELETE',
+  });
+}
+
+export function validateMotionDraft(
+  draftId: string,
+  expectedRevision: number,
+): Promise<MotionDraftValidation> {
+  return postJson(`${studioDraftPath(draftId)}/validate`, {
+    expected_revision: expectedRevision,
+  });
+}
+
+export async function compileMotionDraft(
+  draftId: string,
+  request: CompileMotionDraftRequest,
+): Promise<MotionDraftCompileResponse> {
+  const raw = await postJson<unknown>(`${studioDraftPath(draftId)}/compile`, request);
+  if (!isRecord(raw) || raw.executable !== false) {
+    throw new TypeError('Backend returned an invalid non-executable draft compile result');
+  }
+  const draftIdValue = stringValue(raw.draft_id);
+  if (!draftIdValue) throw new TypeError('Draft compile result is missing draft_id');
+  return {
+    draft_id: draftIdValue,
+    draft_revision: integerValue(raw.draft_revision, 'draft compile revision', 1),
+    preflight: normalizeTrajectoryPreflight(raw.preflight),
+    preview: raw.preview === null ? null : normalizeTrajectoryPreview(raw.preview),
+    executable: false,
+  };
+}
+
+function normalizeDraftSave(value: unknown): MotionDraftSaveResponse {
+  if (!isRecord(value) || !isRecord(value.draft) || !isRecord(value.motion)) {
+    throw new TypeError('Backend returned an invalid draft save result');
+  }
+  return {
+    draft: value.draft as unknown as MotionDraft,
+    motion: value.motion as unknown as MotionEntity,
+    preflight: normalizeTrajectoryPreflight(value.preflight),
+  };
+}
+
+export async function saveMotionDraft(
+  draftId: string,
+  request: SaveMotionDraftRequest,
+): Promise<MotionDraftSaveResponse> {
+  return normalizeDraftSave(await postJson<unknown>(`${studioDraftPath(draftId)}/save`, request));
+}
+
+export async function saveMotionDraftAs(
+  draftId: string,
+  request: SaveAsMotionDraftRequest,
+): Promise<MotionDraftSaveResponse> {
+  return normalizeDraftSave(
+    await postJson<unknown>(`${studioDraftPath(draftId)}/save-as`, request),
+  );
+}
+
+export function captureStudioSnapshot(): Promise<PoseSnapshot> {
+  return postJson('/studio/capture', {});
+}
+
+export async function gotoMotionDraftKeyframe(
+  draftId: string,
+  keyframeId: string,
+  request: GotoMotionDraftKeyframeRequest,
+): Promise<MotionCommandSubmission> {
+  return normalizeSubmission(await postJson<unknown>(
+    `${studioDraftPath(draftId)}/keyframes/${encodeURIComponent(keyframeId)}/goto`,
+    request,
+  ));
 }

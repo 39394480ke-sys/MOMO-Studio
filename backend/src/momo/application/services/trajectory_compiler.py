@@ -198,13 +198,13 @@ class TrajectoryCompiler:
             failed_detail="Expected robot state sequence is stale",
         )
         self._check(
-            source is MotionCommandSource.LIBRARY,
+            source in {MotionCommandSource.LIBRARY, MotionCommandSource.STUDIO},
             checks,
             violations,
             name="source",
             code="SOURCE_NOT_ALLOWED",
-            passed_detail="Library is an accepted Stage 5 trajectory source",
-            failed_detail="Stage 5 compilation only accepts Library motion intent",
+            passed_detail=f"{source.value} is an accepted trajectory source",
+            failed_detail="Trajectory compilation only accepts Library or Studio motion intent",
         )
         self._check(
             connected,
@@ -231,7 +231,7 @@ class TrajectoryCompiler:
             name="hardware_policy",
             code="HARDWARE_ACCESS_POLICY_INVALID",
             passed_detail="Hardware access policy is DISABLED",
-            failed_detail="Stage 5 requires hardware access policy DISABLED",
+            failed_detail="Current product policy requires hardware access DISABLED",
         )
         self._check(
             control_mode is ControlMode.DRY_RUN,
@@ -240,7 +240,7 @@ class TrajectoryCompiler:
             name="control_mode",
             code="REAL_MOTION_DISABLED",
             passed_detail="Control mode is DRY_RUN",
-            failed_detail="Stage 5 trajectory compilation is restricted to DRY_RUN",
+            failed_detail="Trajectory compilation is currently restricted to DRY_RUN",
         )
         self._check(
             stop_capable,
@@ -257,8 +257,8 @@ class TrajectoryCompiler:
             violations,
             name="real_readiness",
             code="REAL_READINESS_INVALID",
-            passed_detail="Real motion remains blocked by Stage 5 policy",
-            failed_detail="Stage 5 cannot claim real-hardware readiness",
+            passed_detail="Real motion remains blocked by product stage policy",
+            failed_detail="The compiler cannot claim real-hardware readiness",
         )
         self._check(
             not field_acceptance_complete,
@@ -267,7 +267,7 @@ class TrajectoryCompiler:
             name="field_acceptance",
             code="FIELD_ACCEPTANCE_INVALID",
             passed_detail="Real-hardware field acceptance remains outstanding",
-            failed_detail="Stage 5 cannot claim real-hardware field acceptance",
+            failed_detail="The compiler cannot claim real-hardware field acceptance",
         )
 
         model: KinematicsModel | None = None

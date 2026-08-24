@@ -57,6 +57,12 @@ def product_scope(settings: SettingsDependency) -> ProductScopeResponse:
             "bounded Dry Run playback with pause, resume, stop, loop, and rate",
             "read-only trajectory preview and real-time playback status",
         ],
+        stage_6_available=[
+            "atomic recoverable MotionDraft autosave with revision conflicts",
+            "coherent Studio snapshot capture without Library side effects",
+            "compiler-backed draft validation and bounded non-executable preview",
+            "formal Motion Save and Save As after successful Dry Run preflight",
+        ],
         included_in_first_version=[
             "single active MOMO V1 or V2 robot",
             "joint and Cartesian control",

@@ -112,6 +112,64 @@ def test_stage_three_rejects_real_control_mode() -> None:
         Settings(control_mode=ControlMode.REAL)
 
 
+@pytest.mark.parametrize(
+    ("motion_directory", "draft_directory"),
+    [
+        ("entities", "entities"),
+        ("entities", "entities/drafts"),
+        ("entities/motions", "entities"),
+    ],
+)
+def test_storage_directories_must_not_overlap_before_repository_access(
+    tmp_path: Path,
+    motion_directory: str,
+    draft_directory: str,
+) -> None:
+    shared_root = tmp_path / "storage"
+    formal_motion = shared_root / motion_directory / "00000000-0000-4000-8000-000000000001.json"
+    formal_motion.parent.mkdir(parents=True)
+    formal_motion.write_text('{"sentinel":"formal-motion"}\n', encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="storage directories must not overlap"):
+        Settings(
+            motion_library_directory=str(shared_root / motion_directory),
+            motion_draft_directory=str(shared_root / draft_directory),
+        )
+
+    assert formal_motion.read_text(encoding="utf-8") == '{"sentinel":"formal-motion"}\n'
+    assert not (formal_motion.parent / "quarantine").exists()
+
+
+def test_storage_directories_reject_existing_case_alias_before_repository_access(
+    tmp_path: Path,
+) -> None:
+    formal_directory = tmp_path / "Motions"
+    formal_directory.mkdir()
+    sentinel = formal_directory / "00000000-0000-4000-8000-000000000001.json"
+    sentinel.write_text('{"sentinel":"formal-motion"}\n', encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="storage directories must not overlap"):
+        Settings(
+            motion_library_directory=str(formal_directory),
+            motion_draft_directory=str(tmp_path / "motions"),
+        )
+
+    assert sentinel.read_text(encoding="utf-8") == '{"sentinel":"formal-motion"}\n'
+    assert not (formal_directory / "quarantine").exists()
+
+
+def test_storage_directories_conservatively_reject_uncreated_case_aliases(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationError, match="storage directories must not overlap"):
+        Settings(
+            motion_library_directory=str(tmp_path / "Future" / "Motions"),
+            motion_draft_directory=str(tmp_path / "future" / "motions"),
+        )
+
+    assert not (tmp_path / "Future").exists()
+
+
 @pytest.mark.parametrize("update_hz", [0.1, 19.999, 100.001])
 def test_motion_update_rate_has_reviewed_interpolation_bounds(update_hz: float) -> None:
     with pytest.raises(ValidationError):

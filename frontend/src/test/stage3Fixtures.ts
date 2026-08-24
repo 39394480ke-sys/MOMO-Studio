@@ -127,6 +127,8 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
   let offline = false;
   let pollIndex = 0;
   let motionStopped = false;
+  let draftRevision = 1;
+  const draftId = '66666666-6666-4666-8666-666666666666';
   const requests: RecordedRequest[] = [];
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -222,6 +224,47 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
     }
     if (path.startsWith('/motions?')) {
       return jsonResponse({ items: [], page: 1, page_size: 24, total: 0 });
+    }
+    if (path.startsWith('/studio/drafts?')) {
+      return jsonResponse({ items: [], page: 1, page_size: 20, total: 0 });
+    }
+    if (path === '/studio/drafts' && (init?.method ?? 'GET') === 'POST') {
+      const request = body as Record<string, unknown>;
+      return jsonResponse({
+        schema_version: '1.0.0',
+        id: draftId,
+        source_motion_id: null,
+        source_motion_revision: null,
+        name: request.name ?? 'Untitled Motion',
+        description: request.description ?? '',
+        robot_variant: request.robot_variant ?? variant,
+        keyframes: request.keyframes ?? [],
+        playback_defaults: request.playback_defaults ?? { loop: false, speed_multiplier: 1 },
+        tags: request.tags ?? [],
+        editor_metadata: request.editor_metadata ?? {
+          selected_keyframe_id: null,
+          playhead_s: 0,
+          timeline_zoom: 1,
+          timeline_scroll_s: 0,
+          default_edges: [],
+        },
+        revision: draftRevision,
+        created_at: '2026-08-24T00:00:00Z',
+        updated_at: '2026-08-24T00:00:00Z',
+      }, true, 201);
+    }
+    if (path === `/studio/drafts/${draftId}` && init?.method === 'PUT') {
+      const request = body as Record<string, unknown>;
+      draftRevision += 1;
+      return jsonResponse({
+        schema_version: '1.0.0', id: draftId,
+        source_motion_id: null, source_motion_revision: null,
+        name: request.name, description: request.description, robot_variant: request.robot_variant,
+        keyframes: request.keyframes, playback_defaults: request.playback_defaults,
+        tags: request.tags, editor_metadata: request.editor_metadata,
+        revision: draftRevision, created_at: '2026-08-24T00:00:00Z',
+        updated_at: '2026-08-24T00:00:01Z',
+      });
     }
 
     if (path === '/kinematics/ik') {
