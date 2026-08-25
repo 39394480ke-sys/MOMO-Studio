@@ -30,6 +30,7 @@ interface MotionPlaybackPanelProps {
   preview: TrajectoryPreviewData | null;
   previewLoading: boolean;
   rate: number;
+  runtimeMode: 'DRY RUN' | 'REAL';
   stopDisabled: boolean;
 }
 
@@ -56,6 +57,7 @@ export function MotionPlaybackPanel({
   preview,
   previewLoading,
   rate,
+  runtimeMode,
   stopDisabled,
 }: MotionPlaybackPanelProps) {
   const actionBusy = actionKey !== null;
@@ -114,7 +116,9 @@ export function MotionPlaybackPanel({
       </header>
 
       <p className="motion-playback-panel__intro">
-        Compile and verify the immutable Motion first. Playback remains inside the reviewed Dry Run gateway and never accesses hardware.
+        {runtimeMode === 'REAL'
+          ? 'Compile and verify the immutable Motion first. Real playback remains inside the backend-authorized capability gateway.'
+          : 'Compile and verify the immutable Motion first. Playback remains inside the reviewed Dry Run gateway and never accesses hardware.'}
       </p>
 
       {disabledReason ? (

@@ -31,6 +31,7 @@ interface StudioTimelineProps {
   frameLimitReached: boolean;
   frames: MotionKeyframe[];
   initialScrollS: number;
+  runtimeMode: 'DRY RUN' | 'REAL';
   playheadS: number;
   selectedFrameId: string | null;
   zoom: number;
@@ -91,6 +92,7 @@ export function StudioTimeline({
   frameLimitReached,
   frames,
   initialScrollS,
+  runtimeMode,
   playheadS,
   selectedFrameId,
   zoom,
@@ -222,7 +224,7 @@ export function StudioTimeline({
         <div className="studio-timeline-empty">
           <CirclePlus aria-hidden="true" />
           <strong>Blank Motion draft</strong>
-          <span>Capture the current Dry Run robot state or add a saved Pose to begin.</span>
+          <span>Capture the current {runtimeMode} robot state or add a saved Pose to begin.</span>
         </div>
       ) : (
         <div

@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from momo.domain.calibration import CalibrationDocument, Fingerprint
+from momo.domain.commissioning import RobotUnitId
 from momo.domain.enums import (
     CalibrationOperatingMode,
     ControlMode,
@@ -154,6 +155,7 @@ class CalibrationAuthorization(BaseModel):
 
     session_id: UUID
     robot_id: RobotIdValue
+    robot_unit_id: RobotUnitId
     variant: RobotVariant
     profile_fingerprint: Fingerprint
     calibration_fingerprint: Fingerprint | None = None

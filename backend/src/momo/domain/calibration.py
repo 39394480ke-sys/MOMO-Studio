@@ -28,6 +28,15 @@ from momo.domain.robot import JointId
 CALIBRATION_SCHEMA_VERSION = "1.0.0"
 Fingerprint = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 PositiveStrictInt = Annotated[StrictInt, Field(ge=1)]
+RobotUnitId = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=3,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    ),
+]
 
 
 def utc_now() -> datetime:
@@ -100,6 +109,9 @@ class CalibrationDocument(BaseModel):
 
     schema_version: Literal["1.0.0"] = "1.0.0"
     id: UUID = Field(default_factory=uuid4)
+    # ``None`` keeps generic templates and existing 1.0 documents readable.
+    # Newly captured Real calibrations always bind the physical unit explicitly.
+    robot_unit_id: RobotUnitId | None = None
     robot_variant: RobotVariant
     profile_fingerprint: Fingerprint
     template: bool

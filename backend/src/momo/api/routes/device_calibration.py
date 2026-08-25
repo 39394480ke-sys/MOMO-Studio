@@ -6,7 +6,7 @@ from http import HTTPStatus
 from typing import Annotated, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from momo.api.calibration_workflow_schemas import (
     CalibrationCompleteRequest,
@@ -17,6 +17,7 @@ from momo.api.calibration_workflow_schemas import (
     CalibrationRollbackRequest,
     CalibrationSessionStartRequest,
 )
+from momo.api.dependencies import OperatorToken
 from momo.api.security import authorize_control_request
 from momo.application.services.calibration_workflow_coordinator import (
     CalibrationWorkflowCoordinator,
@@ -45,10 +46,6 @@ def get_calibration_coordinator(request: Request) -> CalibrationWorkflowCoordina
 Coordinator = Annotated[
     CalibrationWorkflowCoordinator,
     Depends(get_calibration_coordinator),
-]
-OperatorToken = Annotated[
-    str,
-    Header(alias="X-MOMO-Operator-Session", min_length=20, max_length=200),
 ]
 
 

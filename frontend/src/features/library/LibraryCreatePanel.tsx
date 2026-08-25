@@ -74,7 +74,7 @@ export function PoseCaptureForm({
         <span>{robotLabel}</span>
       </header>
       <p>
-        Capture one coherent joint/TCP snapshot from the active Dry Run robot. No hardware is read.
+        Capture one coherent backend-owned joint/TCP snapshot from the active robot. Capture does not command motion.
       </p>
       <form className="entity-form" onSubmit={submit}>
         <label>

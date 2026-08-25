@@ -19,6 +19,10 @@ import type {
   VisionFollowMapping,
   VisionStatus,
 } from '../../api/types';
+import {
+  realCapabilityAvailability,
+  useRealSession,
+} from '../../components/realSessionContext';
 import type { RuntimeStatus } from '../../components/runtimeStatusContext';
 
 const STATUS_POLL_MS = 250;
@@ -62,6 +66,7 @@ function followMapping(runtime: RuntimeStatus): VisionFollowMapping | null {
 }
 
 export function useVisionWorkspace(runtime: RuntimeStatus) {
+  const { summary: realSession } = useRealSession();
   const [capabilities, setCapabilities] = useState<VisionCapabilities | null>(null);
   const [status, setStatus] = useState<VisionStatus | null>(null);
   const [detections, setDetections] = useState<VisionDetection[]>([]);
@@ -83,6 +88,15 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     runtime.controlMode === 'DRY RUN' &&
     runtime.hardwareAccessPolicy === 'DISABLED' &&
     runtime.realMotionEnabled === false;
+  const realVisionCapability = realCapabilityAvailability(realSession, 'real_vision_follow');
+  const followAllowed = runtime.controlMode === 'REAL'
+    ? realVisionCapability.allowed
+    : dryRunFollowAllowed;
+  const followBlockedReason = runtime.controlMode === 'REAL'
+    ? realVisionCapability.reason
+    : dryRunFollowAllowed
+      ? null
+      : 'Dry Run hardware isolation is unavailable';
 
   const refreshStatus = useCallback(async (signal?: AbortSignal) => {
     const generation = requestGenerationRef.current;
@@ -270,10 +284,15 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
   }, []);
 
   const startFollow = useCallback(async () => {
-    if (!dryRunFollowAllowed) {
-      setError(runtime.hardwareAccessPolicy === 'READ_ONLY'
-        ? 'Commissioning READ ONLY permits no Vision Follow.'
-        : 'A REAL_MOTION Operator Session is required for real Vision Follow.');
+    if (!followAllowed) {
+      setError(followBlockedReason ?? 'Vision Follow is not authorized by the backend.');
+      return;
+    }
+    if (runtime.controlMode === 'REAL' && !capabilities?.real_follow_allowed) {
+      setError(
+        capabilities?.real_follow_blocked_reason ??
+        'The Vision backend has not enabled Real Follow for this provider.',
+      );
       return;
     }
     if (!mapping) {
@@ -302,7 +321,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     } finally {
       if (mountedRef.current) setBusy((current) => current === 'start-follow' ? null : current);
     }
-  }, [configuration, dryRunFollowAllowed, mapping, runtime.hardwareAccessPolicy]);
+  }, [capabilities, configuration, followAllowed, followBlockedReason, mapping, runtime.controlMode]);
 
   const stopFollow = useCallback(async () => {
     priorityEpochRef.current += 1;
@@ -333,11 +352,14 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     detect,
     detections,
     dryRunFollowAllowed,
+    followAllowed,
+    followBlockedReason,
     error,
     mapping,
     online,
     runtimeMode: runtime.controlMode,
     runtimePolicy: runtime.hardwareAccessPolicy,
+    realVisionCapability,
     resetTracking,
     selectTarget,
     setConfiguration,

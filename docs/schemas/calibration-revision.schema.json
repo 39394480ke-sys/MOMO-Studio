@@ -32,6 +32,21 @@
           "title": "Profile Fingerprint",
           "type": "string"
         },
+        "robot_unit_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 3,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Robot Unit Id"
+        },
         "robot_variant": {
           "$ref": "#/$defs/RobotVariant"
         },

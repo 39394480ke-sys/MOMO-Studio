@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Self
 from unicodedata import normalize
 from urllib.parse import urlsplit
 
@@ -17,6 +17,7 @@ from pydantic_settings import (
 )
 
 from momo import __version__
+from momo.domain.commissioning import CommissioningSafetyEnvelope
 from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
 from momo.domain.security import is_loopback_host, normalize_origin
 from momo.domain.vision import CameraAccessPolicy
@@ -27,6 +28,8 @@ _STORAGE_DIRECTORY_FIELDS = (
     "calibration_directory",
     "real_calibration_directory",
     "field_acceptance_directory",
+    "commissioning_test_evidence_directory",
+    "kinematics_verification_directory",
     "kinematics_model_directory",
     "pose_directory",
     "motion_library_directory",
@@ -83,6 +86,19 @@ class Settings(BaseSettings):
     version: str = __version__
     control_mode: ControlMode = ControlMode.DRY_RUN
     real_motion_enabled: bool = False
+    commissioning_motion_test_enabled: bool = False
+    robot_unit_id: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            max_length=64,
+            pattern=r"^(?:|[A-Za-z0-9][A-Za-z0-9._-]{2,63})$",
+        ),
+    ] = ""
+    software_commit: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=7, max_length=64),
+    ] = "unknown"
     serial_port: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256)] = ""
     active_robot_variant: RobotVariant = RobotVariant.V2
     hardware_access_policy: HardwareAccessPolicy = HardwareAccessPolicy.DISABLED
@@ -93,7 +109,6 @@ class Settings(BaseSettings):
         str,
         StringConstraints(strip_whitespace=True, max_length=32, pattern=r"^[A-Za-z0-9._-]*$"),
     ] = ""
-    field_acceptance_status: Literal["PENDING", "PASSED"] = "PENDING"
     operator_session_ttl_s: int = Field(default=300, strict=True, ge=30, le=900)
     camera_access_policy: CameraAccessPolicy = CameraAccessPolicy.SYNTHETIC_ONLY
     live_camera_device_id: Annotated[
@@ -105,10 +120,19 @@ class Settings(BaseSettings):
     calibration_directory: str = "calibration/examples"
     real_calibration_directory: str = "data/calibration"
     field_acceptance_directory: str = "data/field-acceptance"
+    commissioning_test_evidence_directory: str = "data/commissioning-tests"
+    kinematics_verification_directory: str = "data/kinematics-verification"
     field_acceptance_checklist_version: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
     ] = "1"
+    kinematics_verification_checklist_version: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    ] = "1"
+    commissioning_safety_envelope: CommissioningSafetyEnvelope = Field(
+        default_factory=CommissioningSafetyEnvelope
+    )
     kinematics_model_directory: str = "kinematics_models"
     pose_directory: str = "data/poses"
     motion_library_directory: str = "data/motions"
@@ -365,13 +389,33 @@ def load_settings(
             local_ids = tuple(local_ids)
         if (
             local_values.get("hardware_local_config_enabled") is not True
+            or local_values.get("robot_unit_id") != settings.robot_unit_id
             or local_values.get("serial_port") != settings.serial_port
             or local_ids != settings.servo_ids
             or local_values.get("servo_protocol") != settings.servo_protocol
         ):
             raise ValueError(
                 "Hardware local authorization requires the exact device, explicit IDs, "
-                "and protocol in the explicitly supplied local config"
+                "protocol, and robot_unit_id in the explicitly supplied local config"
+            )
+        if not settings.robot_unit_id:
+            raise ValueError("Real hardware local authorization requires robot_unit_id")
+    if settings.commissioning_motion_test_enabled:
+        if local_values.get("commissioning_motion_test_enabled") is not True:
+            raise ValueError(
+                "Commissioning motion testing must be explicitly enabled by local config"
+            )
+        local_envelope = local_values.get("commissioning_safety_envelope")
+        if local_envelope is not None:
+            # Model validation above enforces the immutable compile-time maxima.
+            CommissioningSafetyEnvelope.model_validate(local_envelope)
+        if (
+            local_values.get("software_commit") != settings.software_commit
+            or settings.software_commit == "unknown"
+        ):
+            raise ValueError(
+                "Commissioning motion testing requires an explicit software_commit "
+                "from local config"
             )
     if settings.lan_enabled and local_values.get("lan_enabled") is not True:
         raise ValueError("LAN mode must be explicitly enabled by the supplied local config")

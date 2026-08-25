@@ -16,16 +16,22 @@ from momo.adapters.storage.file_field_acceptance_repository import (
 from momo.api.app import create_app
 from momo.api.dependencies import authorize_real_joint_motion_request
 from momo.api.error_handlers import install_error_handlers
-from momo.application.services.field_acceptance_service import FieldAcceptanceService
+from momo.application.services.field_acceptance_service import (
+    FieldAcceptanceManualPassForbiddenError,
+    FieldAcceptanceService,
+)
 from momo.application.services.operator_session_service import OperatorSessionTokenError
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
+from momo.domain.commissioning import (
+    FieldAcceptanceCapability,
+    FieldAcceptanceEvidenceState,
+)
 from momo.domain.enums import HardwareAccessPolicy
 from momo.domain.kinematics.model import KinematicsModel
 from momo.domain.real_hardware import (
     REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
     REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT,
     REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
-    FieldAcceptanceEvidenceState,
     FieldAcceptanceStatus,
     OperatorSessionPurpose,
     RealHardwareAuthorizationPurpose,
@@ -109,10 +115,15 @@ def test_acceptance_evidence_invalidates_on_every_bound_context_change() -> None
     candidate = KinematicsModel.model_construct(**kinematics_data)
     kinematics_data["kinematics_fingerprint"] = candidate.fingerprint
     changed_kinematics = KinematicsModel.model_validate(kinematics_data)
+    cartesian_evidence = context.field_acceptance_bundle.newest_for(
+        FieldAcceptanceCapability.CARTESIAN
+    )
+    assert cartesian_evidence is not None
     assert (
         "kinematics_fingerprint"
         in field_acceptance_evidence_state(
-            context.model_copy(update={"kinematics": changed_kinematics})
+            context.model_copy(update={"kinematics": changed_kinematics}),
+            cartesian_evidence,
         )[1]
     )
 
@@ -149,12 +160,12 @@ def test_bare_passed_setting_without_evidence_is_pending_and_cannot_authorize_mo
             evaluated_at=FakeClock().now(),
         )
     )
-    assert RealHardwareBlocker.FIELD_ACCEPTANCE_EVIDENCE_MISSING in report.blocking_reasons
+    assert RealHardwareBlocker.JOINT_MOTION_ACCEPTANCE_PENDING in report.blocking_reasons
     assert report.motion_session_authorizable is False
     assert report.capabilities.real_joint_motion_ready is False
 
 
-def test_safe_acceptance_persists_uuid_record_and_ends_commissioning_session(
+def test_manual_pass_is_forbidden_and_pre_motion_persists_scoped_v2_evidence(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> None:
@@ -176,28 +187,39 @@ def test_safe_acceptance_persists_uuid_record_and_ends_commissioning_session(
             purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
             confirmation_text=REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
             physical_estop_confirmed=True,
+            operator_id="synthetic-operator",
         )
         token = issued.session_token.get_secret_value()
         await device.connect(token)
 
-        result = await service.accept(
+        with pytest.raises(FieldAcceptanceManualPassForbiddenError):
+            await service.accept(
+                token,
+                checklist_version=context.field_acceptance_checklist_version,
+                confirmation_text=REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT,
+                accepted_by="client-cannot-pass",
+            )
+        assert repository.list_evidence() == ()
+        assert device.connected is True
+
+        result = await service.complete_pre_motion_checks(
             token,
             checklist_version=context.field_acceptance_checklist_version,
-            confirmation_text=REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT,
-            accepted_by="synthetic-operator",
         )
 
-        assert result.state is FieldAcceptanceEvidenceState.VALID
-        assert result.effective_status is FieldAcceptanceStatus.PASSED
+        assert result.pre_motion_checks_complete is True
+        assert result.joint_motion_accepted is False
+        assert result.full_acceptance_complete is False
         assert device.connected is False
         assert (await device.sessions.status()).active is False
         records = repository.list_evidence()
         assert len(records) == 1
-        assert records[0].evidence_id == result.evidence_id
+        assert records[0].capability is FieldAcceptanceCapability.PRE_MOTION_CHECKS
+        assert records[0].accepted_by == "synthetic-operator"
         evidence_path = tmp_path / f"{records[0].evidence_id}.json"
         assert evidence_path.is_file()
         persisted = json.loads(evidence_path.read_text(encoding="utf-8"))
-        assert persisted["schema_version"] == 1
+        assert persisted["schema_version"] == 2
         assert persisted["revision"] == 1
         with pytest.raises(OperatorSessionTokenError):
             await device.authorize_operator_purpose(
@@ -326,7 +348,7 @@ def test_actual_motion_routes_reject_commissioning_token_before_command_executio
     asyncio.run(scenario())
 
 
-def test_field_acceptance_api_requires_commissioning_token_and_full_confirmation(
+def test_legacy_manual_field_acceptance_api_authenticates_then_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -356,6 +378,9 @@ def test_field_acceptance_api_requires_commissioning_token_and_full_confirmation
             before = await client.get("/api/v1/device/field-acceptance")
             assert before.status_code == 200
             assert before.json()["state"] == "MISSING"
+            progress_before = await client.get("/api/v1/device/field-acceptance/progress")
+            assert progress_before.status_code == 200
+            assert progress_before.json()["pre_motion_checks_complete"] is False
 
             issued = await device.issue_operator_session(
                 purpose=OperatorSessionPurpose.COMMISSIONING_READ_ONLY,
@@ -373,8 +398,14 @@ def test_field_acceptance_api_requires_commissioning_token_and_full_confirmation
                 "/api/v1/device/field-acceptance",
                 json=request_body,
             )
-            assert missing_token.status_code == 422
-            assert missing_token.json()["code"] == "REQUEST_VALIDATION_ERROR"
+            assert missing_token.status_code == 401
+            assert missing_token.json()["code"] == "OPERATOR_SESSION_UNAUTHORIZED"
+            missing_joint_token = await client.post(
+                "/api/v1/device/field-acceptance/joint-motion",
+                json={"checklist_version": context.field_acceptance_checklist_version},
+            )
+            assert missing_joint_token.status_code == 401
+            assert missing_joint_token.json()["code"] == "OPERATOR_SESSION_UNAUTHORIZED"
 
             wrong_token = await client.post(
                 "/api/v1/device/field-acceptance",
@@ -398,17 +429,28 @@ def test_field_acceptance_api_requires_commissioning_token_and_full_confirmation
                 headers={"X-MOMO-Operator-Session": token},
             )
             assert stale_checklist.status_code == 403
-            assert stale_checklist.json()["code"] == "FIELD_ACCEPTANCE_NOT_AUTHORIZABLE"
+            assert stale_checklist.json()["code"] == "FIELD_ACCEPTANCE_MANUAL_PASS_FORBIDDEN"
 
-            accepted = await client.post(
+            forbidden = await client.post(
                 "/api/v1/device/field-acceptance",
                 json=request_body,
                 headers={"X-MOMO-Operator-Session": token},
             )
-            assert accepted.status_code == 200, accepted.text
-            assert accepted.json()["state"] == "VALID"
-            assert accepted.json()["effective_status"] == "PASSED"
-            assert accepted.json()["evidence_id"]
+            assert forbidden.status_code == 403, forbidden.text
+            assert forbidden.json()["code"] == "FIELD_ACCEPTANCE_MANUAL_PASS_FORBIDDEN"
+            assert repository.list_evidence() == ()
+            assert device.connected is True
+
+            completed = await client.post(
+                "/api/v1/device/field-acceptance/pre-motion-checks",
+                json={"checklist_version": context.field_acceptance_checklist_version},
+                headers={"X-MOMO-Operator-Session": token},
+            )
+            assert completed.status_code == 200, completed.text
+            assert completed.json()["pre_motion_checks_complete"] is True
+            assert completed.json()["joint_motion_accepted"] is False
+            assert len(repository.list_evidence()) == 1
+            assert device.connected is False
 
     asyncio.run(scenario())
 
@@ -482,7 +524,6 @@ def test_variant_switch_revokes_old_motion_identity_and_stales_acceptance(
             "robot_variant",
             "profile_fingerprint",
             "calibration_fingerprint",
-            "kinematics_fingerprint",
             "device_fingerprint",
         } <= set(stale_fields)
         assert factory.bus.events == ()

@@ -85,10 +85,13 @@ async def request(
     *,
     json_data: object | None = None,
     token: str | None = None,
+    cookies: httpx.Cookies | None = None,
 ) -> httpx.Response:
     headers = {"X-MOMO-Operator-Session": token} if token is not None else None
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        if cookies is not None:
+            client.cookies.update(cookies)
         return await client.request(method, path, json=json_data, headers=headers)
 
 
@@ -734,6 +737,8 @@ def test_default_device_api_is_blocked_and_never_touches_a_bus() -> None:
         assert body["calibration_configured"] is False
         assert body["connected"] is False
         assert body["capabilities"] == {
+            "commissioning_read_only_ready": False,
+            "commissioning_motion_test_ready": False,
             "commissioning_diagnostics_ready": False,
             "calibration_capture_ready": False,
             "real_joint_motion_ready": False,
@@ -744,7 +749,7 @@ def test_default_device_api_is_blocked_and_never_touches_a_bus() -> None:
         assert body["confirmation"]["masked_serial_port"] is None
 
         connect = await request(app, "POST", "/api/v1/device/connect")
-        assert connect.status_code == 422
+        assert connect.status_code == 401
         stopped = await request(app, "POST", "/api/v1/device/stop")
         assert stopped.status_code == 200
         assert stopped.json()["result"] == "NOT_CONNECTED"
@@ -781,7 +786,7 @@ def test_pending_feetech_dependency_cannot_claim_readiness_or_issue_session() ->
     asyncio.run(scenario())
 
 
-def test_device_api_returns_commissioning_token_and_redacted_raw_diagnostics() -> None:
+def test_device_api_sets_http_only_commissioning_cookie_and_redacts_diagnostics() -> None:
     async def scenario() -> None:
         context = recalibration_context()
         assert context.device is not None
@@ -819,9 +824,13 @@ def test_device_api_returns_commissioning_token_and_redacted_raw_diagnostics() -
         )
         assert issued.status_code == 200
         assert issued.headers["cache-control"] == "no-store"
+        set_cookie = issued.headers["set-cookie"].lower()
+        assert "momo_operator_session=" in set_cookie
+        assert "httponly" in set_cookie
+        assert "samesite=strict" in set_cookie
+        assert "path=/api/v1" in set_cookie
         issued_body = issued.json()
         assert set(issued_body) == {
-            "session_token",
             "session_id",
             "issued_at",
             "expires_at",
@@ -829,7 +838,7 @@ def test_device_api_returns_commissioning_token_and_redacted_raw_diagnostics() -
             "scopes",
             "evidence",
         }
-        token = issued_body["session_token"]
+        assert "session_token" not in issued.text
         evidence = issued_body["evidence"]
         assert issued_body["purpose"] == "COMMISSIONING_READ_ONLY"
         assert set(issued_body["scopes"]) == {"DIAGNOSTICS_READ", "CALIBRATION_CAPTURE"}
@@ -846,13 +855,13 @@ def test_device_api_returns_commissioning_token_and_redacted_raw_diagnostics() -
             app,
             "POST",
             "/api/v1/device/connect",
-            token=token,
+            cookies=issued.cookies,
         )
         assert connected.status_code == 200
         connected_body = connected.json()
         assert connected_body["connected"] is True
         assert context.device.serial_port not in connected.text
-        assert token not in connected.text
+        assert "session_token" not in connected.text
         assert_no_key(connected_body, "servo_id")
         assert all(record["torque_enabled"] is None for record in connected_body["records"])
 
@@ -860,17 +869,19 @@ def test_device_api_returns_commissioning_token_and_redacted_raw_diagnostics() -
             app,
             "POST",
             "/api/v1/device/diagnostics",
-            token=token,
+            cookies=issued.cookies,
         )
         assert diagnostics.status_code == 200
-        assert token not in diagnostics.text
+        assert "session_token" not in diagnostics.text
         assert all(record["torque_enabled"] is False for record in diagnostics.json()["records"])
 
         readiness = await request(app, "GET", "/api/v1/device/readiness")
         assert readiness.status_code == 200
-        assert token not in readiness.text
+        assert "session_token" not in readiness.text
         assert readiness.json()["session"]["active"] is True
         assert readiness.json()["capabilities"] == {
+            "commissioning_read_only_ready": True,
+            "commissioning_motion_test_ready": False,
             "commissioning_diagnostics_ready": True,
             "calibration_capture_ready": True,
             "real_joint_motion_ready": False,
@@ -886,7 +897,7 @@ def test_device_api_returns_commissioning_token_and_redacted_raw_diagnostics() -
             app,
             "POST",
             "/api/v1/device/disconnect",
-            token=token,
+            cookies=issued.cookies,
         )
         assert disconnected.status_code == 200
         assert disconnected.json()["connected"] is False
@@ -919,12 +930,14 @@ def test_provisional_kinematics_does_not_block_commissioning_or_enable_motion() 
             },
         )
         assert issued.status_code == 200
-        token = issued.json()["session_token"]
+        assert "session_token" not in issued.json()
 
         after = (await request(app, "GET", "/api/v1/device/readiness")).json()
         assert after["ready"] is False
         assert after["state"] == "COMMISSIONING_READY"
         assert after["capabilities"] == {
+            "commissioning_read_only_ready": True,
+            "commissioning_motion_test_ready": False,
             "commissioning_diagnostics_ready": True,
             "calibration_capture_ready": True,
             "real_joint_motion_ready": False,
@@ -937,7 +950,7 @@ def test_provisional_kinematics_does_not_block_commissioning_or_enable_motion() 
             app,
             "POST",
             "/api/v1/device/connect",
-            token=token,
+            cookies=issued.cookies,
         )
         assert connected.status_code == 200
         assert connected.json()["kinematics"]["ready_for_real"] is False

@@ -1,5 +1,113 @@
 {
   "$defs": {
+    "FieldAcceptanceCapability": {
+      "enum": [
+        "PRE_MOTION_CHECKS",
+        "JOINT_MOTION",
+        "CARTESIAN",
+        "PLAYBACK",
+        "VISION_FOLLOW"
+      ],
+      "title": "FieldAcceptanceCapability",
+      "type": "string"
+    },
+    "PreMotionChecksSnapshot": {
+      "additionalProperties": false,
+      "description": "Typed diagnostic snapshot that can survive READ_ONLY to FULL restart.",
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "operator_session_id": {
+          "format": "uuid",
+          "title": "Operator Session Id",
+          "type": "string"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/PreMotionDiagnosticRecord"
+          },
+          "title": "Records",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operator_session_id",
+        "captured_at",
+        "records"
+      ],
+      "title": "PreMotionChecksSnapshot",
+      "type": "object"
+    },
+    "PreMotionDiagnosticRecord": {
+      "additionalProperties": false,
+      "description": "Persisted read-only proof for one explicitly configured joint/servo.",
+      "properties": {
+        "joint_id": {
+          "pattern": "^j[1-9][0-9]*$",
+          "title": "Joint Id",
+          "type": "string"
+        },
+        "logical_value": {
+          "title": "Logical Value",
+          "type": "number"
+        },
+        "operating_mode": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Operating Mode",
+          "type": "string"
+        },
+        "ping_responded": {
+          "const": true,
+          "title": "Ping Responded",
+          "type": "boolean"
+        },
+        "present_raw": {
+          "title": "Present Raw",
+          "type": "integer"
+        },
+        "raw_bounds": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Raw Bounds",
+          "type": "array"
+        },
+        "servo_id": {
+          "maximum": 253,
+          "minimum": 1,
+          "title": "Servo Id",
+          "type": "integer"
+        },
+        "torque_enabled": {
+          "const": false,
+          "title": "Torque Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "joint_id",
+        "servo_id",
+        "ping_responded",
+        "operating_mode",
+        "present_raw",
+        "logical_value",
+        "raw_bounds",
+        "torque_enabled"
+      ],
+      "title": "PreMotionDiagnosticRecord",
+      "type": "object"
+    },
     "RobotVariant": {
       "description": "A product variant, not a software version.",
       "enum": [
@@ -11,7 +119,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Immutable local proof bound to every safety-relevant hardware fingerprint.",
+  "description": "Backward-readable v1 record or capability-scoped v2 evidence.\n\nSchema v1 represented the removed global ``PASSED`` assertion.  It remains\nreadable for audit but can never appear in ``valid_capabilities``.",
   "properties": {
     "accepted_at": {
       "format": "date-time",
@@ -36,6 +144,17 @@
       "pattern": "^[0-9a-f]{64}$",
       "title": "Calibration Fingerprint",
       "type": "string"
+    },
+    "capability": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FieldAcceptanceCapability"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "checklist_version": {
       "maxLength": 64,
@@ -66,10 +185,35 @@
       "default": null,
       "title": "Kinematics Fingerprint"
     },
+    "pre_motion_snapshot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreMotionChecksSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "profile_fingerprint": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Profile Fingerprint",
       "type": "string"
+    },
+    "reviewed_by_optional": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewed By Optional"
     },
     "revision": {
       "const": 1,
@@ -77,20 +221,61 @@
       "title": "Revision",
       "type": "integer"
     },
+    "robot_unit_id": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Robot Unit Id"
+    },
     "robot_variant": {
       "$ref": "#/$defs/RobotVariant"
     },
     "schema_version": {
-      "const": 1,
-      "default": 1,
+      "default": 2,
+      "enum": [
+        1,
+        2
+      ],
       "title": "Schema Version",
       "type": "integer"
+    },
+    "software_commit": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 7,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Software Commit"
     },
     "status": {
       "const": "PASSED",
       "default": "PASSED",
       "title": "Status",
       "type": "string"
+    },
+    "test_evidence_ids": {
+      "default": [],
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Test Evidence Ids",
+      "type": "array"
     }
   },
   "required": [

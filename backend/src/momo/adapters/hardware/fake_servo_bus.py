@@ -85,6 +85,7 @@ class FakeServoBus:
         authorization = self._authorization
         if authorization is not None:
             candidate = ExplicitServoDevice(
+                robot_unit_id=authorization.session.robot_unit_id,
                 serial_port=device,
                 protocol=protocol,
                 servo_ids=authorization.session.allowed_servo_ids,

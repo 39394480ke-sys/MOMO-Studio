@@ -847,6 +847,7 @@ class CalibrationWorkflowService:
     ) -> CalibrationSavePreview:
         proposed = CalibrationDocument(
             id=uuid4(),
+            robot_unit_id=session.authorization.robot_unit_id,
             robot_variant=session.profile.variant,
             profile_fingerprint=session.profile.fingerprint,
             template=False,

@@ -33,10 +33,12 @@ interface StudioViewerProps {
   draftValidation: MotionDraftValidation | null;
   frameLimitReached: boolean;
   motionDisabledReason: string | null;
+  playbackDisabledReason: string | null;
   playback: PlaybackStatus | null;
   playbackPreflight: TrajectoryPreflightReport | null;
   preview: TrajectoryPreviewData | null;
   robot: RobotStatus | null;
+  runtimeMode: 'DRY RUN' | 'REAL';
   savedMotion: MotionEntity | null;
   savedMotionCurrent: boolean;
   selectedFrame: MotionKeyframe | null;
@@ -68,10 +70,12 @@ export function StudioViewer({
   draftValidation,
   frameLimitReached,
   motionDisabledReason,
+  playbackDisabledReason,
   playback,
   playbackPreflight,
   preview,
   robot,
+  runtimeMode,
   savedMotion,
   savedMotionCurrent,
   selectedFrame,
@@ -120,11 +124,11 @@ export function StudioViewer({
     <section aria-labelledby="studio-viewer-heading" className="studio-viewer">
       <header className="studio-panel-heading">
         <div>
-          <p className="section-kicker">Dry Run viewer</p>
+          <p className="section-kicker">{runtimeMode === 'REAL' ? 'Real capability' : 'Dry Run'} viewer</p>
           <h2 id="studio-viewer-heading">Robot state & trajectory</h2>
         </div>
         <div className="studio-viewer__badges">
-          <span className="dry-run-badge">DRY RUN</span>
+          <span className="dry-run-badge">{runtimeMode}</span>
           <span className={`playback-state playback-state--${state.toLowerCase()}`}>{state}</span>
           <button
             aria-label="Open keyframe Inspector"
@@ -139,7 +143,7 @@ export function StudioViewer({
       </header>
 
       <div className="studio-viewer__overview">
-        <section aria-label="Current Dry Run robot" className="studio-viewer-card">
+        <section aria-label={`Current ${runtimeMode} robot`} className="studio-viewer-card">
           <span>Current robot</span>
           <strong>{robot ? `${robot.variant} · ${robot.connection_state}` : 'Unavailable'}</strong>
           <small>
@@ -295,14 +299,14 @@ export function StudioViewer({
         <header>
           <div>
             <p className="section-kicker">Saved Motion only</p>
-            <h3 id="studio-playback-heading">Dry Run playback</h3>
+            <h3 id="studio-playback-heading">{runtimeMode === 'REAL' ? 'Authorized Real' : 'Dry Run'} playback</h3>
           </div>
           <span>{savedMotion ? `${savedMotion.name} · rev ${savedMotion.revision}` : 'Save required'}</span>
         </header>
         <div className="studio-playback__buttons">
           <button
             className="command-button"
-            disabled={busy || !savedMotion || !savedMotionCurrent || motionDisabledReason !== null || stopAvailable || studioCommandActive}
+            disabled={busy || !savedMotion || !savedMotionCurrent || playbackDisabledReason !== null || stopAvailable || studioCommandActive}
             onClick={onPreparePlayback}
             title={!savedMotion
               ? 'Save this draft as a formal Motion first'
@@ -315,9 +319,11 @@ export function StudioViewer({
           </button>
           <button
             className="command-button command-button--primary"
-            disabled={busy || !playbackPrepared || motionDisabledReason !== null}
+            disabled={busy || !playbackPrepared || playbackDisabledReason !== null}
             onClick={onPlay}
-            title={playbackPrepared ? 'Play the prepared trajectory in Dry Run' : 'Prepare playback first'}
+            title={playbackPrepared
+              ? `Play the prepared trajectory through the ${runtimeMode === 'REAL' ? 'Real capability' : 'Dry Run'} gateway`
+              : 'Prepare playback first'}
             type="button"
           >
             <CirclePlay aria-hidden="true" /> Play
@@ -341,13 +347,15 @@ export function StudioViewer({
         {studioCommand ? (
           <p className="studio-field-note">Studio keyframe Goto · {studioCommand.state} · command {studioCommand.command_id}</p>
         ) : null}
-        {motionDisabledReason ? (
-          <p className="studio-field-note">New playback actions unavailable · {motionDisabledReason}</p>
+        {playbackDisabledReason ? (
+          <p className="studio-field-note">New playback actions unavailable · {playbackDisabledReason}</p>
         ) : null}
         <div className="studio-playback-progress" aria-live="polite">
           <progress aria-label="Studio playback progress" max="1" value={playbackBelongsHere ? playback?.progress ?? 0 : 0} />
           <span>{Math.round((playbackBelongsHere ? playback?.progress ?? 0 : 0) * 100)}%</span>
-          <small>hardware_accessed=false · real preview rejected</small>
+          <small>{runtimeMode === 'REAL'
+            ? 'backend REAL_PLAYBACK capability required'
+            : 'hardware_accessed=false · real preview rejected'}</small>
         </div>
       </section>
     </section>

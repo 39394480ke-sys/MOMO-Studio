@@ -4,6 +4,7 @@ import type {
   ControlMode,
   HardwareAccessPolicy,
   NormalizedBoundingBox,
+  OperatorSessionScope,
   VisionStatus,
   VisionTrackingState,
 } from '../api/types';
@@ -31,6 +32,7 @@ interface Stage7Options {
   controlMode?: ControlMode;
   hardwareAccessPolicy?: HardwareAccessPolicy;
   realMotionEnabled?: boolean;
+  realSessionScopes?: OperatorSessionScope[];
 }
 
 export function mockStage7Backend(options: Stage7Options = {}) {
@@ -39,6 +41,7 @@ export function mockStage7Backend(options: Stage7Options = {}) {
     controlMode: options.controlMode,
     hardwareAccessPolicy: options.hardwareAccessPolicy,
     realMotionEnabled: options.realMotionEnabled,
+    realSessionScopes: options.realSessionScopes,
   });
   let selection: { frame_id: string; bounding_box: NormalizedBoundingBox } | null = null;
   let trackingState: VisionTrackingState | null = null;

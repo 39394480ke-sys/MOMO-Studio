@@ -10,10 +10,12 @@ from pydantic import SecretStr
 from momo.api.error_handlers import install_error_handlers
 from momo.api.routes.backup import router as backup_router
 from momo.api.routes.calibration import router as calibration_router
+from momo.api.routes.commissioning import router as commissioning_router
 from momo.api.routes.device import router as device_router
 from momo.api.routes.device_calibration import router as device_calibration_router
 from momo.api.routes.health import router as health_router
 from momo.api.routes.kinematics import router as kinematics_router
+from momo.api.routes.kinematics_verification import router as kinematics_verification_router
 from momo.api.routes.library import router as library_router
 from momo.api.routes.meta import router as meta_router
 from momo.api.routes.motion import router as motion_router
@@ -58,15 +60,19 @@ def create_app(
         await release.backup.recover_pending_restore()
         yield
         try:
-            await release.calibration.shutdown()
+            if release.commissioning is not None:
+                await release.commissioning.shutdown()
         finally:
             try:
-                await release.device.shutdown()
+                await release.calibration.shutdown()
             finally:
                 try:
-                    await services.vision.shutdown()
+                    await release.device.shutdown()
                 finally:
-                    await services.motion.shutdown()
+                    try:
+                        await services.vision.shutdown()
+                    finally:
+                        await services.motion.shutdown()
 
     app = FastAPI(
         title=f"{runtime_settings.product_name} API",
@@ -94,6 +100,10 @@ def create_app(
     app.state.field_acceptance_repository = release.field_acceptance_evidence
     app.state.calibration_workflow_coordinator = release.calibration
     app.state.real_calibration_repository = release.real_calibrations
+    app.state.commissioning_motion_test_service = release.commissioning
+    app.state.commissioning_evidence_repository = release.commissioning_evidence
+    app.state.kinematics_verification_service = release.kinematics_verification
+    app.state.kinematics_verification_repository = release.kinematics_verification_evidence
     app.add_middleware(
         BodySizeLimitMiddleware,
         max_body_bytes=release.security.policy.max_request_body_bytes,
@@ -115,6 +125,16 @@ def create_app(
     app.include_router(studio_router, prefix="/api/v1", dependencies=rest_dependencies)
     app.include_router(vision_router, prefix="/api/v1", dependencies=vision_dependencies)
     app.include_router(device_router, prefix="/api/v1", dependencies=rest_dependencies)
+    app.include_router(
+        commissioning_router,
+        prefix="/api/v1",
+        dependencies=rest_dependencies,
+    )
+    app.include_router(
+        kinematics_verification_router,
+        prefix="/api/v1",
+        dependencies=rest_dependencies,
+    )
     app.include_router(
         device_calibration_router,
         prefix="/api/v1",

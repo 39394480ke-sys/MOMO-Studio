@@ -44,6 +44,11 @@ import type {
   TrajectoryPreview,
 } from '../api/types';
 import { PageIntro } from '../components/PageIntro';
+import {
+  realCapabilityAvailability,
+  useRealSession,
+  type RealSessionSummary,
+} from '../components/realSessionContext';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
 import {
   MotionCreateForm,
@@ -93,19 +98,21 @@ const PLAYBACK_RATES = [0.25, 0.5, 1, 1.5, 2] as const;
 function gotoDisabledReason(
   pose: PoseSummary,
   runtime: ReturnType<typeof useRuntimeStatus>,
+  realSession: RealSessionSummary,
 ): string | null {
   if (runtime.backend !== 'connected') return 'backend offline';
-  if (
-    runtime.controlMode !== 'DRY RUN' ||
-    runtime.hardwareAccessPolicy !== 'DISABLED' ||
-    runtime.realMotionEnabled
-  ) {
-    return runtime.hardwareAccessPolicy === 'READ_ONLY'
-      ? 'Commissioning READ ONLY permits diagnostics and calibration only'
-      : 'a REAL_MOTION Operator Session is not available in this workspace';
+  if (runtime.controlMode === 'REAL') {
+    const capability = realCapabilityAvailability(realSession, 'real_joint_motion');
+    if (!capability.allowed) return capability.reason;
+  } else if (runtime.hardwareAccessPolicy !== 'DISABLED' || runtime.realMotionEnabled) {
+    return 'Dry Run hardware isolation is unavailable';
   }
   if (runtime.stale || runtime.robot?.stale !== false) return 'robot state is stale';
-  if (!runtime.robot?.connected) return 'Dry Run robot is disconnected';
+  if (!runtime.robot?.connected) {
+    return runtime.controlMode === 'REAL'
+      ? 'backend reports the Real robot disconnected'
+      : 'Dry Run robot is disconnected';
+  }
   if (runtime.pendingAction !== null) return 'robot lifecycle action is pending';
   if (pose.robot_variant !== runtime.robot.variant) return 'robot variant mismatch';
   if (!runtime.profile || runtime.profile.profile.variant !== runtime.robot.variant) {
@@ -134,19 +141,21 @@ function gotoDisabledReason(
 function playbackDisabledReason(
   motion: Pick<MotionSummary, 'robot_variant'>,
   runtime: ReturnType<typeof useRuntimeStatus>,
+  realSession: RealSessionSummary,
 ): string | null {
   if (runtime.backend !== 'connected') return 'backend offline';
-  if (
-    runtime.controlMode !== 'DRY RUN' ||
-    runtime.hardwareAccessPolicy !== 'DISABLED' ||
-    runtime.realMotionEnabled
-  ) {
-    return runtime.hardwareAccessPolicy === 'READ_ONLY'
-      ? 'Commissioning READ ONLY permits no playback'
-      : 'a REAL_MOTION Operator Session is required';
+  if (runtime.controlMode === 'REAL') {
+    const capability = realCapabilityAvailability(realSession, 'real_playback');
+    if (!capability.allowed) return capability.reason;
+  } else if (runtime.hardwareAccessPolicy !== 'DISABLED' || runtime.realMotionEnabled) {
+    return 'Dry Run hardware isolation is unavailable';
   }
   if (runtime.stale || runtime.robot?.stale !== false) return 'robot state is stale';
-  if (!runtime.robot?.connected) return 'Dry Run robot is disconnected';
+  if (!runtime.robot?.connected) {
+    return runtime.controlMode === 'REAL'
+      ? 'backend reports the Real robot disconnected'
+      : 'Dry Run robot is disconnected';
+  }
   if (runtime.pendingAction !== null) return 'robot lifecycle action is pending';
   if (motion.robot_variant !== runtime.robot.variant) return 'robot variant mismatch';
   if (!runtime.profile || runtime.profile.profile.variant !== runtime.robot.variant) {
@@ -171,6 +180,7 @@ function isRevisionConflict(error: unknown): error is ApiError {
 
 export function LibraryPage() {
   const runtime = useRuntimeStatus();
+  const { summary: realSession } = useRealSession();
   const [tab, setTab] = useState<LibraryTab>('poses');
   const [filters, setFilters] = useState<LibraryFilters>(INITIAL_FILTERS);
   const [pageNumber, setPageNumber] = useState(1);
@@ -558,7 +568,7 @@ export function LibraryPage() {
     if (
       actionInFlight.current ||
       playbackLocksLibrary(playbackStatus) ||
-      playbackDisabledReason(motion, runtime)
+      playbackDisabledReason(motion, runtime, realSession)
     ) return;
     preflightRequest.current?.abort();
     const controller = new AbortController();
@@ -740,15 +750,17 @@ export function LibraryPage() {
     <div className="page library-page">
       <PageIntro
         title="Library"
-        description="Capture immutable Pose snapshots, preflight compiled trajectories, and control Dry Run Motion playback."
-        detail="Goto and Motion playback pass through the reviewed safety gateway; this interface never enables hardware access."
+        description={`Capture immutable Pose snapshots, preflight compiled trajectories, and control ${runtime.controlMode === 'REAL' ? 'authorized Real' : 'Dry Run'} Motion playback.`}
+        detail={runtime.controlMode === 'REAL'
+          ? 'Goto and playback require the matching backend-derived capability and active Operator Session.'
+          : 'Goto and Motion playback pass through the reviewed Dry Run safety gateway; hardware access remains disabled.'}
       />
 
       <div className="library-stage-banner">
         <Archive aria-hidden="true" />
         <div>
-          <strong>Stage 5 · Compiled Dry Run playback</strong>
-          <span>Digest-bound trajectories · live status · hardware access disabled</span>
+          <strong>Stage 5 · Compiled {runtime.controlMode === 'REAL' ? 'Real capability' : 'Dry Run'} playback</strong>
+          <span>Digest-bound trajectories · live status · {runtime.controlMode === 'REAL' ? 'backend capability required' : 'hardware access disabled'}</span>
         </div>
       </div>
 
@@ -955,7 +967,7 @@ export function LibraryPage() {
                   </ol>
                   <MotionPlaybackPanel
                     actionKey={actionKey}
-                    disabledReason={playbackDisabledReason(detail.entity, runtime)}
+                    disabledReason={playbackDisabledReason(detail.entity, runtime, realSession)}
                     error={preflightError ?? playbackError ?? playbackPollError}
                     loop={playbackLoop}
                     motion={detail.entity}
@@ -972,6 +984,7 @@ export function LibraryPage() {
                     preview={trajectoryPreview}
                     previewLoading={previewLoading}
                     rate={playbackRate}
+                    runtimeMode={runtime.controlMode}
                     stopDisabled={!online}
                   />
                   <p className="stage-boundary-note">Playback uses immutable embedded snapshots. Timeline authoring remains in the separate Studio workspace.</p>
@@ -995,7 +1008,7 @@ export function LibraryPage() {
                 {hasFilters
                   ? 'Try a different search or tag filter.'
                   : tab === 'poses'
-                    ? 'Capture the current Dry Run state to create the first Pose.'
+                    ? 'Capture the current backend robot state to create the first Pose.'
                     : 'Select two compatible Poses above to create the first Motion.'}
               </span>
             </div>
@@ -1010,9 +1023,10 @@ export function LibraryPage() {
                       <PoseCard
                         busy={anyActionBusy || !online}
                         deletePending={confirmation?.kind === 'delete-pose' && confirmation.id === pose.id}
-                        gotoDisabledReason={gotoDisabledReason(pose, runtime)}
+                        gotoDisabledReason={gotoDisabledReason(pose, runtime, realSession)}
                         gotoPending={confirmation?.kind === 'goto-pose' && confirmation.id === pose.id}
                         key={pose.id}
+                        runtimeMode={runtime.controlMode}
                         onDeleteCancel={() => setConfirmation(null)}
                         onDeleteConfirm={deleteSelectedPose}
                         onDeleteRequest={(selected) => setConfirmation({ kind: 'delete-pose', id: selected.id })}
@@ -1038,7 +1052,7 @@ export function LibraryPage() {
                         onPlay={(selected) => void viewEntity('motion', selected.id)}
                         onTagSelect={selectTag}
                         onView={(selected) => void viewEntity('motion', selected.id)}
-                        playDisabledReason={playbackDisabledReason(motion, runtime)}
+                        playDisabledReason={playbackDisabledReason(motion, runtime, realSession)}
                         playBusy={
                           actionKey !== null ||
                           !online ||

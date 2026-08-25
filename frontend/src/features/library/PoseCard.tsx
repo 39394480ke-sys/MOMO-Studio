@@ -10,6 +10,7 @@ interface PoseCardProps {
   deletePending: boolean;
   gotoDisabledReason: string | null;
   gotoPending: boolean;
+  runtimeMode: 'DRY RUN' | 'REAL';
   onDeleteCancel: () => void;
   onDeleteConfirm: (pose: PoseSummary) => void;
   onDeleteRequest: (pose: PoseSummary) => void;
@@ -31,6 +32,7 @@ export function PoseCard({
   deletePending,
   gotoDisabledReason,
   gotoPending,
+  runtimeMode,
   onDeleteCancel,
   onDeleteConfirm,
   onDeleteRequest,
@@ -102,7 +104,7 @@ export function PoseCard({
           className="command-button command-button--primary"
           disabled={busy || gotoDisabledReason !== null}
           onClick={() => onGotoRequest(pose)}
-          title={gotoDisabledReason ?? 'Send this snapshot through the Dry Run safety gateway'}
+          title={gotoDisabledReason ?? `Send this snapshot through the reviewed ${runtimeMode === 'REAL' ? 'Real capability' : 'Dry Run'} gateway`}
           type="button"
         >
           <Navigation aria-hidden="true" />
@@ -146,7 +148,9 @@ export function PoseCard({
         <div aria-labelledby={`goto-pose-${pose.id}`} className="goto-confirmation" role="alertdialog">
           <strong id={`goto-pose-${pose.id}`}>Goto “{pose.name}”?</strong>
           <p>
-            Submit a Joint Motion through the single Dry Run safety gateway. This does not enable real motion.
+            {runtimeMode === 'REAL'
+              ? 'Submit a Joint Motion through the backend-authorized Real Joint Motion gateway.'
+              : 'Submit a Joint Motion through the single Dry Run safety gateway. No real hardware is enabled.'}
           </p>
           <div>
             <button className="command-button" disabled={busy} onClick={onGotoCancel} type="button">
@@ -158,7 +162,7 @@ export function PoseCard({
               onClick={() => onGotoConfirm(pose)}
               type="button"
             >
-              Confirm Dry Run Goto
+              Confirm {runtimeMode === 'REAL' ? 'Real' : 'Dry Run'} Goto
             </button>
           </div>
         </div>

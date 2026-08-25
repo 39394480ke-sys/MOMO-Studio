@@ -33,10 +33,9 @@ from momo.application.services.operator_session_service import OperatorSessionTo
 from momo.application.services.security_service import SecurityService
 from momo.domain.calibration import CalibrationDocument
 from momo.domain.calibration_workflow import CalibrationWorkflowSource
+from momo.domain.commissioning import FieldAcceptanceCapability
 from momo.domain.real_hardware import (
     REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
-    REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT,
-    FieldAcceptanceEvidenceState,
     FieldAcceptanceStatus,
     OperatorSessionPurpose,
     RealHardwareBlocker,
@@ -185,7 +184,7 @@ def test_fresh_commissioning_write_bomb_saves_revision_one_without_any_write(
         pending_motion_device, _, _ = device_service(pending_motion_context)
         blocked = await pending_motion_device.readiness()
         assert blocked.motion_session_authorizable is False
-        assert RealHardwareBlocker.FIELD_ACCEPTANCE_NOT_PASSED in blocked.blocking_reasons
+        assert RealHardwareBlocker.JOINT_MOTION_ACCEPTANCE_PENDING in blocked.blocking_reasons
         assert blocked.capabilities.real_joint_motion_ready is False
         assert blocked.capabilities.real_cartesian_motion_ready is False
         assert blocked.capabilities.real_playback_ready is False
@@ -211,15 +210,18 @@ def test_fresh_commissioning_write_bomb_saves_revision_one_without_any_write(
             ),
             clock=clock,
         )
-        accepted = await acceptance.accept(
+        accepted = await acceptance.complete_pre_motion_checks(
             replacement_token,
             checklist_version=context.field_acceptance_checklist_version,
-            confirmation_text=REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT,
-            accepted_by="synthetic-first-commissioning",
         )
-        assert accepted.state is FieldAcceptanceEvidenceState.VALID
-        assert accepted.effective_status is FieldAcceptanceStatus.PASSED
+        assert accepted.pre_motion_checks_complete is True
+        assert accepted.joint_motion_accepted is False
+        assert accepted.full_acceptance_complete is False
         assert device.context.field_acceptance_evidence is not None
+        assert (
+            device.context.field_acceptance_evidence.capability
+            is FieldAcceptanceCapability.PRE_MOTION_CHECKS
+        )
         assert device.connected is False
         assert (await device.sessions.status()).active is False
         assert bus.write_attempts == []

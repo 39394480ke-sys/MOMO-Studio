@@ -11,18 +11,30 @@ from momo.adapters.storage.file_backup_restore_journal import FileBackupRestoreJ
 from momo.adapters.storage.file_calibration_workflow_repository import (
     FileCalibrationWorkflowRepository,
 )
+from momo.adapters.storage.file_commissioning_evidence_repository import (
+    FileCommissioningTestEvidenceRepository,
+)
 from momo.adapters.storage.file_field_acceptance_repository import (
     FileFieldAcceptanceEvidenceRepository,
+)
+from momo.adapters.storage.file_kinematics_verification_repository import (
+    FileKinematicsVerificationEvidenceRepository,
 )
 from momo.adapters.time.system_clock import SystemClock
 from momo.application.services.backup_service import BackupApplicationService
 from momo.application.services.calibration_workflow_coordinator import (
     CalibrationWorkflowCoordinator,
 )
+from momo.application.services.commissioning_motion_test_service import (
+    CommissioningMotionTestService,
+)
 from momo.application.services.device_diagnostics_service import DeviceDiagnosticsService
 from momo.application.services.field_acceptance_service import (
     FieldAcceptanceService,
-    select_current_field_acceptance_evidence,
+    validated_field_acceptance_bundle,
+)
+from momo.application.services.kinematics_verification_service import (
+    KinematicsVerificationService,
 )
 from momo.application.services.operator_session_service import OperatorSessionService
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
@@ -50,6 +62,10 @@ class ReleaseServices:
     field_acceptance_evidence: FileFieldAcceptanceEvidenceRepository
     real_calibrations: FileCalibrationWorkflowRepository
     calibration: CalibrationWorkflowCoordinator
+    commissioning: CommissioningMotionTestService | None
+    commissioning_evidence: FileCommissioningTestEvidenceRepository
+    kinematics_verification: KinematicsVerificationService
+    kinematics_verification_evidence: FileKinematicsVerificationEvidenceRepository
 
 
 async def commit_calibration_import(
@@ -121,6 +137,7 @@ def _real_hardware_context(
     application: ApplicationServices,
     calibrations: FileCalibrationWorkflowRepository,
     field_acceptance: FileFieldAcceptanceEvidenceRepository,
+    commissioning_evidence: FileCommissioningTestEvidenceRepository,
 ) -> RealHardwareContext:
     """Load capability-bearing artifacts only after explicit local authorization.
 
@@ -134,10 +151,19 @@ def _real_hardware_context(
         "control_mode": settings.control_mode,
         "hardware_access_policy": settings.hardware_access_policy,
         "real_motion_enabled": settings.real_motion_enabled,
+        "commissioning_motion_test_enabled": settings.commissioning_motion_test_enabled,
         "startup_hardware_enabled": settings.hardware_startup_enabled,
         "explicit_local_config": settings.hardware_local_config_enabled,
-        "field_acceptance_status": FieldAcceptanceStatus(settings.field_acceptance_status),
+        "robot_unit_id": settings.robot_unit_id,
+        "software_commit": settings.software_commit,
+        "commissioning_safety_envelope": settings.commissioning_safety_envelope,
+        # Legacy scalar PASSED is not configurable authority. Capability evidence
+        # is resolved below; this audit/status input always starts pending.
+        "field_acceptance_status": FieldAcceptanceStatus.PENDING,
         "field_acceptance_checklist_version": (settings.field_acceptance_checklist_version),
+        "kinematics_verification_checklist_version": (
+            settings.kinematics_verification_checklist_version
+        ),
     }
     if not settings.hardware_local_config_enabled:
         return RealHardwareContext.model_validate(common)
@@ -154,6 +180,7 @@ def _real_hardware_context(
     device = None
     if settings.serial_port and settings.servo_ids and settings.servo_protocol:
         device = ExplicitServoDevice(
+            robot_unit_id=settings.robot_unit_id,
             serial_port=settings.serial_port,
             servo_ids=settings.servo_ids,
             protocol=settings.servo_protocol,
@@ -171,11 +198,22 @@ def _real_hardware_context(
             "device": device,
         }
     )
-    evidence = select_current_field_acceptance_evidence(context, field_acceptance)
-    return (
-        context.model_copy(update={"field_acceptance_evidence": evidence})
-        if evidence is not None
-        else context
+    records = field_acceptance.list_evidence()
+    validated_bundle = validated_field_acceptance_bundle(
+        context,
+        records,
+        commissioning_evidence.list_evidence_sync(),
+    )
+    evidence = max(
+        validated_bundle.records,
+        key=lambda item: item.accepted_at,
+        default=None,
+    )
+    return context.model_copy(
+        update={
+            "field_acceptance_evidence": evidence,
+            "field_acceptance_bundle": validated_bundle,
+        }
     )
 
 
@@ -208,6 +246,14 @@ def build_release_services(
         _configured_path(settings.field_acceptance_directory, root),
         clock,
     )
+    commissioning_evidence = FileCommissioningTestEvidenceRepository(
+        _configured_path(settings.commissioning_test_evidence_directory, root),
+        clock,
+    )
+    kinematics_verification_evidence = FileKinematicsVerificationEvidenceRepository(
+        _configured_path(settings.kinematics_verification_directory, root),
+        clock,
+    )
     authorization = RealHardwareAuthorization()
     sessions = OperatorSessionService(
         clock,
@@ -221,6 +267,7 @@ def build_release_services(
             application,
             real_calibrations,
             field_acceptance_evidence,
+            commissioning_evidence,
         ),
         authorization=authorization,
         sessions=sessions,
@@ -235,6 +282,13 @@ def build_release_services(
     field_acceptance = FieldAcceptanceService(
         device=device,
         repository=field_acceptance_evidence,
+        commissioning_repository=commissioning_evidence,
+        clock=clock,
+    )
+    kinematics_verification = KinematicsVerificationService(
+        device=device,
+        kinematics=application.kinematics,
+        repository=kinematics_verification_evidence,
         clock=clock,
     )
 
@@ -280,6 +334,10 @@ def build_release_services(
         field_acceptance_evidence=field_acceptance_evidence,
         real_calibrations=real_calibrations,
         calibration=calibration,
+        commissioning=None,
+        commissioning_evidence=commissioning_evidence,
+        kinematics_verification=kinematics_verification,
+        kinematics_verification_evidence=kinematics_verification_evidence,
     )
 
 

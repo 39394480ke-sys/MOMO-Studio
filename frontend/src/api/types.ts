@@ -885,6 +885,7 @@ export interface VisionFollowLeaseResponse {
 
 export interface DeviceConfirmationEvidence {
   robot_id: string | null;
+  robot_unit_id: string | null;
   variant: RobotVariant | null;
   profile_fingerprint: string | null;
   calibration_fingerprint: string | null;
@@ -895,14 +896,19 @@ export interface DeviceConfirmationEvidence {
   session_purpose: OperatorSessionPurpose;
   field_acceptance_evidence_id: string | null;
   physical_estop_required: true;
+  workspace_clear_required: boolean;
   required_confirmation_text: string;
 }
 
-export type OperatorSessionPurpose = 'COMMISSIONING_READ_ONLY' | 'REAL_MOTION';
+export type OperatorSessionPurpose =
+  | 'COMMISSIONING_READ_ONLY'
+  | 'COMMISSIONING_MOTION_TEST'
+  | 'REAL_MOTION';
 
 export type OperatorSessionScope =
   | 'DIAGNOSTICS_READ'
   | 'CALIBRATION_CAPTURE'
+  | 'COMMISSIONING_SINGLE_JOINT_TEST'
   | 'REAL_JOINT_MOTION'
   | 'REAL_CARTESIAN_MOTION'
   | 'REAL_PLAYBACK'
@@ -919,10 +925,34 @@ export interface DeviceSessionSummary {
 export interface DeviceCapabilityReadiness {
   commissioning_diagnostics_ready: boolean;
   calibration_capture_ready: boolean;
+  commissioning_motion_test_ready: boolean;
   real_joint_motion_ready: boolean;
   real_cartesian_motion_ready: boolean;
   real_playback_ready: boolean;
   real_vision_follow_ready: boolean;
+}
+
+export type DeviceCapabilityKey =
+  | 'commissioning_read_only'
+  | 'commissioning_motion_test'
+  | 'real_joint_motion'
+  | 'real_cartesian_motion'
+  | 'real_playback'
+  | 'real_vision_follow';
+
+export interface DeviceCapabilityDetail {
+  ready: boolean;
+  authorized: boolean;
+  blocked_reasons: string[];
+  required_evidence: string[];
+}
+
+export type DeviceCapabilityDetails = Record<DeviceCapabilityKey, DeviceCapabilityDetail>;
+
+export interface DeviceAuthorizationOption {
+  purpose: OperatorSessionPurpose;
+  authorizable: boolean;
+  confirmation: DeviceConfirmationEvidence;
 }
 
 export interface DeviceReadiness {
@@ -930,9 +960,12 @@ export interface DeviceReadiness {
   ready: boolean;
   session_authorizable: boolean;
   commissioning_session_authorizable: boolean;
+  commissioning_motion_session_authorizable: boolean;
   motion_session_authorizable: boolean;
   blocking_reasons: string[];
   capabilities: DeviceCapabilityReadiness;
+  capability_details: DeviceCapabilityDetails;
+  authorization_options: DeviceAuthorizationOption[];
   confirmation: DeviceConfirmationEvidence;
   session: DeviceSessionSummary | null;
   calibration_configured: boolean;
@@ -940,7 +973,6 @@ export interface DeviceReadiness {
 }
 
 export interface OperatorSessionResponse {
-  session_token: string;
   session_id: string;
   issued_at: string;
   expires_at: string;
@@ -949,7 +981,80 @@ export interface OperatorSessionResponse {
   evidence: DeviceConfirmationEvidence;
 }
 
-export type FieldAcceptanceEvidenceState = 'MISSING' | 'STALE' | 'VALID';
+export type CommissioningMotionTestState =
+  | 'IDLE'
+  | 'AUTHORIZED'
+  | 'ARMED'
+  | 'MOVING'
+  | 'VERIFYING'
+  | 'STOPPING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'EXPIRED';
+
+export interface CommissioningMotionStatus {
+  state: CommissioningMotionTestState;
+  session_id: string | null;
+  active_joint_id: string | null;
+  command_count: number;
+  session_expires_at: string | null;
+  deadman_expires_at: string | null;
+  last_evidence_id: string | null;
+  failure_reason: string | null;
+  physical_stop_verification: 'PENDING';
+}
+
+export interface CommissioningRelativeTestRequest {
+  signed_delta: number;
+  requested_speed: number;
+  requested_acceleration: number;
+  command_duration_s: number;
+  request_id: string;
+}
+
+export interface CommissioningTestEvidence {
+  schema_version: 1;
+  revision: 1;
+  id: string;
+  robot_unit_id: string;
+  robot_variant: RobotVariant;
+  profile_fingerprint: string;
+  calibration_fingerprint: string;
+  device_fingerprint: string;
+  joint_id: string;
+  unit: 'mm' | 'deg';
+  start_value: number;
+  requested_delta: number;
+  target_value: number;
+  final_value: number;
+  start_raw: number;
+  final_raw: number;
+  requested_speed: number;
+  measured_or_observed_result: string;
+  direction_expected: 'POSITIVE' | 'NEGATIVE';
+  direction_observed: 'POSITIVE' | 'NEGATIVE' | null;
+  divergence: number;
+  stop_behavior:
+    | 'NOT_REQUESTED'
+    | 'SOFTWARE_PATH_VERIFIED'
+    | 'SOFTWARE_PATH_FAILED'
+    | 'PHYSICAL_BEHAVIOR_PENDING';
+  started_at: string;
+  completed_at: string;
+  software_commit: string;
+  operator_id: string;
+  request_id: string;
+  session_id: string;
+  prepared_target_raw: number;
+  result: 'PASSED' | 'FAILED';
+  failure_reason_optional: string | null;
+}
+
+export type FieldAcceptanceEvidenceState =
+  | 'MISSING'
+  | 'STALE'
+  | 'STALE_LEGACY_EVIDENCE'
+  | 'VALID';
 export type FieldAcceptanceStatus = 'NOT_REQUIRED' | 'PENDING' | 'PASSED' | 'FAILED';
 
 export interface FieldAcceptanceStatusResponse {
@@ -961,6 +1066,124 @@ export interface FieldAcceptanceStatusResponse {
   accepted_at: string | null;
   accepted_by: string | null;
   required_confirmation_text: string;
+}
+
+export type FieldAcceptanceCapability =
+  | 'PRE_MOTION_CHECKS'
+  | 'JOINT_MOTION'
+  | 'CARTESIAN'
+  | 'PLAYBACK'
+  | 'VISION_FOLLOW';
+
+export type FieldAcceptanceProgressState =
+  | 'NOT_STARTED'
+  | 'READ_ONLY_COMMISSIONING_COMPLETE'
+  | 'CALIBRATION_COMPLETE'
+  | 'PRE_MOTION_CHECKS_COMPLETE'
+  | 'JOINT_MOTION_TESTING'
+  | 'JOINT_MOTION_ACCEPTED'
+  | 'KINEMATICS_VERIFICATION_PENDING'
+  | 'CARTESIAN_ACCEPTED'
+  | 'PLAYBACK_ACCEPTED'
+  | 'VISION_FOLLOW_ACCEPTED'
+  | 'FULL_ACCEPTANCE_COMPLETE';
+
+export interface JointDirectionAcceptanceProgress {
+  joint_id: string;
+  unit: DomainUnit;
+  positive_evidence_id: string | null;
+  negative_evidence_id: string | null;
+  complete: boolean;
+}
+
+export interface FieldAcceptanceProgress {
+  state: FieldAcceptanceProgressState;
+  robot_unit_id: string;
+  checklist_version: string;
+  valid_capabilities: FieldAcceptanceCapability[];
+  pre_motion_checks_complete: boolean;
+  joint_motion_tests_complete: boolean;
+  joint_motion_accepted: boolean;
+  ready_to_accept_joint_motion: boolean;
+  completed_joint_directions: number;
+  required_joint_directions: number;
+  joints: JointDirectionAcceptanceProgress[];
+  selected_test_evidence_ids: string[];
+  rejected_test_evidence_ids: string[];
+  stale_field_acceptance_evidence_ids: string[];
+  legacy_field_acceptance_evidence_ids: string[];
+  physical_stop_verification: 'PENDING';
+  full_acceptance_complete: boolean;
+}
+
+export interface KinematicsVerificationStatus {
+  state: 'MISSING' | 'STALE' | 'VALID';
+  stale_fields: string[];
+  evidence_id: string | null;
+  point_count: number;
+}
+
+export interface KinematicsVerificationThresholds {
+  max_position_error_mm: number;
+  max_orientation_error_deg: number;
+}
+
+export interface KinematicsVerificationJointState {
+  positions: Record<string, number>;
+  units: Record<string, DomainUnit> | null;
+}
+
+export interface KinematicsVerificationPoint {
+  point_id: string;
+  label: string;
+  joint_state: KinematicsVerificationJointState;
+  joint_state_sequence: number;
+  joint_state_captured_at: string;
+  snapshot_session_id: string;
+  predicted_tcp: TcpPose;
+  measured_tcp: TcpPose;
+  position_error_mm: number;
+  orientation_error_deg: number;
+  measured_at: string;
+}
+
+export interface KinematicsVerificationDraft {
+  draft_id: string;
+  operator_session_id: string;
+  operator_id: string;
+  robot_unit_id: string;
+  profile_fingerprint: string;
+  calibration_fingerprint: string;
+  device_fingerprint: string;
+  kinematics_fingerprint: string;
+  software_commit: string;
+  verification_checklist_version: string;
+  thresholds: KinematicsVerificationThresholds;
+  points: KinematicsVerificationPoint[];
+}
+
+export interface KinematicsVerificationMeasurementRequest {
+  label: string;
+  measured_tcp: TcpPose;
+}
+
+export interface KinematicsVerificationEvidence {
+  schema_version: 1;
+  revision: 1;
+  id: string;
+  robot_unit_id: string;
+  variant: RobotVariant;
+  profile_fingerprint: string;
+  calibration_fingerprint: string;
+  device_fingerprint: string;
+  kinematics_fingerprint: string;
+  kinematics_model_schema_version: string;
+  verification_checklist_version: string;
+  test_points: KinematicsVerificationPoint[];
+  thresholds: KinematicsVerificationThresholds;
+  accepted_at: string;
+  accepted_by: string;
+  software_commit: string;
 }
 
 export type SecuritySurface = 'REST' | 'CONTROL' | 'WEBSOCKET' | 'VISION';

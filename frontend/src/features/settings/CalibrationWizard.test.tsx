@@ -90,7 +90,7 @@ beforeEach(() => {
 describe('protected current-angle Calibration Wizard', () => {
   it('performs no request until an explicitly connected operator starts it', () => {
     const { rerender } = render(
-      <CalibrationWizard connected={false} initiallyConfigured={false} operatorToken="memory-token" />,
+      <CalibrationWizard connected={false} initiallyConfigured={false} />,
     );
 
     expect(screen.getByText('Not configured')).toBeVisible();
@@ -98,7 +98,7 @@ describe('protected current-angle Calibration Wizard', () => {
     expect(startCalibrationSession).not.toHaveBeenCalled();
     expect(readCalibrationJoint).not.toHaveBeenCalled();
 
-    rerender(<CalibrationWizard connected initiallyConfigured={false} operatorToken="memory-token" />);
+    rerender(<CalibrationWizard connected initiallyConfigured={false} />);
     expect(screen.getByRole('button', { name: 'Start initial calibration' })).toBeEnabled();
     expect(startCalibrationSession).not.toHaveBeenCalled();
   });
@@ -142,14 +142,13 @@ describe('protected current-angle Calibration Wizard', () => {
       created_at: '2026-08-24T03:01:00Z',
     });
 
-    render(<CalibrationWizard connected initiallyConfigured={false} operatorToken="memory-token" />);
+    render(<CalibrationWizard connected initiallyConfigured={false} />);
     fireEvent.click(screen.getByRole('button', { name: 'Start initial calibration' }));
     expect(await screen.findByText(/Draft · Initial calibration → Revision 1/)).toBeVisible();
     expect(await screen.findByRole('button', { name: 'Read selected joint' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Read selected joint' }));
     await waitFor(() => expect(readCalibrationJoint).toHaveBeenCalledWith(
-      'memory-token',
       'calibration-session',
       'j1',
     ));
@@ -163,7 +162,6 @@ describe('protected current-angle Calibration Wizard', () => {
 
     expect(await screen.findByText('Selected-joint mapping preview')).toBeVisible();
     expect(previewCalibrationJoint).toHaveBeenCalledWith(
-      'memory-token',
       'calibration-session',
       {
         joint_id: 'j1',
@@ -183,7 +181,6 @@ describe('protected current-angle Calibration Wizard', () => {
     expect(await screen.findByText('Complete calibration preview')).toBeVisible();
     expect(screen.getByRole('table', { name: 'Complete proposed calibration mapping' })).toBeVisible();
     expect(confirmCalibrationJoint).toHaveBeenCalledWith(
-      'memory-token',
       'calibration-session',
       'j1',
       preview.preview_fingerprint,
@@ -200,7 +197,6 @@ describe('protected current-angle Calibration Wizard', () => {
     expect(await screen.findByText('Calibration revision saved')).toBeVisible();
     expect(screen.getByText(/Calibration configured · Field acceptance pending · Real motion blocked/)).toBeVisible();
     expect(completeCalibrationSession).toHaveBeenCalledWith(
-      'memory-token',
       'calibration-session',
       'd'.repeat(64),
       'SAVE CALIBRATION',

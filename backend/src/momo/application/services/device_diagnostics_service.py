@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import TypeVar
 from uuid import UUID
@@ -11,6 +11,13 @@ from uuid import UUID
 from momo.application.services.operator_session_service import OperatorSessionService
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
 from momo.domain.calibration import CalibrationDocument
+from momo.domain.commissioning import (
+    FieldAcceptanceCapability,
+    FieldAcceptanceEvidence,
+    KinematicsEvidenceState,
+    KinematicsVerificationEvidence,
+    ValidatedFieldAcceptanceBundle,
+)
 from momo.domain.enums import (
     HardwareAccessPolicy,
     KinematicsVerificationStatus,
@@ -20,7 +27,6 @@ from momo.domain.errors import HardwareMappingError, RobotApplicationError
 from momo.domain.hardware_mapping import effective_raw_bounds, goal_raw_to_logical
 from momo.domain.real_hardware import (
     DeviceDiagnosticsSnapshot,
-    FieldAcceptanceEvidence,
     HardwareArtifactStatus,
     HardwareDependencyState,
     HardwareDependencyStatus,
@@ -41,6 +47,7 @@ from momo.domain.real_hardware import (
     calibration_fingerprint,
     effective_field_acceptance_status,
     field_acceptance_evidence_state,
+    kinematics_verification_evidence_state,
 )
 from momo.ports.clock import Clock
 from momo.ports.servo_bus import (
@@ -164,6 +171,8 @@ class DeviceDiagnosticsService:
         purpose: OperatorSessionPurpose | None = None,
         confirmation_text: str,
         physical_estop_confirmed: bool,
+        workspace_clear_confirmed: bool = False,
+        operator_id: str = "operator",
     ) -> IssuedOperatorSession:
         async with self._guard:
             if self._has_bus_reference:
@@ -175,6 +184,8 @@ class DeviceDiagnosticsService:
                 purpose=purpose,
                 confirmation_text=confirmation_text,
                 physical_estop_confirmed=physical_estop_confirmed,
+                workspace_clear_confirmed=workspace_clear_confirmed,
+                operator_id=operator_id,
             )
 
     async def authorize_operator_purpose(
@@ -469,21 +480,106 @@ class DeviceDiagnosticsService:
     async def apply_field_acceptance_evidence(
         self,
         evidence: FieldAcceptanceEvidence,
+        *,
+        validated_bundle: ValidatedFieldAcceptanceBundle,
+        token: str,
+        expected_session_id: UUID,
+        persist: Callable[[], Awaitable[None]],
     ) -> None:
-        """Publish only evidence that is valid for the exact current context.
+        """Linearize authorization, durable persistence, and live publication.
 
         Acceptance changes authorization context. Any existing read-only session is
         ended and its bus is closed; a later motion session must be newly confirmed.
+        Holding the device guard across persistence makes the accepted command
+        discrete: either a concurrent revoke wins before authorization and no record
+        is saved, or acceptance wins and its durable record is legitimately committed
+        before that revoke can proceed.
         """
 
-        prospective = self.context.model_copy(update={"field_acceptance_evidence": evidence})
-        _, stale_fields = field_acceptance_evidence_state(prospective)
-        if stale_fields:
-            raise ValueError(
-                "field acceptance evidence does not match the current context: "
-                + ", ".join(stale_fields)
-            )
+        if evidence.capability is FieldAcceptanceCapability.PRE_MOTION_CHECKS:
+            purpose = RealHardwareAuthorizationPurpose.DIAGNOSTICS
+        elif evidence.capability is FieldAcceptanceCapability.JOINT_MOTION:
+            purpose = RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST
+        else:
+            raise ValueError("this field acceptance capability has no publication workflow")
+
         async with self._guard:
+            current = await self.sessions.authorize(
+                token,
+                self.context,
+                purpose=purpose,
+            )
+            if current.session_id != expected_session_id:
+                raise ValueError("field acceptance session changed before publication")
+            if current.operator_id != evidence.accepted_by:
+                raise ValueError("field acceptance operator changed before publication")
+            if evidence.evidence_id not in {item.evidence_id for item in validated_bundle.records}:
+                raise ValueError("applied field acceptance is absent from the resolved bundle")
+            prospective = self.context.model_copy(
+                update={
+                    "field_acceptance_evidence": evidence,
+                    "field_acceptance_bundle": validated_bundle,
+                }
+            )
+            _, stale_fields = field_acceptance_evidence_state(prospective)
+            if stale_fields:
+                raise ValueError(
+                    "field acceptance evidence does not match the current context: "
+                    + ", ".join(stale_fields)
+                )
+            if evidence.capability not in validated_bundle.valid_capabilities(prospective):
+                raise ValueError("field acceptance evidence chain is not authoritative")
+
+            async def commit() -> None:
+                await persist()
+                await self.sessions.invalidate()
+                try:
+                    await self._close_connected_bus_unlocked()
+                finally:
+                    self.context = prospective
+                    self._records = ()
+                    await self.sessions.invalidate()
+
+            transaction = asyncio.create_task(
+                commit(),
+                name=f"publish-field-acceptance-{evidence.evidence_id}",
+            )
+            cancellation = await _wait_task_terminal(transaction)
+            try:
+                transaction.result()
+            except BaseException as error:
+                if cancellation is not None:
+                    raise cancellation from error
+                raise
+            if cancellation is not None:
+                raise cancellation
+
+    async def apply_kinematics_verification_evidence(
+        self,
+        evidence: KinematicsVerificationEvidence,
+        *,
+        token: str,
+        expected_session_id: UUID,
+    ) -> None:
+        """Atomically publish only for the still-current Real Motion session."""
+
+        async with self._guard:
+            current = await self.sessions.authorize(
+                token,
+                self.context,
+                purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            )
+            if current.session_id != expected_session_id:
+                raise ValueError("kinematics verification session changed before publication")
+            prospective = self.context.model_copy(
+                update={"kinematics_verification_evidence": evidence}
+            )
+            state, stale_fields = kinematics_verification_evidence_state(prospective)
+            if state is not KinematicsEvidenceState.VALID:
+                raise ValueError(
+                    "kinematics verification evidence does not match current context: "
+                    + ", ".join(stale_fields)
+                )
             await self.sessions.invalidate()
             try:
                 await self._close_connected_bus_unlocked()

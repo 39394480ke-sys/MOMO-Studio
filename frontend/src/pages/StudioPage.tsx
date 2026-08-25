@@ -120,7 +120,7 @@ export function StudioPage() {
       <PageIntro
         title="Studio"
         description="Author camera motion as explicit keyframes and directed transition edges."
-        detail="Drafts autosave independently; only a validated, compiler-approved formal Motion can enter Dry Run playback."
+        detail={`Drafts autosave independently; only a validated, compiler-approved formal Motion can enter ${runtime.controlMode === 'REAL' ? 'backend-authorized Real' : 'Dry Run'} playback.`}
       />
 
       <StudioToolbar
@@ -181,6 +181,7 @@ export function StudioPage() {
         draftValidation={workspace.draftValidation}
         frameLimitReached={frameLimitReached}
         motionDisabledReason={workspace.motionDisabledReason}
+        playbackDisabledReason={workspace.playbackDisabledReason}
         onAddPose={() => workspace.startPoseInsertion('after', workspace.editor.selectedFrameId)}
         onCapture={() => void workspace.capture()}
         onCompile={() => void workspace.compile()}
@@ -195,6 +196,7 @@ export function StudioPage() {
         playbackPreflight={workspace.playbackPreflight}
         preview={workspace.preview}
         robot={runtime.robot}
+        runtimeMode={runtime.controlMode}
         savedMotion={workspace.savedMotion}
         savedMotionCurrent={!workspace.formalDirty}
         selectedFrame={workspace.selectedFrame}
@@ -209,6 +211,7 @@ export function StudioPage() {
           frameLimitReached={frameLimitReached}
           frames={workspace.keyframes}
           initialScrollS={workspace.timelineScrollS}
+          runtimeMode={runtime.controlMode}
           onAddAfter={(frameId) => workspace.startPoseInsertion('after', frameId)}
           onAddBefore={(frameId) => workspace.startPoseInsertion('before', frameId)}
           onDelete={(frameId) => workspace.edit({ type: 'frame/delete', frameId })}
@@ -235,6 +238,7 @@ export function StudioPage() {
           frameLimitReached={frameLimitReached}
           mobileOpen={mobileInspectorOpen}
           motionDisabledReason={workspace.motionDisabledReason}
+          runtimeMode={runtime.controlMode}
           onAddAfter={(frameId) => workspace.startPoseInsertion('after', frameId)}
           onAddBefore={(frameId) => workspace.startPoseInsertion('before', frameId)}
           onCaptureAfter={(frameId) => void workspace.capture('after', frameId)}
@@ -295,11 +299,15 @@ export function StudioPage() {
       {confirmation ? (
         <StudioConfirmDialog
           busy={workspace.action !== null}
-          confirmLabel={confirmation.type === 'new' ? 'Create new draft' : 'Confirm Dry Run Goto'}
+          confirmLabel={confirmation.type === 'new'
+            ? 'Create new draft'
+            : `Confirm ${runtime.controlMode === 'REAL' ? 'Real' : 'Dry Run'} Goto`}
           danger={confirmation.type === 'new'}
           description={confirmation.type === 'new'
             ? 'This working draft is autosaved, but its changes are not saved as a formal Motion. A new blank draft will not delete it.'
-            : 'Submit the embedded keyframe snapshot through the single reviewed Dry Run safety gateway. No real hardware is enabled.'}
+            : runtime.controlMode === 'REAL'
+              ? 'Submit the embedded keyframe snapshot through the backend-authorized Real Joint Motion gateway.'
+              : 'Submit the embedded keyframe snapshot through the single reviewed Dry Run safety gateway. No real hardware is enabled.'}
           onCancel={() => setConfirmation(null)}
           onConfirm={confirmAction}
           title={confirmation.type === 'new' ? 'Start a blank draft?' : 'Goto selected keyframe?'}

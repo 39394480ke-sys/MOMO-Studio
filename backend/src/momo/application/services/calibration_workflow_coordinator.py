@@ -340,6 +340,7 @@ class CalibrationWorkflowCoordinator:
         authorization = CalibrationAuthorization(
             session_id=evidence.session_id,
             robot_id=evidence.robot_id,
+            robot_unit_id=evidence.robot_unit_id,
             variant=evidence.variant,
             profile_fingerprint=evidence.profile_fingerprint,
             calibration_fingerprint=(

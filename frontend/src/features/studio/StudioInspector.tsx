@@ -19,6 +19,7 @@ interface StudioInspectorProps {
   frameLimitReached: boolean;
   mobileOpen: boolean;
   motionDisabledReason: string | null;
+  runtimeMode: 'DRY RUN' | 'REAL';
   onAddAfter: (frameId: string) => void;
   onAddBefore: (frameId: string) => void;
   onCaptureAfter: (frameId: string) => void;
@@ -46,6 +47,7 @@ export function StudioInspector({
   frameLimitReached,
   mobileOpen,
   motionDisabledReason,
+  runtimeMode,
   onAddAfter,
   onAddBefore,
   onCaptureAfter,
@@ -285,16 +287,16 @@ export function StudioInspector({
               className="command-button command-button--primary"
               disabled={busy || motionDisabledReason !== null}
               onClick={() => onGoto(frame.id)}
-              title={motionDisabledReason ?? 'Send this snapshot through the Dry Run gateway'}
+              title={motionDisabledReason ?? `Send this snapshot through the ${runtimeMode === 'REAL' ? 'Real capability' : 'Dry Run'} gateway`}
               type="button"
             >
-              <LocateFixed aria-hidden="true" /> Dry Run Goto
+              <LocateFixed aria-hidden="true" /> {runtimeMode === 'REAL' ? 'Real' : 'Dry Run'} Goto
             </button>
             <button
               className="command-button"
               disabled={busy || motionDisabledReason !== null}
               onClick={() => onReplace(frame.id)}
-              title={motionDisabledReason ?? 'Replace with a coherent current Dry Run snapshot'}
+              title={motionDisabledReason ?? `Replace with a coherent current ${runtimeMode} snapshot`}
               type="button"
             >
               <RefreshCcw aria-hidden="true" /> Replace current

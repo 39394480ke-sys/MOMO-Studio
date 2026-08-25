@@ -10,6 +10,11 @@ import type {
   Vector3,
 } from '../api/types';
 import { PageIntro } from '../components/PageIntro';
+import {
+  realCapabilityAvailability,
+  useRealSession,
+  type RealCapabilityAvailability,
+} from '../components/realSessionContext';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
 import { CartesianControlPanel } from '../features/control/CartesianControlPanel';
 import { CommandStatusPanel } from '../features/control/CommandStatusPanel';
@@ -71,24 +76,31 @@ function availabilityFor(options: {
   hasCompleteProfile: boolean;
   fk: ReturnType<typeof useForwardKinematics>['fk'];
   expectedStateSequence: number | null;
+  realCapability: RealCapabilityAvailability;
 }): MotionAvailability {
   if (!options.backendOnline) return { allowed: false, reason: '后端不可用' };
-  if (
-    options.controlMode !== 'DRY RUN' ||
+  if (options.controlMode === 'REAL') {
+    if (!options.realCapability.allowed) {
+      return { allowed: false, reason: options.realCapability.reason };
+    }
+  } else if (
     options.hardwareAccessPolicy !== 'DISABLED' ||
     options.realMotionEnabled
   ) {
     return {
       allowed: false,
-      reason: options.hardwareAccessPolicy === 'READ_ONLY'
-        ? 'Commissioning READ ONLY · 禁止运动'
-        : '缺少 REAL_MOTION Operator Session · 运动已禁用',
+      reason: 'Dry Run hardware isolation is unavailable',
     };
   }
   if (options.stale) return { allowed: false, reason: '后端状态已过期' };
   if (!options.robot) return { allowed: false, reason: '等待机器人状态' };
   if (!options.robot.connected) {
-    return { allowed: false, reason: '连接仿真机器人后即可启用运动' };
+    return {
+      allowed: false,
+      reason: options.controlMode === 'REAL'
+        ? '后端报告真实机器人未连接'
+        : '连接仿真机器人后即可启用运动',
+    };
   }
   if (!options.hasCompleteProfile) {
     return { allowed: false, reason: '活动配置与此机器人不匹配' };
@@ -105,11 +117,15 @@ function availabilityFor(options: {
   if (options.fk.profile_fingerprint !== options.robot.profile_fingerprint) {
     return { allowed: false, reason: '配置指纹已变化；请刷新后再运动' };
   }
-  return { allowed: true, reason: '仿真运动已就绪' };
+  return {
+    allowed: true,
+    reason: options.controlMode === 'REAL' ? '后端能力已授权' : '仿真运动已就绪',
+  };
 }
 
 export function ControlPage() {
   const runtime = useRuntimeStatus();
+  const { summary: realSession } = useRealSession();
   const backendOnline = runtime.backend === 'connected';
   const dryRunWorkspace =
     runtime.controlMode === 'DRY RUN' &&
@@ -124,8 +140,13 @@ export function ControlPage() {
     [robot?.variant, runtime.profile],
   );
   const stateSequence = liveSocket?.stateSequence ?? robot?.state_sequence ?? null;
+  const realJointCapability = realCapabilityAvailability(realSession, 'real_joint_motion');
+  const realCartesianCapability = realCapabilityAvailability(realSession, 'real_cartesian_motion');
+  const realKinematicsAuthorized = runtime.controlMode === 'REAL' &&
+    (realJointCapability.allowed || realCartesianCapability.allowed);
   const kinematics = useForwardKinematics({
-    enabled: backendOnline && !effectiveStale && robot !== null && dryRunWorkspace,
+    enabled: backendOnline && !effectiveStale && robot !== null &&
+      (dryRunWorkspace || realKinematicsAuthorized),
     stateSequence: liveSocket?.tcpPose ? null : stateSequence,
     socketTcpPose: liveSocket?.tcpPose ?? null,
     socketStateSequence: liveSocket?.stateSequence ?? null,
@@ -136,7 +157,7 @@ export function ControlPage() {
     socketCommand: liveSocket?.command ?? null,
     refreshRuntime: runtime.refresh,
   });
-  const availability = useMemo(
+  const jointAvailability = useMemo(
     () => commands.stopUncertain
       ? { allowed: false, reason: '运动安全状态不确定；请停止运动' }
       : runtime.pendingAction !== null
@@ -152,6 +173,7 @@ export function ControlPage() {
             definitions.length > 0 && definitions.length === runtime.profile?.profile.enabled_joints.length,
           fk: kinematics.fk,
           expectedStateSequence: stateSequence,
+          realCapability: realJointCapability,
         }),
     [
       backendOnline,
@@ -166,16 +188,56 @@ export function ControlPage() {
       effectiveStale,
       stateSequence,
       commands.stopUncertain,
+      realJointCapability,
     ],
   );
+  const cartesianAvailability = useMemo(
+    () => commands.stopUncertain
+      ? { allowed: false, reason: '运动安全状态不确定；请停止运动' }
+      : runtime.pendingAction !== null
+        ? { allowed: false, reason: '机器人生命周期操作进行中 · 运动已禁用' }
+        : availabilityFor({
+            backendOnline,
+            controlMode: runtime.controlMode,
+            hardwareAccessPolicy: runtime.hardwareAccessPolicy,
+            realMotionEnabled: runtime.realMotionEnabled,
+            stale: effectiveStale,
+            robot,
+            hasCompleteProfile:
+              definitions.length > 0 && definitions.length === runtime.profile?.profile.enabled_joints.length,
+            fk: kinematics.fk,
+            expectedStateSequence: stateSequence,
+            realCapability: realCartesianCapability,
+          }),
+    [
+      backendOnline,
+      definitions.length,
+      kinematics.fk,
+      robot,
+      runtime.profile,
+      runtime.pendingAction,
+      runtime.controlMode,
+      runtime.hardwareAccessPolicy,
+      runtime.realMotionEnabled,
+      effectiveStale,
+      stateSequence,
+      commands.stopUncertain,
+      realCartesianCapability,
+    ],
+  );
+  const safetyAvailability = jointAvailability.allowed
+    ? jointAvailability
+    : cartesianAvailability.allowed
+      ? cartesianAvailability
+      : jointAvailability;
   const motionLocked =
     commands.stopUncertain ||
     runtime.pendingAction !== null ||
     (commands.command !== null && !TERMINAL_COMMAND_STATES.has(commands.command.state));
 
   const requestContext = useCallback(
-    (kind: string): MotionRequestContext | null => {
-      if (!availability.allowed || motionLocked || !robot || !kinematics.fk) return null;
+    (kind: string, requiredAvailability: MotionAvailability): MotionRequestContext | null => {
+      if (!requiredAvailability.allowed || motionLocked || !robot || !kinematics.fk) return null;
       return {
         source: 'CONTROL',
         expected_state_sequence: liveSocket?.stateSequence ?? robot.state_sequence,
@@ -186,7 +248,6 @@ export function ControlPage() {
       };
     },
     [
-      availability.allowed,
       inputs.parameters.speedScale,
       kinematics.fk,
       motionLocked,
@@ -197,7 +258,7 @@ export function ControlPage() {
 
   const buildJogRequest = useCallback(
     ({ jointId, direction }: { jointId: string; direction: -1 | 1 }) => {
-      const context = requestContext('hold-jog');
+      const context = requestContext('hold-jog', jointAvailability);
       const definition = definitions.find((candidate) => candidate.joint_id === jointId);
       if (!context || !definition) return null;
       return {
@@ -216,6 +277,7 @@ export function ControlPage() {
       inputs.parameters.continuousSpeedDegS,
       inputs.parameters.railSpeedMmS,
       requestContext,
+      jointAvailability,
     ],
   );
 
@@ -231,7 +293,7 @@ export function ControlPage() {
     [commands],
   );
   const deadman = useDeadmanJog({
-    enabled: availability.allowed,
+    enabled: jointAvailability.allowed,
     canStart: commands.pending === null && !motionLocked,
     buildRequest: buildJogRequest,
     onSubmission: registerJog,
@@ -239,7 +301,7 @@ export function ControlPage() {
   });
 
   const moveAllJoints = useCallback(async () => {
-    const context = requestContext('move-joints');
+    const context = requestContext('move-joints', jointAvailability);
     if (!context) return;
     await commands.moveJoints({
       ...context,
@@ -256,11 +318,11 @@ export function ControlPage() {
       },
       duration_s: inputs.parameters.durationS,
     });
-  }, [commands, definitions, inputs.jointTargets, inputs.parameters.durationS, requestContext]);
+  }, [commands, definitions, inputs.jointTargets, inputs.parameters.durationS, jointAvailability, requestContext]);
 
   const stepJoint = useCallback(
     async (jointId: string, direction: -1 | 1) => {
-      const context = requestContext('jog-step');
+      const context = requestContext('jog-step', jointAvailability);
       const definition = definitions.find((candidate) => candidate.joint_id === jointId);
       if (!context || !definition) return;
       await commands.jogStep({
@@ -275,12 +337,12 @@ export function ControlPage() {
         duration_s: Math.min(inputs.parameters.durationS, 1),
       });
     },
-    [commands, definitions, inputs.parameters, requestContext],
+    [commands, definitions, inputs.parameters, jointAvailability, requestContext],
   );
 
   const cartesianJog = useCallback(
     async (kind: CartesianKind, axis: Axis, direction: -1 | 1) => {
-      const context = requestContext('cartesian-jog');
+      const context = requestContext('cartesian-jog', cartesianAvailability);
       if (!context) return;
       const translation: Vector3 = { x: 0, y: 0, z: 0 };
       const rotation: Vector3 = { x: 0, y: 0, z: 0 };
@@ -299,7 +361,7 @@ export function ControlPage() {
         duration_s: Math.min(inputs.parameters.durationS, 1),
       });
     },
-    [commands, inputs.frame, inputs.parameters, requestContext],
+    [cartesianAvailability, commands, inputs.frame, inputs.parameters, requestContext],
   );
 
   const targetPose = useCallback((): TcpPose => ({
@@ -309,7 +371,7 @@ export function ControlPage() {
   }), [inputs.poseTarget, kinematics.fk?.tcp_pose.frame]);
 
   const solveIk = useCallback(async () => {
-    if (!robot || !availability.allowed) return;
+    if (!robot || !cartesianAvailability.allowed) return;
     await ik.solve({
       target_pose: targetPose(),
       position_unit: 'mm',
@@ -318,10 +380,10 @@ export function ControlPage() {
       position_only: false,
       maximum_iterations: 200,
     });
-  }, [availability.allowed, ik, robot, targetPose]);
+  }, [cartesianAvailability.allowed, ik, robot, targetPose]);
 
   const moveToPose = useCallback(async () => {
-    const context = requestContext('move-pose');
+    const context = requestContext('move-pose', cartesianAvailability);
     if (!context) return;
     await commands.movePose({
       ...context,
@@ -330,17 +392,17 @@ export function ControlPage() {
       orientation_unit: 'quaternion_xyzw',
       duration_s: inputs.parameters.durationS,
     });
-  }, [commands, inputs.parameters.durationS, requestContext, targetPose]);
+  }, [cartesianAvailability, commands, inputs.parameters.durationS, requestContext, targetPose]);
 
   const home = useCallback(async () => {
-    const context = requestContext('home');
+    const context = requestContext('home', jointAvailability);
     if (!context) return;
     await commands.home({
       ...context,
       confirm: 'HOME',
       duration_s: inputs.parameters.durationS,
     });
-  }, [commands, inputs.parameters.durationS, requestContext]);
+  }, [commands, inputs.parameters.durationS, jointAvailability, requestContext]);
 
   const stop = useCallback(async () => {
     deadman.stopActive();
@@ -375,15 +437,18 @@ export function ControlPage() {
       ) : null}
 
       <ControlSafetyBar
-        availability={availability}
+        availability={safetyAvailability}
         backendOnline={backendOnline}
         lifecyclePending={runtime.pendingAction}
-        dryRunLifecycleAllowed={dryRunWorkspace}
+        lifecycleAllowed={dryRunWorkspace}
+        stopAllowed={dryRunWorkspace || safetyAvailability.allowed || motionLocked}
         modeLabel={runtime.hardwareAccessPolicy === 'READ_ONLY'
           ? 'READ ONLY'
           : runtime.controlMode === 'DRY RUN'
             ? 'DRY RUN'
-            : 'REAL MOTION LOCKED'}
+            : safetyAvailability.allowed
+              ? 'REAL CAPABILITY AUTHORIZED'
+              : 'REAL MOTION LOCKED'}
         motionPending={commands.pending}
         onConnect={runtime.connect}
         onDisconnect={runtime.disconnect}
@@ -416,7 +481,7 @@ export function ControlPage() {
         {robot && definitions.length > 0 ? (
           <JointControlPanel
             activeJog={deadman.active}
-            availability={availability}
+            availability={jointAvailability}
             definitions={definitions}
             holdHandlers={deadman.handlersFor}
             onMoveJoints={moveAllJoints}
@@ -437,7 +502,7 @@ export function ControlPage() {
         )}
 
         <CartesianControlPanel
-          availability={availability}
+          availability={cartesianAvailability}
           fk={kinematics.fk}
           fkLoading={kinematics.loading}
           frame={inputs.frame}
@@ -458,7 +523,7 @@ export function ControlPage() {
 
         <div className="control-workspace-sidebar">
           <MotionParametersPanel
-            availability={availability}
+            availability={jointAvailability}
             onChange={inputs.updateParameter}
             onHome={home}
             parameters={inputs.parameters}

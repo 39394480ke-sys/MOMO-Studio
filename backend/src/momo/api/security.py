@@ -406,6 +406,16 @@ class StructuredRequestAuditMiddleware:
             # An audit volume failure must not turn a completed safety stop into
             # an HTTP failure. The bounded in-memory sink is the safe default.
             with suppress(OSError, TypeError, ValueError):
+                audit_details = state.get("audit_details")
+                details: dict[str, object] = {"status_code": status_code}
+                if isinstance(audit_details, dict):
+                    details.update(
+                        {
+                            str(key)[:64]: value
+                            for key, value in list(audit_details.items())[:24]
+                            if isinstance(value, (str, int, float, bool)) or value is None
+                        }
+                    )
                 self.service.audit(
                     request_id=request_id,
                     command_id=_state_identifier(state.get("command_id")),
@@ -420,7 +430,7 @@ class StructuredRequestAuditMiddleware:
                     outcome=outcome,
                     duration_ms=min(duration_ms, 86_400_000.0),
                     error_code=error_code,
-                    details={"status_code": status_code},
+                    details=details,
                 )
 
 

@@ -215,6 +215,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
     pause: motionSession.pause,
     play: motionSession.play,
     playback: motionSession.playback,
+    playbackDisabledReason: motionSession.playbackDisabledReason,
     playbackPreflight: motionSession.playbackPreflight,
     playheadS,
     poseError: poseInsertionSession.poseError,

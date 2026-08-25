@@ -45,8 +45,26 @@ describe('Stage 7 Vision workspace', () => {
     renderVision();
 
     expect((await screen.findAllByText('READ ONLY')).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
-    expect(screen.getByText(/Commissioning READ ONLY permits no Follow/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Start Real Follow' })).toBeDisabled();
+    expect((await screen.findAllByText(/Commissioning READ ONLY · 禁止运动/)).length)
+      .toBeGreaterThan(0);
+    expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
+  });
+
+  it('still obeys the Vision backend gate after the global Real capability is authorized', async () => {
+    const backend = mockStage7Backend({
+      controlMode: 'REAL',
+      hardwareAccessPolicy: 'FULL',
+      realMotionEnabled: true,
+      realSessionScopes: ['REAL_VISION_FOLLOW'],
+    });
+    backend.selectDefaultTarget();
+    renderVision();
+
+    const start = await screen.findByRole('button', { name: 'Start Real Follow' });
+    await waitFor(() => expect(start).toBeDisabled());
+    expect((await screen.findAllByText(/Real Follow requires Stage 8 field acceptance/)).length)
+      .toBeGreaterThan(0);
     expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
   });
 

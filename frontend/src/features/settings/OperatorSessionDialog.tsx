@@ -8,7 +8,11 @@ interface OperatorSessionDialogProps {
   pending: boolean;
   error: string | null;
   onCancel: () => void;
-  onConfirm: (confirmationText: string, physicalEstopConfirmed: boolean) => void;
+  onConfirm: (
+    confirmationText: string,
+    physicalEstopConfirmed: boolean,
+    workspaceClearConfirmed: boolean,
+  ) => void;
 }
 
 function EvidenceValue({ value }: { value: string | null }) {
@@ -24,6 +28,7 @@ export function OperatorSessionDialog({
 }: OperatorSessionDialogProps) {
   const [confirmationText, setConfirmationText] = useState('');
   const [physicalEstopConfirmed, setPhysicalEstopConfirmed] = useState(false);
+  const [workspaceClearConfirmed, setWorkspaceClearConfirmed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -33,8 +38,10 @@ export function OperatorSessionDialog({
   const canConfirm =
     confirmationText === evidence.required_confirmation_text &&
     physicalEstopConfirmed &&
+    (!evidence.workspace_clear_required || workspaceClearConfirmed) &&
     !pending;
   const commissioning = evidence.session_purpose === 'COMMISSIONING_READ_ONLY';
+  const commissioningMotion = evidence.session_purpose === 'COMMISSIONING_MOTION_TEST';
 
   return (
     <div className="real-dialog-backdrop" role="presentation">
@@ -49,7 +56,11 @@ export function OperatorSessionDialog({
           <div>
             <p className="section-kicker">Short-lived authorization · {evidence.session_purpose}</p>
             <h2 id="operator-session-title">
-              {commissioning ? 'Open READ ONLY Commissioning Session' : 'Open Real Motion Session'}
+              {commissioning
+                ? 'Open READ ONLY Commissioning Session'
+                : commissioningMotion
+                  ? 'Open Commissioning Motion Test Session'
+                  : 'Open Real Motion Session'}
             </h2>
           </div>
           <button
@@ -68,12 +79,15 @@ export function OperatorSessionDialog({
           <p>
             {commissioning
               ? 'This session can read only the configured Servo IDs for diagnostics and calibration. It cannot move, Home, scan, change torque, or write registers.'
-              : 'This is software motion authorization, not a physical emergency stop. Keep the physical E-stop reachable and the robot workspace clear.'}
+              : commissioningMotion
+                ? 'This session permits only backend-bounded, low-speed, single-joint commissioning tests. It cannot Home, move multiple joints, run Cartesian motion, Playback, or Vision Follow.'
+                : 'This is software motion authorization, not a physical emergency stop. Keep the physical E-stop reachable and the robot workspace clear.'}
           </p>
         </div>
 
         <dl className="real-evidence-grid">
           <div><dt>Robot</dt><dd><EvidenceValue value={evidence.robot_id} /></dd></div>
+          <div><dt>Robot unit</dt><dd><EvidenceValue value={evidence.robot_unit_id ?? null} /></dd></div>
           <div><dt>Purpose</dt><dd>{evidence.session_purpose}</dd></div>
           <div><dt>Variant</dt><dd>{evidence.variant ?? 'Not configured'}</dd></div>
           <div><dt>Profile</dt><dd><EvidenceValue value={evidence.profile_fingerprint} /></dd></div>
@@ -107,6 +121,18 @@ export function OperatorSessionDialog({
           <span>I confirm a tested physical E-stop is present and reachable.</span>
         </label>
 
+        {evidence.workspace_clear_required && (
+          <label className="real-estop-check">
+            <input
+              checked={workspaceClearConfirmed}
+              disabled={pending}
+              onChange={(event) => setWorkspaceClearConfirmed(event.target.checked)}
+              type="checkbox"
+            />
+            <span>I confirm the robot workspace is clear and guarded for this test.</span>
+          </label>
+        )}
+
         {error && <p className="real-inline-error" role="alert">{error}</p>}
 
         <div className="real-dialog__actions">
@@ -116,14 +142,20 @@ export function OperatorSessionDialog({
           <button
             className="command-button command-button--danger-solid"
             disabled={!canConfirm}
-            onClick={() => onConfirm(confirmationText, physicalEstopConfirmed)}
+            onClick={() => onConfirm(
+              confirmationText,
+              physicalEstopConfirmed,
+              workspaceClearConfirmed,
+            )}
             type="button"
           >
             {pending
               ? 'Authorizing…'
               : commissioning
                 ? 'Authorize READ ONLY session'
-                : 'Authorize Real Motion session'}
+                : commissioningMotion
+                  ? 'Authorize Motion Test session'
+                  : 'Authorize Real Motion session'}
           </button>
         </div>
       </section>

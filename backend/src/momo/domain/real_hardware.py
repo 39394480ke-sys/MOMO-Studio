@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -25,6 +25,17 @@ from pydantic import (
 )
 
 from momo.domain.calibration import CalibrationDocument
+from momo.domain.commissioning import (
+    CommissioningSafetyEnvelope,
+    FieldAcceptanceBundle,
+    FieldAcceptanceCapability,
+    FieldAcceptanceEvidence,
+    FieldAcceptanceEvidenceState,
+    KinematicsEvidenceState,
+    KinematicsVerificationEvidence,
+    PhysicalStopVerification,
+    RobotUnitId,
+)
 from momo.domain.enums import (
     ControlMode,
     HardwareAccessPolicy,
@@ -35,11 +46,14 @@ from momo.domain.robot import RobotProfile
 
 REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT = "I UNDERSTAND REAL HARDWARE CAN MOVE"
 REQUIRED_COMMISSIONING_CONFIRMATION_TEXT = "I UNDERSTAND COMMISSIONING IS READ ONLY"
+REQUIRED_COMMISSIONING_MOTION_CONFIRMATION_TEXT = (
+    "I UNDERSTAND COMMISSIONING MOTION TEST CAN MOVE ONE JOINT"
+)
 REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT: Literal[
     "I CONFIRM THE FIELD ACCEPTANCE CHECKLIST IS COMPLETE"
 ] = "I CONFIRM THE FIELD ACCEPTANCE CHECKLIST IS COMPLETE"
-FIELD_ACCEPTANCE_SCHEMA_VERSION: Literal[1] = 1
 DEFAULT_FIELD_ACCEPTANCE_CHECKLIST_VERSION = "1"
+DEFAULT_KINEMATICS_VERIFICATION_CHECKLIST_VERSION = "1"
 MAX_EXPLICIT_SERVO_IDS = 32
 
 ServoId = Annotated[int, Field(strict=True, ge=1, le=253)]
@@ -52,12 +66,6 @@ class FieldAcceptanceStatus(StrEnum):
     PENDING = "PENDING"
     PASSED = "PASSED"
     FAILED = "FAILED"
-
-
-class FieldAcceptanceEvidenceState(StrEnum):
-    MISSING = "MISSING"
-    STALE = "STALE"
-    VALID = "VALID"
 
 
 class RealHardwareReadinessState(StrEnum):
@@ -92,6 +100,7 @@ class RealHardwareBlocker(StrEnum):
     CALIBRATION_JOINT_SET_MISMATCH = "CALIBRATION_JOINT_SET_MISMATCH"
     CALIBRATION_MAPPING_MISMATCH = "CALIBRATION_MAPPING_MISMATCH"
     CALIBRATION_INCOMPLETE = "CALIBRATION_INCOMPLETE"
+    CALIBRATION_ROBOT_UNIT_MISMATCH = "CALIBRATION_ROBOT_UNIT_MISMATCH"
     KINEMATICS_MISSING = "KINEMATICS_MISSING"
     KINEMATICS_NOT_VERIFIED_FOR_REAL = "KINEMATICS_NOT_VERIFIED_FOR_REAL"
     KINEMATICS_FINGERPRINT_MISSING = "KINEMATICS_FINGERPRINT_MISSING"
@@ -100,6 +109,19 @@ class RealHardwareBlocker(StrEnum):
     FIELD_ACCEPTANCE_NOT_PASSED = "FIELD_ACCEPTANCE_NOT_PASSED"
     FIELD_ACCEPTANCE_EVIDENCE_MISSING = "FIELD_ACCEPTANCE_EVIDENCE_MISSING"
     FIELD_ACCEPTANCE_EVIDENCE_STALE = "FIELD_ACCEPTANCE_EVIDENCE_STALE"
+    ROBOT_UNIT_ID_REQUIRED = "ROBOT_UNIT_ID_REQUIRED"
+    ROBOT_UNIT_MISMATCH = "ROBOT_UNIT_MISMATCH"
+    COMMISSIONING_MOTION_NOT_ENABLED = "COMMISSIONING_MOTION_NOT_ENABLED"
+    SOFTWARE_COMMIT_REQUIRED = "SOFTWARE_COMMIT_REQUIRED"
+    PRE_MOTION_CHECKS_INCOMPLETE = "PRE_MOTION_CHECKS_INCOMPLETE"
+    COMMISSIONING_MOTION_SESSION_REQUIRED = "COMMISSIONING_MOTION_SESSION_REQUIRED"
+    JOINT_MOTION_ACCEPTANCE_PENDING = "JOINT_MOTION_ACCEPTANCE_PENDING"
+    CARTESIAN_ACCEPTANCE_PENDING = "CARTESIAN_ACCEPTANCE_PENDING"
+    PLAYBACK_ACCEPTANCE_PENDING = "PLAYBACK_ACCEPTANCE_PENDING"
+    VISION_FOLLOW_ACCEPTANCE_PENDING = "VISION_FOLLOW_ACCEPTANCE_PENDING"
+    KINEMATICS_VERIFICATION_PENDING = "KINEMATICS_VERIFICATION_PENDING"
+    KINEMATICS_EVIDENCE_STALE = "KINEMATICS_EVIDENCE_STALE"
+    PHYSICAL_STOP_NOT_VERIFIED = "PHYSICAL_STOP_NOT_VERIFIED"
     SERVO_BUS_DEPENDENCY_UNAVAILABLE = "SERVO_BUS_DEPENDENCY_UNAVAILABLE"
     SERVO_BUS_DEPENDENCY_IDENTITY_MISSING = "SERVO_BUS_DEPENDENCY_IDENTITY_MISSING"
     EXPLICIT_DEVICE_MISSING = "EXPLICIT_DEVICE_MISSING"
@@ -130,6 +152,7 @@ class RealHardwareAuthorizationPurpose(StrEnum):
 
     DIAGNOSTICS = "DIAGNOSTICS"
     CALIBRATION_CAPTURE = "CALIBRATION_CAPTURE"
+    COMMISSIONING_SINGLE_JOINT_TEST = "COMMISSIONING_SINGLE_JOINT_TEST"
     REAL_JOINT_MOTION = "REAL_JOINT_MOTION"
     REAL_CARTESIAN_MOTION = "REAL_CARTESIAN_MOTION"
     REAL_PLAYBACK = "REAL_PLAYBACK"
@@ -137,15 +160,17 @@ class RealHardwareAuthorizationPurpose(StrEnum):
 
 
 class OperatorSessionPurpose(StrEnum):
-    """A session is born read-only or motion-capable and can never be upgraded."""
+    """A session is born with one purpose and can never be upgraded."""
 
     COMMISSIONING_READ_ONLY = "COMMISSIONING_READ_ONLY"
+    COMMISSIONING_MOTION_TEST = "COMMISSIONING_MOTION_TEST"
     REAL_MOTION = "REAL_MOTION"
 
 
 class OperatorSessionScope(StrEnum):
     DIAGNOSTICS_READ = "DIAGNOSTICS_READ"
     CALIBRATION_CAPTURE = "CALIBRATION_CAPTURE"
+    COMMISSIONING_SINGLE_JOINT_TEST = "COMMISSIONING_SINGLE_JOINT_TEST"
     REAL_JOINT_MOTION = "REAL_JOINT_MOTION"
     REAL_CARTESIAN_MOTION = "REAL_CARTESIAN_MOTION"
     REAL_PLAYBACK = "REAL_PLAYBACK"
@@ -158,6 +183,7 @@ COMMISSIONING_SCOPES = frozenset(
         OperatorSessionScope.CALIBRATION_CAPTURE,
     }
 )
+COMMISSIONING_MOTION_SCOPES = frozenset({OperatorSessionScope.COMMISSIONING_SINGLE_JOINT_TEST})
 MOTION_SCOPES = frozenset(
     {
         OperatorSessionScope.REAL_JOINT_MOTION,
@@ -171,6 +197,9 @@ AUTHORIZATION_PURPOSE_SCOPE = {
     RealHardwareAuthorizationPurpose.DIAGNOSTICS: OperatorSessionScope.DIAGNOSTICS_READ,
     RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE: (
         OperatorSessionScope.CALIBRATION_CAPTURE
+    ),
+    RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST: (
+        OperatorSessionScope.COMMISSIONING_SINGLE_JOINT_TEST
     ),
     RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: (OperatorSessionScope.REAL_JOINT_MOTION),
     RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION: (
@@ -186,6 +215,12 @@ class ExplicitServoDevice(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    # Empty is accepted only so safe defaults and legacy local configs remain
+    # readable.  Every commissioning/Real authorization gate rejects it.
+    robot_unit_id: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, max_length=64),
+    ] = ""
     serial_port: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=256),
@@ -210,6 +245,17 @@ class ExplicitServoDevice(BaseModel):
             raise ValueError(f"at most {MAX_EXPLICIT_SERVO_IDS} servo IDs are allowed")
         if len(value) != len(set(value)):
             raise ValueError("explicit servo IDs must be unique")
+        return value
+
+    @field_validator("robot_unit_id")
+    @classmethod
+    def validate_optional_robot_unit_id(cls, value: str) -> str:
+        if value:
+            # Reuse the strict product identifier contract without requiring it
+            # merely to parse a legacy/safe configuration.
+            from pydantic import TypeAdapter
+
+            TypeAdapter(RobotUnitId).validate_python(value)
         return value
 
     @property
@@ -321,16 +367,19 @@ class HardwareConfirmationEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     robot_id: str | None = None
+    robot_unit_id: str | None = None
     variant: RobotVariant | None = None
     profile_fingerprint: Fingerprint | None = None
     calibration_fingerprint: Fingerprint | None = None
     kinematics_fingerprint: Fingerprint | None = None
     field_acceptance_evidence_id: UUID | None = None
+    pre_motion_evidence_id: UUID | None = None
     masked_serial_port: str | None = None
     masked_servo_ids: tuple[str, ...] = ()
     protocol: str | None = None
     session_purpose: OperatorSessionPurpose = OperatorSessionPurpose.REAL_MOTION
     physical_estop_required: Literal[True] = True
+    workspace_clear_required: bool = False
     required_confirmation_text: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
@@ -341,50 +390,11 @@ class HardwareConfirmationEvidence(BaseModel):
         expected = confirmation_text_for(self.session_purpose)
         if self.required_confirmation_text != expected:
             raise ValueError("confirmation text must match the operator session purpose")
+        if self.workspace_clear_required is not (
+            self.session_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+        ):
+            raise ValueError("workspace-clear requirement must match the session purpose")
         return self
-
-
-class FieldAcceptanceEvidence(BaseModel):
-    """Immutable local proof bound to every safety-relevant hardware fingerprint."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal[1] = FIELD_ACCEPTANCE_SCHEMA_VERSION
-    revision: Literal[1] = 1
-    evidence_id: UUID = Field(default_factory=uuid4)
-    status: Literal[FieldAcceptanceStatus.PASSED] = FieldAcceptanceStatus.PASSED
-    robot_variant: RobotVariant
-    profile_fingerprint: Fingerprint
-    calibration_fingerprint: Fingerprint
-    kinematics_fingerprint: Fingerprint | None = None
-    device_fingerprint: Fingerprint
-    checklist_version: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
-    ]
-    accepted_at: datetime
-    accepted_by: (
-        Annotated[
-            str,
-            StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
-        ]
-        | None
-    ) = None
-
-    @property
-    def id(self) -> UUID:
-        """UUID filename identity used by the ignored local repository."""
-
-        return self.evidence_id
-
-    @property
-    def created_at(self) -> datetime:
-        return self.accepted_at
-
-    @field_validator("accepted_at")
-    @classmethod
-    def require_aware_acceptance_time(cls, value: datetime) -> datetime:
-        return _require_aware(value, "accepted_at")
 
 
 class FieldAcceptanceEvidenceStatus(BaseModel):
@@ -413,8 +423,8 @@ class FieldAcceptanceEvidenceStatus(BaseModel):
         if self.state is not FieldAcceptanceEvidenceState.MISSING and not has_evidence:
             raise ValueError("stored acceptance evidence requires identity and acceptance time")
         if self.state is FieldAcceptanceEvidenceState.VALID:
-            if self.effective_status is not FieldAcceptanceStatus.PASSED or self.stale_fields:
-                raise ValueError("valid acceptance evidence must be an unstale pass")
+            if self.stale_fields:
+                raise ValueError("valid capability evidence must be unstale")
         elif self.effective_status is FieldAcceptanceStatus.PASSED:
             raise ValueError("only valid acceptance evidence can report PASSED")
         if self.accepted_at is not None:
@@ -431,17 +441,25 @@ class OperatorSessionEvidence(BaseModel):
     purpose: OperatorSessionPurpose
     scopes: frozenset[OperatorSessionScope]
     robot_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+    robot_unit_id: RobotUnitId
+    operator_id: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+    ]
     variant: RobotVariant
     profile_fingerprint: Fingerprint
     calibration_fingerprint: Fingerprint | None = None
     kinematics_fingerprint: Fingerprint | None = None
     field_acceptance_evidence_id: UUID | None = None
+    pre_motion_evidence_id: UUID | None = None
+    commissioning_envelope: CommissioningSafetyEnvelope | None = None
     device_fingerprint: Fingerprint
     allowed_servo_ids: tuple[ServoId, ...]
     issued_at: datetime
     expires_at: datetime
     confirmed: Literal[True] = True
     physical_estop_confirmed: Literal[True] = True
+    workspace_clear_confirmed: bool = False
     control_mode: Literal[ControlMode.REAL] = ControlMode.REAL
     hardware_access_policy: HardwareAccessPolicy
 
@@ -466,6 +484,29 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("commissioning sessions cannot bind motion evidence")
             if self.field_acceptance_evidence_id is not None:
                 raise ValueError("commissioning sessions cannot bind field acceptance")
+            if self.pre_motion_evidence_id is not None or self.commissioning_envelope is not None:
+                raise ValueError("read-only commissioning cannot bind motion-test evidence")
+            if self.workspace_clear_confirmed:
+                raise ValueError(
+                    "read-only commissioning does not carry workspace-clear motion intent"
+                )
+        elif self.purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
+            if self.hardware_access_policy is not HardwareAccessPolicy.FULL:
+                raise ValueError("commissioning motion-test sessions require FULL hardware policy")
+            if self.scopes != COMMISSIONING_MOTION_SCOPES:
+                raise ValueError("commissioning motion-test sessions have one exact scope")
+            if self.calibration_fingerprint is None:
+                raise ValueError("commissioning motion-test sessions require Calibration")
+            if self.kinematics_fingerprint is not None:
+                raise ValueError("single-joint commissioning does not bind Kinematics authority")
+            if self.field_acceptance_evidence_id is not None:
+                raise ValueError("commissioning motion tests cannot bind production acceptance")
+            if self.pre_motion_evidence_id is None or self.commissioning_envelope is None:
+                raise ValueError(
+                    "commissioning motion tests require pre-motion evidence and envelope"
+                )
+            if not self.workspace_clear_confirmed:
+                raise ValueError("commissioning motion tests require workspace-clear confirmation")
         else:
             if self.hardware_access_policy is not HardwareAccessPolicy.FULL:
                 raise ValueError("motion sessions require FULL hardware policy")
@@ -478,7 +519,9 @@ class OperatorSessionEvidence(BaseModel):
             if self.calibration_fingerprint is None:
                 raise ValueError("motion sessions require a calibration fingerprint")
             if self.field_acceptance_evidence_id is None:
-                raise ValueError("motion sessions require field-acceptance evidence")
+                raise ValueError("motion sessions require capability acceptance evidence")
+            if self.pre_motion_evidence_id is not None or self.commissioning_envelope is not None:
+                raise ValueError("production motion cannot inherit commissioning-test authority")
             geometry_scopes = {
                 OperatorSessionScope.REAL_CARTESIAN_MOTION,
                 OperatorSessionScope.REAL_PLAYBACK,
@@ -532,8 +575,17 @@ class RealHardwareContext(BaseModel):
     control_mode: ControlMode = ControlMode.DRY_RUN
     hardware_access_policy: HardwareAccessPolicy = HardwareAccessPolicy.DISABLED
     real_motion_enabled: bool = False
+    commissioning_motion_test_enabled: bool = False
     startup_hardware_enabled: bool = False
     explicit_local_config: bool = False
+    robot_unit_id: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, max_length=64),
+    ] = ""
+    software_commit: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, max_length=64),
+    ] = ""
     robot_id: (
         Annotated[
             str,
@@ -549,10 +601,26 @@ class RealHardwareContext(BaseModel):
         default=None,
         repr=False,
     )
+    field_acceptance_bundle: FieldAcceptanceBundle = Field(
+        default_factory=FieldAcceptanceBundle,
+        repr=False,
+    )
+    kinematics_verification_evidence: KinematicsVerificationEvidence | None = Field(
+        default=None,
+        repr=False,
+    )
+    physical_stop_verification: PhysicalStopVerification = PhysicalStopVerification.PENDING
+    commissioning_safety_envelope: CommissioningSafetyEnvelope = Field(
+        default_factory=CommissioningSafetyEnvelope,
+    )
     field_acceptance_checklist_version: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
     ] = DEFAULT_FIELD_ACCEPTANCE_CHECKLIST_VERSION
+    kinematics_verification_checklist_version: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    ] = DEFAULT_KINEMATICS_VERIFICATION_CHECKLIST_VERSION
     # Compatibility/display hint only. A PASSED value never grants motion without
     # matching persisted FieldAcceptanceEvidence.
     field_acceptance_status: FieldAcceptanceStatus = FieldAcceptanceStatus.PENDING
@@ -565,6 +633,23 @@ class RealHardwareContext(BaseModel):
         | None
     ) = None
     device: ExplicitServoDevice | None = Field(default=None, repr=False)
+
+    @field_validator("robot_unit_id")
+    @classmethod
+    def validate_optional_robot_unit_id(cls, value: str) -> str:
+        if value:
+            from pydantic import TypeAdapter
+
+            TypeAdapter(RobotUnitId).validate_python(value)
+        return value
+
+    @property
+    def calibration_fingerprint(self) -> str | None:
+        return calibration_fingerprint(self.calibration) if self.calibration is not None else None
+
+    @property
+    def device_fingerprint(self) -> str | None:
+        return explicit_device_fingerprint(self.device) if self.device is not None else None
 
 
 class RealHardwareGateInput(BaseModel):
@@ -580,13 +665,51 @@ class RealHardwareGateInput(BaseModel):
         return _require_aware(value, "evaluated_at")
 
 
+class CapabilityReadinessDetail(BaseModel):
+    """Explain one backend-derived capability without frontend inference."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ready: bool = False
+    authorized: bool = False
+    blocked_reasons: tuple[str, ...] = ()
+    required_evidence: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_detail(self) -> Self:
+        if self.authorized and not self.ready:
+            raise ValueError("an authorized capability must be ready")
+        if self.ready and self.blocked_reasons:
+            raise ValueError("a ready capability cannot retain blockers")
+        return self
+
+
+class RealHardwareCapabilityDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    commissioning_read_only: CapabilityReadinessDetail = Field(
+        default_factory=CapabilityReadinessDetail
+    )
+    commissioning_motion_test: CapabilityReadinessDetail = Field(
+        default_factory=CapabilityReadinessDetail
+    )
+    real_joint_motion: CapabilityReadinessDetail = Field(default_factory=CapabilityReadinessDetail)
+    real_cartesian_motion: CapabilityReadinessDetail = Field(
+        default_factory=CapabilityReadinessDetail
+    )
+    real_playback: CapabilityReadinessDetail = Field(default_factory=CapabilityReadinessDetail)
+    real_vision_follow: CapabilityReadinessDetail = Field(default_factory=CapabilityReadinessDetail)
+
+
 class RealHardwareCapabilityReadiness(BaseModel):
     """Independent capabilities; joint-only readiness never implies geometry safety."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    commissioning_read_only_ready: bool = False
     commissioning_diagnostics_ready: bool = False
     calibration_capture_ready: bool = False
+    commissioning_motion_test_ready: bool = False
     real_joint_motion_ready: bool = False
     real_cartesian_motion_ready: bool = False
     real_playback_ready: bool = False
@@ -622,9 +745,13 @@ class RealHardwareReadinessReport(BaseModel):
     ready: bool
     session_authorizable: bool
     commissioning_session_authorizable: bool = False
+    commissioning_motion_session_authorizable: bool = False
     motion_session_authorizable: bool = False
     blocking_reasons: tuple[RealHardwareBlocker, ...]
     capabilities: RealHardwareCapabilityReadiness
+    capability_details: RealHardwareCapabilityDetails = Field(
+        default_factory=RealHardwareCapabilityDetails
+    )
     confirmation: HardwareConfirmationEvidence
     session: OperatorSessionStatus | None = None
 
@@ -637,7 +764,9 @@ class RealHardwareReadinessReport(BaseModel):
         ):
             raise ValueError("ready must mean READY with every capability ready")
         if self.session_authorizable is not (
-            self.commissioning_session_authorizable or self.motion_session_authorizable
+            self.commissioning_session_authorizable
+            or self.commissioning_motion_session_authorizable
+            or self.motion_session_authorizable
         ):
             raise ValueError("session_authorizable must summarize purpose-specific readiness")
         if self.commissioning_session_authorizable and not (
@@ -645,6 +774,11 @@ class RealHardwareReadinessReport(BaseModel):
             and self.capabilities.calibration_capture_ready
         ):
             raise ValueError("commissioning authorization requires both read-only capabilities")
+        if (
+            self.commissioning_motion_session_authorizable
+            and self.capabilities.commissioning_motion_test_ready
+        ):
+            raise ValueError("motion-test authorization ends once its session is active")
         if self.motion_session_authorizable and self.capabilities.real_joint_motion_ready:
             raise ValueError("motion session authorization ends once joint motion is ready")
         any_capability_ready = (
@@ -655,9 +789,11 @@ class RealHardwareReadinessReport(BaseModel):
         )
         if any_capability_ready and (self.session is None or not self.session.active):
             raise ValueError("a ready capability requires an active operator session")
-        if (self.commissioning_session_authorizable or self.motion_session_authorizable) and (
-            self.session is not None
-        ):
+        if (
+            self.commissioning_session_authorizable
+            or self.commissioning_motion_session_authorizable
+            or self.motion_session_authorizable
+        ) and self.session is not None:
             raise ValueError("an authorizable report cannot already contain a session")
         return self
 
@@ -685,11 +821,13 @@ class RealHardwareAccessGrant(BaseModel):
             raise ValueError("authorization grant must be issued during the operator session")
         if (
             self.confirmation.robot_id != self.session.robot_id
+            or self.confirmation.robot_unit_id != self.session.robot_unit_id
             or self.confirmation.variant is not self.session.variant
             or self.confirmation.profile_fingerprint != self.session.profile_fingerprint
             or self.confirmation.calibration_fingerprint != self.session.calibration_fingerprint
             or self.confirmation.field_acceptance_evidence_id
             != self.session.field_acceptance_evidence_id
+            or self.confirmation.pre_motion_evidence_id != self.session.pre_motion_evidence_id
             or len(self.confirmation.masked_servo_ids) != len(self.session.allowed_servo_ids)
             or self.confirmation.session_purpose is not self.session.purpose
             or self.device_fingerprint != self.session.device_fingerprint
@@ -701,6 +839,9 @@ class RealHardwareAccessGrant(BaseModel):
             ),
             RealHardwareAuthorizationPurpose.CALIBRATION_CAPTURE: (
                 self.capabilities.calibration_capture_ready
+            ),
+            RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST: (
+                self.capabilities.commissioning_motion_test_ready
             ),
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: (
                 self.capabilities.real_joint_motion_ready
@@ -782,21 +923,34 @@ class DeviceDiagnosticsSnapshot(BaseModel):
 def confirmation_text_for(purpose: OperatorSessionPurpose) -> str:
     if purpose is OperatorSessionPurpose.COMMISSIONING_READ_ONLY:
         return REQUIRED_COMMISSIONING_CONFIRMATION_TEXT
+    if purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
+        return REQUIRED_COMMISSIONING_MOTION_CONFIRMATION_TEXT
     return REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT
 
 
 def field_acceptance_evidence_state(
     context: RealHardwareContext,
+    evidence: FieldAcceptanceEvidence | None = None,
 ) -> tuple[FieldAcceptanceEvidenceState, tuple[str, ...]]:
-    """Return validity without mutating or trusting the legacy status setting."""
+    """Interpret one capability record without trusting legacy global PASSED."""
 
-    evidence = context.field_acceptance_evidence
+    evidence = evidence or context.field_acceptance_evidence
     if evidence is None:
         return FieldAcceptanceEvidenceState.MISSING, ("evidence",)
+    if evidence.schema_version == 1:
+        return FieldAcceptanceEvidenceState.STALE_LEGACY_EVIDENCE, (
+            "schema_version",
+            "robot_unit_id",
+            "capability",
+        )
     profile = context.profile
     calibration = context.calibration
     device = context.device
     stale: list[str] = []
+    if not context.robot_unit_id or evidence.robot_unit_id != context.robot_unit_id:
+        stale.append("robot_unit_id")
+    if device is None or not device.robot_unit_id or device.robot_unit_id != context.robot_unit_id:
+        stale.append("device_robot_unit_id")
     if profile is None or evidence.robot_variant is not profile.variant:
         stale.append("robot_variant")
     if profile is None or evidence.profile_fingerprint != profile.fingerprint:
@@ -805,27 +959,67 @@ def field_acceptance_evidence_state(
         calibration
     ):
         stale.append("calibration_fingerprint")
-    current_kinematics_fingerprint = (
-        context.kinematics.fingerprint if context.kinematics is not None else None
-    )
-    if evidence.kinematics_fingerprint != current_kinematics_fingerprint:
-        stale.append("kinematics_fingerprint")
+    if evidence.kinematics_fingerprint is not None:
+        current_kinematics_fingerprint = (
+            context.kinematics.fingerprint if context.kinematics is not None else None
+        )
+        if evidence.kinematics_fingerprint != current_kinematics_fingerprint:
+            stale.append("kinematics_fingerprint")
     if device is None or evidence.device_fingerprint != explicit_device_fingerprint(device):
         stale.append("device_fingerprint")
     if evidence.checklist_version != context.field_acceptance_checklist_version:
         stale.append("checklist_version")
+    if evidence.software_commit != context.software_commit:
+        stale.append("software_commit")
     if stale:
         return FieldAcceptanceEvidenceState.STALE, tuple(stale)
     return FieldAcceptanceEvidenceState.VALID, ()
 
 
 def effective_field_acceptance_status(context: RealHardwareContext) -> FieldAcceptanceStatus:
-    state, _ = field_acceptance_evidence_state(context)
-    if state is FieldAcceptanceEvidenceState.VALID:
+    required = frozenset(FieldAcceptanceCapability)
+    if required <= context.field_acceptance_bundle.valid_capabilities(context):
         return FieldAcceptanceStatus.PASSED
     if context.field_acceptance_status is FieldAcceptanceStatus.FAILED:
         return FieldAcceptanceStatus.FAILED
     return FieldAcceptanceStatus.PENDING
+
+
+def kinematics_verification_evidence_state(
+    context: RealHardwareContext,
+) -> tuple[KinematicsEvidenceState, tuple[str, ...]]:
+    evidence = context.kinematics_verification_evidence
+    if evidence is None:
+        return KinematicsEvidenceState.MISSING, ("evidence",)
+    stale: list[str] = []
+    profile = context.profile
+    calibration = context.calibration
+    kinematics = context.kinematics
+    if not context.robot_unit_id or evidence.robot_unit_id != context.robot_unit_id:
+        stale.append("robot_unit_id")
+    if profile is None or evidence.variant is not profile.variant:
+        stale.append("variant")
+    if profile is None or evidence.profile_fingerprint != profile.fingerprint:
+        stale.append("profile_fingerprint")
+    if calibration is None or evidence.calibration_fingerprint != calibration_fingerprint(
+        calibration
+    ):
+        stale.append("calibration_fingerprint")
+    if context.device is None or evidence.device_fingerprint != explicit_device_fingerprint(
+        context.device
+    ):
+        stale.append("device_fingerprint")
+    if kinematics is None or evidence.kinematics_fingerprint != kinematics.fingerprint:
+        stale.append("kinematics_fingerprint")
+    if kinematics is None or evidence.kinematics_model_schema_version != kinematics.schema_version:
+        stale.append("kinematics_model_schema_version")
+    if evidence.verification_checklist_version != context.kinematics_verification_checklist_version:
+        stale.append("verification_checklist_version")
+    if evidence.software_commit != context.software_commit:
+        stale.append("software_commit")
+    if stale:
+        return KinematicsEvidenceState.STALE, tuple(dict.fromkeys(stale))
+    return KinematicsEvidenceState.VALID, ()
 
 
 def calibration_fingerprint(calibration: CalibrationDocument) -> str:
@@ -846,10 +1040,11 @@ def calibration_fingerprint(calibration: CalibrationDocument) -> str:
 
 
 def explicit_device_fingerprint(device: ExplicitServoDevice) -> str:
-    """Bind an access grant to the exact raw port, protocol, and ID allowlist."""
+    """Bind a grant to the stable unit plus exact port/protocol/ID allowlist."""
 
     encoded = json.dumps(
         {
+            "robot_unit_id": device.robot_unit_id,
             "serial_port": device.serial_port,
             "protocol": device.protocol,
             "servo_ids": list(device.servo_ids),

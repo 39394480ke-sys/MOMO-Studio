@@ -8,8 +8,9 @@ interface ControlSafetyBarProps {
   stale: boolean;
   robot: RobotStatus | null;
   lifecyclePending: 'connect' | 'disconnect' | 'stop' | 'switch' | null;
-  dryRunLifecycleAllowed: boolean;
-  modeLabel: 'DRY RUN' | 'READ ONLY' | 'REAL MOTION LOCKED';
+  lifecycleAllowed: boolean;
+  stopAllowed: boolean;
+  modeLabel: 'DRY RUN' | 'READ ONLY' | 'REAL MOTION LOCKED' | 'REAL CAPABILITY AUTHORIZED';
   motionPending: string | null;
   availability: MotionAvailability;
   socketState: RobotWebSocketState;
@@ -23,7 +24,8 @@ export function ControlSafetyBar({
   stale,
   robot,
   lifecyclePending,
-  dryRunLifecycleAllowed,
+  lifecycleAllowed,
+  stopAllowed,
   modeLabel,
   motionPending,
   availability,
@@ -33,9 +35,9 @@ export function ControlSafetyBar({
   onStop,
 }: ControlSafetyBarProps) {
   const lifecycleBusy = lifecyclePending !== null;
-  const stopDisabled = !dryRunLifecycleAllowed || !backendOnline || stale || motionPending === 'stop';
+  const stopDisabled = !stopAllowed || !backendOnline || stale || motionPending === 'stop';
   return (
-    <section className="control-safety-bar" aria-label="仿真运行安全控制">
+    <section className="control-safety-bar" aria-label="运行安全控制">
       <div className="control-safety-bar__status">
         <span className="dry-run-badge">{modeLabel}</span>
         <span>{availability.allowed ? '运动已就绪' : availability.reason}</span>
@@ -44,7 +46,7 @@ export function ControlSafetyBar({
       <div className="command-bar">
         <button
           className="command-button command-button--primary"
-          disabled={!dryRunLifecycleAllowed || !backendOnline || stale || lifecycleBusy || robot?.connected === true}
+          disabled={!lifecycleAllowed || !backendOnline || stale || lifecycleBusy || robot?.connected === true}
           onClick={() => void onConnect()}
           type="button"
         >
@@ -53,7 +55,7 @@ export function ControlSafetyBar({
         </button>
         <button
           className="command-button"
-          disabled={!dryRunLifecycleAllowed || !backendOnline || stale || lifecycleBusy || robot?.connected !== true}
+          disabled={!lifecycleAllowed || !backendOnline || stale || lifecycleBusy || robot?.connected !== true}
           onClick={() => void onDisconnect()}
           type="button"
         >
@@ -71,7 +73,7 @@ export function ControlSafetyBar({
         </button>
       </div>
       <p className="software-stop-note">
-        软件停止会取消仿真运动，但不能替代物理急停按钮。
+        软件停止不能替代物理急停按钮。
       </p>
     </section>
   );

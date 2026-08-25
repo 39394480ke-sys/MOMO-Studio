@@ -2,6 +2,9 @@ product_name: MOMO Studio
 version: 0.1.0-rc1
 control_mode: dry_run
 real_motion_enabled: false
+commissioning_motion_test_enabled: false
+robot_unit_id: ""
+software_commit: unknown
 serial_port: ""
 active_robot_variant: V2
 hardware_access: disabled
@@ -9,7 +12,6 @@ hardware_startup_enabled: false
 hardware_local_config_enabled: false
 servo_ids: []
 servo_protocol: ""
-field_acceptance_status: PENDING
 field_acceptance_checklist_version: "1"
 operator_session_ttl_s: 300
 camera_access_policy: synthetic_only
@@ -19,6 +21,21 @@ profile_directory: robot_profiles
 calibration_directory: calibration/examples
 real_calibration_directory: data/calibration
 field_acceptance_directory: data/field-acceptance
+commissioning_test_evidence_directory: data/commissioning-tests
+kinematics_verification_directory: data/kinematics-verification
+kinematics_verification_checklist_version: "1"
+commissioning_safety_envelope:
+  max_active_joints: 1
+  max_command_duration_s: 2.0
+  max_session_duration_s: 300.0
+  max_revolute_delta_deg: 2.0
+  max_prismatic_delta_mm: 1.0
+  max_revolute_speed_deg_s: 2.0
+  max_prismatic_speed_mm_s: 1.0
+  max_revolute_acceleration_deg_s2: 4.0
+  max_prismatic_acceleration_mm_s2: 2.0
+  deadman_lease_ms: 400
+  max_commands_per_session: 24
 kinematics_model_directory: kinematics_models
 pose_directory: data/poses
 motion_library_directory: data/motions

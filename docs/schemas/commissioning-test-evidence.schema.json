@@ -1,0 +1,435 @@
+{
+  "$defs": {
+    "CommissioningDirection": {
+      "enum": [
+        "POSITIVE",
+        "NEGATIVE"
+      ],
+      "title": "CommissioningDirection",
+      "type": "string"
+    },
+    "CommissioningSafetyEnvelope": {
+      "additionalProperties": false,
+      "description": "Backend-owned caps snapshotted into a motion-test session.\n\nEvery field has a compile-time upper bound.  Runtime/local configuration can\ninstantiate a smaller envelope, but Pydantic rejects any attempted expansion.",
+      "properties": {
+        "deadman_lease_ms": {
+          "default": 400,
+          "maximum": 400,
+          "minimum": 100,
+          "title": "Deadman Lease Ms",
+          "type": "integer"
+        },
+        "max_active_joints": {
+          "const": 1,
+          "default": 1,
+          "title": "Max Active Joints",
+          "type": "integer"
+        },
+        "max_command_duration_s": {
+          "default": 2.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 2.0,
+          "title": "Max Command Duration S",
+          "type": "number"
+        },
+        "max_commands_per_session": {
+          "default": 24,
+          "maximum": 24,
+          "minimum": 2,
+          "title": "Max Commands Per Session",
+          "type": "integer"
+        },
+        "max_prismatic_acceleration_mm_s2": {
+          "default": 2.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 2.0,
+          "title": "Max Prismatic Acceleration Mm S2",
+          "type": "number"
+        },
+        "max_prismatic_delta_mm": {
+          "default": 1.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Max Prismatic Delta Mm",
+          "type": "number"
+        },
+        "max_prismatic_speed_mm_s": {
+          "default": 1.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Max Prismatic Speed Mm S",
+          "type": "number"
+        },
+        "max_revolute_acceleration_deg_s2": {
+          "default": 4.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 4.0,
+          "title": "Max Revolute Acceleration Deg S2",
+          "type": "number"
+        },
+        "max_revolute_delta_deg": {
+          "default": 2.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 2.0,
+          "title": "Max Revolute Delta Deg",
+          "type": "number"
+        },
+        "max_revolute_speed_deg_s": {
+          "default": 2.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 2.0,
+          "title": "Max Revolute Speed Deg S",
+          "type": "number"
+        },
+        "max_session_duration_s": {
+          "default": 300.0,
+          "maximum": 300.0,
+          "minimum": 30.0,
+          "title": "Max Session Duration S",
+          "type": "number"
+        }
+      },
+      "title": "CommissioningSafetyEnvelope",
+      "type": "object"
+    },
+    "CommissioningTestResult": {
+      "enum": [
+        "PASSED",
+        "FAILED"
+      ],
+      "title": "CommissioningTestResult",
+      "type": "string"
+    },
+    "DomainUnit": {
+      "description": "Canonical persisted units at the domain/UI boundary.",
+      "enum": [
+        "deg",
+        "mm"
+      ],
+      "title": "DomainUnit",
+      "type": "string"
+    },
+    "PreparedCommissioningTestCommand": {
+      "additionalProperties": false,
+      "description": "One immutable, service-prepared relative test command.\n\nNo API request can provide a raw Servo target or construct this model on the\nadapter side.  The application service computes it from a fresh readback.",
+      "properties": {
+        "command_duration_s": {
+          "exclusiveMinimum": 0.0,
+          "title": "Command Duration S",
+          "type": "number"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "envelope": {
+          "$ref": "#/$defs/CommissioningSafetyEnvelope"
+        },
+        "joint_id": {
+          "title": "Joint Id",
+          "type": "string"
+        },
+        "prepared_at": {
+          "format": "date-time",
+          "title": "Prepared At",
+          "type": "string"
+        },
+        "readback_fresh_until": {
+          "format": "date-time",
+          "title": "Readback Fresh Until",
+          "type": "string"
+        },
+        "requested_acceleration": {
+          "exclusiveMinimum": 0.0,
+          "title": "Requested Acceleration",
+          "type": "number"
+        },
+        "requested_delta": {
+          "title": "Requested Delta",
+          "type": "number"
+        },
+        "requested_speed": {
+          "exclusiveMinimum": 0.0,
+          "title": "Requested Speed",
+          "type": "number"
+        },
+        "robot_unit_id": {
+          "maxLength": 64,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Robot Unit Id",
+          "type": "string"
+        },
+        "servo_id": {
+          "maximum": 253,
+          "minimum": 1,
+          "title": "Servo Id",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "start_raw": {
+          "title": "Start Raw",
+          "type": "integer"
+        },
+        "start_value": {
+          "title": "Start Value",
+          "type": "number"
+        },
+        "target_raw": {
+          "title": "Target Raw",
+          "type": "integer"
+        },
+        "target_value": {
+          "title": "Target Value",
+          "type": "number"
+        },
+        "unit": {
+          "$ref": "#/$defs/DomainUnit"
+        }
+      },
+      "required": [
+        "session_id",
+        "robot_unit_id",
+        "joint_id",
+        "servo_id",
+        "unit",
+        "start_value",
+        "requested_delta",
+        "target_value",
+        "start_raw",
+        "target_raw",
+        "requested_speed",
+        "requested_acceleration",
+        "command_duration_s",
+        "prepared_at",
+        "readback_fresh_until",
+        "envelope"
+      ],
+      "title": "PreparedCommissioningTestCommand",
+      "type": "object"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    },
+    "StopBehavior": {
+      "enum": [
+        "NOT_REQUESTED",
+        "SOFTWARE_PATH_VERIFIED",
+        "SOFTWARE_PATH_FAILED",
+        "PHYSICAL_BEHAVIOR_PENDING"
+      ],
+      "title": "StopBehavior",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Immutable local result for one positive or negative joint test.",
+  "properties": {
+    "calibration_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Calibration Fingerprint",
+      "type": "string"
+    },
+    "completed_at": {
+      "format": "date-time",
+      "title": "Completed At",
+      "type": "string"
+    },
+    "device_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Device Fingerprint",
+      "type": "string"
+    },
+    "direction_expected": {
+      "$ref": "#/$defs/CommissioningDirection"
+    },
+    "direction_observed": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CommissioningDirection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "divergence": {
+      "minimum": 0.0,
+      "title": "Divergence",
+      "type": "number"
+    },
+    "failure_reason_optional": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason Optional"
+    },
+    "final_raw": {
+      "title": "Final Raw",
+      "type": "integer"
+    },
+    "final_value": {
+      "title": "Final Value",
+      "type": "number"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "joint_id": {
+      "title": "Joint Id",
+      "type": "string"
+    },
+    "measured_or_observed_result": {
+      "title": "Measured Or Observed Result",
+      "type": "string"
+    },
+    "operator_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Operator Id",
+      "type": "string"
+    },
+    "prepared_command": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreparedCommissioningTestCommand"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "prepared_target_raw": {
+      "title": "Prepared Target Raw",
+      "type": "integer"
+    },
+    "profile_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Profile Fingerprint",
+      "type": "string"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "requested_delta": {
+      "title": "Requested Delta",
+      "type": "number"
+    },
+    "requested_speed": {
+      "exclusiveMinimum": 0.0,
+      "title": "Requested Speed",
+      "type": "number"
+    },
+    "result": {
+      "$ref": "#/$defs/CommissioningTestResult"
+    },
+    "revision": {
+      "const": 1,
+      "default": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "robot_unit_id": {
+      "maxLength": 64,
+      "minLength": 3,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "title": "Robot Unit Id",
+      "type": "string"
+    },
+    "robot_variant": {
+      "$ref": "#/$defs/RobotVariant"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "software_commit": {
+      "maxLength": 64,
+      "minLength": 7,
+      "title": "Software Commit",
+      "type": "string"
+    },
+    "start_raw": {
+      "title": "Start Raw",
+      "type": "integer"
+    },
+    "start_value": {
+      "title": "Start Value",
+      "type": "number"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "stop_behavior": {
+      "$ref": "#/$defs/StopBehavior"
+    },
+    "target_value": {
+      "title": "Target Value",
+      "type": "number"
+    },
+    "unit": {
+      "$ref": "#/$defs/DomainUnit"
+    }
+  },
+  "required": [
+    "robot_unit_id",
+    "robot_variant",
+    "profile_fingerprint",
+    "calibration_fingerprint",
+    "device_fingerprint",
+    "joint_id",
+    "unit",
+    "start_value",
+    "requested_delta",
+    "target_value",
+    "final_value",
+    "start_raw",
+    "final_raw",
+    "requested_speed",
+    "measured_or_observed_result",
+    "direction_expected",
+    "divergence",
+    "stop_behavior",
+    "started_at",
+    "completed_at",
+    "software_commit",
+    "operator_id",
+    "request_id",
+    "session_id",
+    "prepared_target_raw",
+    "result"
+  ],
+  "title": "CommissioningTestEvidence",
+  "type": "object"
+}

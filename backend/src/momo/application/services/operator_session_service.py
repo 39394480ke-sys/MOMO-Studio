@@ -16,12 +16,13 @@ from pydantic import SecretStr
 from momo.application.services.real_hardware_authorization import (
     RealHardwareAuthorization,
 )
+from momo.domain.commissioning import FieldAcceptanceCapability
 from momo.domain.enums import ControlMode, HardwareAccessPolicy
 from momo.domain.errors import RobotApplicationError
 from momo.domain.real_hardware import (
     AUTHORIZATION_PURPOSE_SCOPE,
+    COMMISSIONING_MOTION_SCOPES,
     COMMISSIONING_SCOPES,
-    MOTION_SCOPES,
     IssuedOperatorSession,
     OperatorSessionEvidence,
     OperatorSessionPurpose,
@@ -89,23 +90,35 @@ class OperatorSessionService:
         purpose: OperatorSessionPurpose | None = None,
         confirmation_text: str,
         physical_estop_confirmed: bool,
+        workspace_clear_confirmed: bool = False,
+        operator_id: str = "operator",
     ) -> IssuedOperatorSession:
         """Replace any prior token only after every non-operator gate passes."""
 
         now = self.clock.now()
-        resolved_purpose = purpose or (
-            OperatorSessionPurpose.COMMISSIONING_READ_ONLY
-            if context.hardware_access_policy is HardwareAccessPolicy.READ_ONLY
-            else OperatorSessionPurpose.REAL_MOTION
-        )
+        if purpose is not None:
+            resolved_purpose = purpose
+        elif context.hardware_access_policy is HardwareAccessPolicy.READ_ONLY:
+            resolved_purpose = OperatorSessionPurpose.COMMISSIONING_READ_ONLY
+        elif context.commissioning_motion_test_enabled and (
+            FieldAcceptanceCapability.JOINT_MOTION
+            not in context.field_acceptance_bundle.valid_capabilities(context)
+        ):
+            resolved_purpose = OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+        else:
+            resolved_purpose = OperatorSessionPurpose.REAL_MOTION
         report = self.authorization.evaluate(
             RealHardwareGateInput(context=context, evaluated_at=now)
         )
-        purpose_authorizable = (
-            report.commissioning_session_authorizable
-            if resolved_purpose is OperatorSessionPurpose.COMMISSIONING_READ_ONLY
-            else report.motion_session_authorizable
-        )
+        purpose_authorizable = {
+            OperatorSessionPurpose.COMMISSIONING_READ_ONLY: (
+                report.commissioning_session_authorizable
+            ),
+            OperatorSessionPurpose.COMMISSIONING_MOTION_TEST: (
+                report.commissioning_motion_session_authorizable
+            ),
+            OperatorSessionPurpose.REAL_MOTION: report.motion_session_authorizable,
+        }[resolved_purpose]
         if not purpose_authorizable:
             raise OperatorSessionPrerequisiteError(
                 "Operator session prerequisites are not satisfied",
@@ -126,6 +139,15 @@ class OperatorSessionService:
             raise OperatorConfirmationError(
                 "Physical E-stop readiness must be explicitly confirmed"
             )
+        if (
+            resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+            and workspace_clear_confirmed is not True
+        ):
+            raise OperatorConfirmationError(
+                "Commissioning motion tests require explicit workspace-clear confirmation"
+            )
+        if not isinstance(operator_id, str) or not operator_id.strip() or len(operator_id) > 128:
+            raise OperatorConfirmationError("An explicit bounded operator identity is required")
 
         profile = context.profile
         calibration = context.calibration
@@ -134,29 +156,54 @@ class OperatorSessionService:
             raise OperatorSessionPrerequisiteError(
                 "Operator session identity evidence is incomplete"
             )
-        if resolved_purpose is OperatorSessionPurpose.REAL_MOTION and calibration is None:
+        if (
+            resolved_purpose
+            in {
+                OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+                OperatorSessionPurpose.REAL_MOTION,
+            }
+            and calibration is None
+        ):
             raise OperatorSessionPrerequisiteError(
                 "Motion-session calibration evidence is incomplete"
             )
         raw_token = secrets.token_urlsafe(32)
         issued_at = now
-        expires_at = now + timedelta(seconds=self.ttl_s)
-        scopes = (
-            COMMISSIONING_SCOPES
-            if resolved_purpose is OperatorSessionPurpose.COMMISSIONING_READ_ONLY
-            else frozenset({OperatorSessionScope.REAL_JOINT_MOTION})
+        session_ttl_s = self.ttl_s
+        if resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
+            session_ttl_s = min(
+                session_ttl_s,
+                context.commissioning_safety_envelope.max_session_duration_s,
+            )
+        expires_at = now + timedelta(seconds=session_ttl_s)
+        scopes = {
+            OperatorSessionPurpose.COMMISSIONING_READ_ONLY: COMMISSIONING_SCOPES,
+            OperatorSessionPurpose.COMMISSIONING_MOTION_TEST: COMMISSIONING_MOTION_SCOPES,
+            OperatorSessionPurpose.REAL_MOTION: frozenset({OperatorSessionScope.REAL_JOINT_MOTION}),
+        }[resolved_purpose]
+        joint_acceptance = context.field_acceptance_bundle.newest_for(
+            FieldAcceptanceCapability.JOINT_MOTION
+        )
+        pre_motion = context.field_acceptance_bundle.newest_for(
+            FieldAcceptanceCapability.PRE_MOTION_CHECKS
         )
         evidence = OperatorSessionEvidence(
             session_id=uuid4(),
             purpose=resolved_purpose,
             scopes=scopes,
             robot_id=context.robot_id,
+            robot_unit_id=context.robot_unit_id,
+            operator_id=operator_id.strip(),
             variant=profile.variant,
             profile_fingerprint=profile.fingerprint,
             calibration_fingerprint=(
                 calibration_fingerprint(calibration)
                 if calibration is not None
-                and resolved_purpose is OperatorSessionPurpose.REAL_MOTION
+                and resolved_purpose
+                in {
+                    OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+                    OperatorSessionPurpose.REAL_MOTION,
+                }
                 else None
             ),
             kinematics_fingerprint=(
@@ -166,9 +213,20 @@ class OperatorSessionService:
                 else None
             ),
             field_acceptance_evidence_id=(
-                context.field_acceptance_evidence.evidence_id
-                if context.field_acceptance_evidence is not None
+                joint_acceptance.evidence_id
+                if joint_acceptance is not None
                 and resolved_purpose is OperatorSessionPurpose.REAL_MOTION
+                else None
+            ),
+            pre_motion_evidence_id=(
+                pre_motion.evidence_id
+                if pre_motion is not None
+                and resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+                else None
+            ),
+            commissioning_envelope=(
+                context.commissioning_safety_envelope
+                if resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
                 else None
             ),
             device_fingerprint=explicit_device_fingerprint(device),
@@ -177,6 +235,9 @@ class OperatorSessionService:
             expires_at=expires_at,
             confirmed=True,
             physical_estop_confirmed=True,
+            workspace_clear_confirmed=(
+                resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+            ),
             control_mode=ControlMode.REAL,
             hardware_access_policy=context.hardware_access_policy,
         )
@@ -187,13 +248,15 @@ class OperatorSessionService:
                 operator_session=evidence,
             )
         )
-        if (
-            resolved_purpose is OperatorSessionPurpose.REAL_MOTION
-            and issued_report.capabilities.real_cartesian_motion_ready
-            and issued_report.capabilities.real_playback_ready
-            and issued_report.capabilities.real_vision_follow_ready
-        ):
-            evidence = evidence.model_copy(update={"scopes": MOTION_SCOPES})
+        if resolved_purpose is OperatorSessionPurpose.REAL_MOTION:
+            expanded_scopes = {OperatorSessionScope.REAL_JOINT_MOTION}
+            if issued_report.capabilities.real_cartesian_motion_ready:
+                expanded_scopes.add(OperatorSessionScope.REAL_CARTESIAN_MOTION)
+            if issued_report.capabilities.real_playback_ready:
+                expanded_scopes.add(OperatorSessionScope.REAL_PLAYBACK)
+            if issued_report.capabilities.real_vision_follow_ready:
+                expanded_scopes.add(OperatorSessionScope.REAL_VISION_FOLLOW)
+            evidence = evidence.model_copy(update={"scopes": frozenset(expanded_scopes)})
             # Re-evaluate the exact final immutable evidence before publishing it.
             self.authorization.evaluate(
                 RealHardwareGateInput(
@@ -337,6 +400,7 @@ def _context_digest(
         "startup_hardware_enabled": context.startup_hardware_enabled,
         "explicit_local_config": context.explicit_local_config,
         "robot_id": context.robot_id,
+        "robot_unit_id": context.robot_unit_id,
         "profile_fingerprint": profile.fingerprint if profile is not None else None,
         "profile_template": profile.template if profile is not None else None,
         "profile_verification": (
@@ -354,8 +418,25 @@ def _context_digest(
             else None
         ),
     }
-    if purpose is OperatorSessionPurpose.REAL_MOTION:
-        acceptance = context.field_acceptance_evidence
+    if purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
+        pre_motion = context.field_acceptance_bundle.newest_for(
+            FieldAcceptanceCapability.PRE_MOTION_CHECKS
+        )
+        payload.update(
+            {
+                "commissioning_motion_test_enabled": context.commissioning_motion_test_enabled,
+                "calibration_fingerprint": (
+                    calibration_fingerprint(calibration) if calibration is not None else None
+                ),
+                "pre_motion_evidence": (
+                    pre_motion.model_dump(mode="json") if pre_motion is not None else None
+                ),
+                "commissioning_safety_envelope": (
+                    context.commissioning_safety_envelope.model_dump(mode="json")
+                ),
+            }
+        )
+    elif purpose is OperatorSessionPurpose.REAL_MOTION:
         payload.update(
             {
                 "real_motion_enabled": context.real_motion_enabled,
@@ -370,8 +451,11 @@ def _context_digest(
                 ),
                 "expected_kinematics_fingerprint": context.expected_kinematics_fingerprint,
                 "field_acceptance_status": context.field_acceptance_status.value,
-                "field_acceptance_evidence": (
-                    acceptance.model_dump(mode="json") if acceptance is not None else None
+                "field_acceptance_bundle": context.field_acceptance_bundle.model_dump(mode="json"),
+                "kinematics_verification_evidence": (
+                    context.kinematics_verification_evidence.model_dump(mode="json")
+                    if context.kinematics_verification_evidence is not None
+                    else None
                 ),
                 "field_acceptance_checklist_version": (context.field_acceptance_checklist_version),
             }

@@ -19,14 +19,18 @@ export function VisionPage() {
     <div className="page vision-page">
       <PageIntro
         title="Vision"
-        description="Track an explicit Synthetic target and drive lease-bound Dry Run Follow."
+        description="Track an explicit target and drive lease-bound Follow through backend capability gates."
         detail="Frame identity, provider capability, target freshness, and the Motion Safety Gateway remain visible at every step."
       />
       <div className="vision-safety-strip" role="status">
         <span>{sourceMode}</span>
         <span>{workspace.capabilities?.camera_access_policy ?? 'POLICY PENDING'}</span>
         <span>{workspace.runtimePolicy === 'READ_ONLY' ? 'READ ONLY' : workspace.runtimeMode}</span>
-        <span>REAL FOLLOW BLOCKED</span>
+        <span>{workspace.runtimeMode === 'REAL'
+          ? workspace.realVisionCapability.allowed
+            ? 'REAL FOLLOW AUTHORIZED'
+            : `REAL FOLLOW BLOCKED · ${workspace.realVisionCapability.reason}`
+          : 'REAL FOLLOW BLOCKED'}</span>
       </div>
       <div className="vision-workspace">
         <VisionCanvas workspace={workspace} />

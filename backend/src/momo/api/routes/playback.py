@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, Request, status
 
-from momo.api.dependencies import authorize_real_playback_request, get_trajectory_service
+from momo.api.dependencies import (
+    OptionalOperatorToken,
+    authorize_real_playback_request,
+    get_trajectory_service,
+)
 from momo.api.security import authorize_control_request, authorize_priority_stop_request
 from momo.api.trajectory_presenters import preflight_response, preview_response
 from momo.api.trajectory_schemas import (
@@ -18,12 +22,47 @@ from momo.api.trajectory_schemas import (
     TrajectoryPreflightResponse,
     TrajectoryPreviewResponse,
 )
+from momo.application.services.device_diagnostics_service import DeviceDiagnosticsService
+from momo.application.services.operator_session_service import OperatorSessionTokenError
 from momo.application.services.trajectory_service import TrajectoryApplicationService
+from momo.domain.enums import ControlMode, MotionMode
 from momo.domain.playback import PlaybackStatus
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
 
 router = APIRouter(tags=["trajectory-playback"])
 TrajectoryService = Annotated[TrajectoryApplicationService, Depends(get_trajectory_service)]
 TrajectoryDigestPath = Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")]
+
+
+async def authorize_motion_playback_kind(
+    motion_id: UUID,
+    request: Request,
+    service: TrajectoryService,
+    token: OptionalOperatorToken = None,
+) -> None:
+    """Require Cartesian scope only when the stored Motion contains Cartesian legs."""
+
+    device = request.app.state.device_diagnostics_service
+    if not isinstance(device, DeviceDiagnosticsService):
+        raise TypeError("device diagnostics service is not configured")
+    if device.context.control_mode is not ControlMode.REAL:
+        return
+    if token is None:
+        raise OperatorSessionTokenError("A valid operator session token is required")
+    await device.authorize_operator_purpose(
+        token,
+        purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+    )
+    motion = await service.library.get_motion(motion_id)
+    if any(
+        keyframe.incoming_transition is not None
+        and keyframe.incoming_transition.motion_mode is MotionMode.CARTESIAN_LINEAR
+        for keyframe in motion.keyframes
+    ):
+        await device.authorize_operator_purpose(
+            token,
+            purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+        )
 
 
 @router.post("/motions/{motion_id}/preflight", response_model=TrajectoryPreflightResponse)
@@ -46,7 +85,7 @@ async def preflight_motion(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_playback_request),
+        Depends(authorize_motion_playback_kind),
     ],
 )
 async def play_motion(

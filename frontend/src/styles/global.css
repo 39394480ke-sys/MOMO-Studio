@@ -4989,6 +4989,16 @@ a {
   font-size: 11px;
 }
 
+.real-capability--detailed ul {
+  display: grid;
+  gap: 3px;
+  margin: 2px 0 0;
+  padding-left: 16px;
+  color: #6e5b43;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .real-evidence-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5450,6 +5460,392 @@ a {
   flex: 0 0 auto;
 }
 
+.commissioning-motion {
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
+  padding: 18px;
+  border: 2px solid #b43b31;
+  border-radius: 8px;
+  background: #fffafa;
+}
+
+.commissioning-motion__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 15px;
+  border-radius: 6px;
+  color: #fff;
+  background: #8f2f28;
+}
+
+.commissioning-motion__warning > svg {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+}
+
+.commissioning-motion__warning h3,
+.commissioning-motion__warning p {
+  margin: 0;
+}
+
+.commissioning-motion__warning .section-kicker {
+  color: #ffd9d5;
+}
+
+.commissioning-motion__warning > div {
+  display: grid;
+  gap: 5px;
+}
+
+.commissioning-progress {
+  padding: 14px;
+  border: 1px solid #d6c5c3;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.commissioning-progress h4 {
+  margin: 0 0 10px;
+}
+
+.commissioning-progress ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 1px;
+  background: #e2d7d5;
+  list-style-position: inside;
+}
+
+.commissioning-progress li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 10px;
+  background: #fff;
+  font-size: 11px;
+}
+
+.commissioning-motion__facts,
+.commissioning-joint__results,
+.commissioning-joint header dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: #e2d7d5;
+}
+
+.commissioning-motion__facts > div,
+.commissioning-joint__results > div,
+.commissioning-joint header dl > div {
+  padding: 9px;
+  background: #fff;
+}
+
+.commissioning-motion dt,
+.commissioning-joint dt {
+  margin-bottom: 3px;
+  color: #726865;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.commissioning-motion dd,
+.commissioning-joint dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.commissioning-motion__blocked,
+.commissioning-kinematics {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #ddbbb7;
+  border-radius: 5px;
+  color: #76332d;
+  background: #fff;
+}
+
+.commissioning-motion__blocked svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.commissioning-motion__blocked ul,
+.commissioning-kinematics ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+}
+
+.commissioning-acceptance-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.commissioning-acceptance-actions > div {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid #d6c5c3;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.commissioning-acceptance-actions p {
+  min-height: 33px;
+  margin: 0;
+  color: #655b58;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.commissioning-joints {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.commissioning-joint {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #d6c5c3;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.commissioning-joint > header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 14px;
+}
+
+.commissioning-joint > header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.commissioning-joint > p {
+  margin: 0;
+  color: #655b58;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.commissioning-joint__holds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.commissioning-hold {
+  min-height: 48px;
+  border-width: 2px;
+  touch-action: none;
+  user-select: none;
+}
+
+.commissioning-hold--active {
+  color: #fff;
+  border-color: #8f2f28;
+  background: #8f2f28;
+}
+
+.commissioning-stop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 2px solid #8f2f28;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.commissioning-stop .command-button {
+  min-height: 54px;
+  padding-inline: 22px;
+  font-size: 14px;
+}
+
+.commissioning-stop > div {
+  display: grid;
+  gap: 3px;
+  color: #76332d;
+  font-size: 11px;
+}
+
+.commissioning-kinematics {
+  display: grid;
+}
+
+.commissioning-kinematics p {
+  margin: 4px 0 0;
+  font-size: 11px;
+}
+
+.kinematics-verification {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #b6c9d1;
+  border-radius: 7px;
+  color: #294657;
+  background: #f7fbfc;
+}
+
+.kinematics-verification > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.kinematics-verification > header > svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  color: #176c88;
+}
+
+.kinematics-verification h4,
+.kinematics-verification header p {
+  margin: 0;
+}
+
+.kinematics-verification header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.kinematics-verification header p:last-child {
+  color: #586b76;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.kinematics-verification__status {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: #cad9df;
+}
+
+.kinematics-verification__status > div {
+  min-width: 0;
+  padding: 9px;
+  background: #fff;
+}
+
+.kinematics-verification__status dt {
+  margin-bottom: 3px;
+  color: #687b85;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.kinematics-verification__status dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.kinematics-verification__start,
+.kinematics-measurement {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #cad9df;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.kinematics-verification__start {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
+.kinematics-verification__start label,
+.kinematics-measurement label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #596d78;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.kinematics-verification__start input,
+.kinematics-measurement input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid #b7c4ca;
+  border-radius: 4px;
+  color: #253d49;
+  background: #fff;
+}
+
+.kinematics-verification__draft-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 10px 12px;
+  border: 1px solid #cad9df;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 11px;
+}
+
+.kinematics-measurement__snapshot,
+.kinematics-measurement__wide,
+.kinematics-measurement__note {
+  grid-column: 1 / -1;
+}
+
+.kinematics-measurement__snapshot {
+  padding: 10px;
+  border-radius: 4px;
+  background: #f3f7f9;
+  font-size: 11px;
+}
+
+.kinematics-measurement__snapshot ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kinematics-measurement__snapshot p,
+.kinematics-measurement__note {
+  margin: 5px 0 0;
+  color: #657983;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 @media (max-width: 840px) {
   .lan-security__form {
     grid-template-columns: minmax(0, 1fr);
@@ -5465,6 +5861,22 @@ a {
 
   .real-capabilities {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .commissioning-progress ol,
+  .commissioning-joints,
+  .commissioning-acceptance-actions,
+  .kinematics-verification__status,
+  .kinematics-measurement {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .kinematics-verification__start {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kinematics-verification__start .command-button {
+    grid-column: 1 / -1;
   }
 
   .real-session-bar {
@@ -5486,6 +5898,17 @@ a {
   .real-dialog__actions,
   .real-dialog__actions .command-button {
     width: 100%;
+  }
+
+  .commissioning-stop,
+  .commissioning-joint > header {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+    flex-direction: column;
+  }
+
+  .kinematics-verification__start {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .real-dialog-backdrop {

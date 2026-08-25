@@ -108,7 +108,13 @@ jobs:
             backend/tests/test_stage8_field_acceptance.py \
             backend/tests/test_stage8_hardware_authorization.py \
             backend/tests/test_stage8_hardware_device_api.py \
-            backend/tests/test_stage8_hardware_servo_bus.py
+            backend/tests/test_stage8_hardware_servo_bus.py \
+            backend/tests/test_commissioning_motion_test_service.py \
+            backend/tests/test_commissioning_ports_and_fake.py \
+            backend/tests/test_fake_commissioning_e2e.py \
+            backend/tests/test_field_acceptance_service_staged.py \
+            backend/tests/test_final_commissioning_hardening.py \
+            backend/tests/test_kinematics_verification_service.py
 
       - name: Deterministic JSON Schemas
         run: |

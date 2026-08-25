@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from momo.adapters.storage.file_entity_repository import AtomicJsonEntityRepository
-from momo.domain.real_hardware import FieldAcceptanceEvidence
+from momo.domain.commissioning import FieldAcceptanceEvidence
 from momo.ports.clock import Clock
 
 

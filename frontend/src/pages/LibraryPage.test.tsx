@@ -15,10 +15,15 @@ import type {
   TrajectoryPreview,
 } from '../api/types';
 import {
+  RealSessionContext,
+  type RealSessionContextValue,
+} from '../components/realSessionContext';
+import {
   RuntimeStatusContext,
   SAFE_RUNTIME_STATUS,
   type RuntimeStatus,
 } from '../components/runtimeStatusContext';
+import { realSessionFixture } from '../test/realSessionFixtures';
 import { robotFor, stage3Ids, v2Profile } from '../test/stage3Fixtures';
 import { LibraryPage } from './LibraryPage';
 
@@ -437,11 +442,16 @@ function mockLibraryBackend(options: BackendOptions = {}) {
   };
 }
 
-function renderLibrary(status: RuntimeStatus = runtime()) {
+function renderLibrary(
+  status: RuntimeStatus = runtime(),
+  realSession: RealSessionContextValue = realSessionFixture(),
+) {
   return render(
     <MemoryRouter initialEntries={['/library']}>
       <RuntimeStatusContext.Provider value={status}>
-        <LibraryPage />
+        <RealSessionContext.Provider value={realSession}>
+          <LibraryPage />
+        </RealSessionContext.Provider>
       </RuntimeStatusContext.Provider>
     </MemoryRouter>,
   );
@@ -456,11 +466,25 @@ describe('Stage 5 Library', () => {
   it('blocks Goto and Playback in Commissioning READ ONLY without reusing Dry Run routes', async () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend();
-    renderLibrary(runtime({
-      controlMode: 'REAL',
-      hardwareAccessPolicy: 'READ_ONLY',
-      realMotionEnabled: false,
-    }));
+    renderLibrary(
+      runtime({
+        controlMode: 'REAL',
+        hardwareAccessPolicy: 'READ_ONLY',
+        realMotionEnabled: false,
+      }),
+      realSessionFixture({
+        capabilities: {
+          real_joint_motion: {
+            blocked_reasons: [
+              'Commissioning READ ONLY permits diagnostics and calibration only',
+            ],
+          },
+          real_playback: {
+            blocked_reasons: ['Commissioning READ ONLY permits no playback'],
+          },
+        },
+      }),
+    );
 
     expect((await screen.findAllByText(/Commissioning READ ONLY permits diagnostics and calibration only/)).length)
       .toBeGreaterThan(0);
@@ -476,6 +500,43 @@ describe('Stage 5 Library', () => {
         (request) => request.path.endsWith('/play') && request.method === 'POST',
       ),
     ).toHaveLength(0);
+  });
+
+  it('uses the global Real Joint capability for Goto with honest Real copy', async () => {
+    const user = userEvent.setup();
+    const backend = mockLibraryBackend();
+    renderLibrary(
+      runtime({
+        controlMode: 'REAL',
+        hardwareAccessPolicy: 'FULL',
+        realMotionEnabled: true,
+      }),
+      realSessionFixture({
+        session: {
+          active: true,
+          session_id: '33333333-3333-4333-8333-333333333333',
+          expires_at: '2099-08-25T00:00:00Z',
+          purpose: 'REAL_MOTION',
+          scopes: ['REAL_JOINT_MOTION'],
+        },
+        capabilities: {
+          real_joint_motion: {
+            ready: true,
+            authorized: true,
+            blocked_reasons: [],
+          },
+        },
+      }),
+    );
+
+    const goto = (await screen.findAllByRole('button', { name: 'Goto' }))[0];
+    expect(goto).toBeEnabled();
+    await user.click(goto!);
+    expect(screen.getByText(/backend-authorized Real Joint Motion gateway/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Confirm Real Goto' }));
+    await waitFor(() => expect(
+      backend.requestsMatching('/goto').filter((request) => request.method === 'POST'),
+    ).toHaveLength(1));
   });
 
   it('renders Pose summaries, loads explicit detail, and uses UUID-only Studio links', async () => {

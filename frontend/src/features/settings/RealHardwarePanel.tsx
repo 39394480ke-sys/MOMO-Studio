@@ -1,28 +1,26 @@
 import { CircleAlert, Gauge, Link2, Link2Off, RefreshCw, Shield, Square } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
   connectRealDevice,
-  createOperatorSession,
   disconnectRealDevice,
-  getDeviceReadiness,
   getFieldAcceptanceStatus,
-  revokeOperatorSession,
   runDeviceDiagnostics,
   stopRealDevice,
 } from '../../api/client';
 import type {
   DeviceDiagnostics,
-  DeviceReadiness,
   DeviceStopResponse,
   FieldAcceptanceStatusResponse,
   OperatorSessionPurpose,
 } from '../../api/types';
+import { useRealSession } from '../../components/realSessionContext';
 import { CalibrationWizard } from './CalibrationWizard';
+import { CommissioningMotionPanel } from './CommissioningMotionPanel';
 import { OperatorSessionDialog } from './OperatorSessionDialog';
 
-type PendingAction = 'authorize' | 'connect' | 'diagnostics' | 'disconnect' | 'revoke' | 'stop';
+type PendingAction = 'connect' | 'diagnostics' | 'disconnect' | 'stop';
 type CalibrationUiState = 'NOT_CONFIGURED' | 'DRAFT' | 'CONFIGURED';
 
 const HARDWARE_DISABLED_STATES = new Set([
@@ -40,6 +38,12 @@ function maskedList(values: string[]): string {
   return values.length > 0 ? values.join(', ') : 'Not configured';
 }
 
+function purposeLabel(purpose: OperatorSessionPurpose): string {
+  if (purpose === 'COMMISSIONING_READ_ONLY') return 'READ ONLY';
+  if (purpose === 'COMMISSIONING_MOTION_TEST') return 'COMMISSIONING MOTION TEST';
+  return 'REAL MOTION';
+}
+
 function EvidenceStatus({ label, value }: { label: string; value: DeviceDiagnostics['profile'] }) {
   return (
     <div>
@@ -54,62 +58,38 @@ function EvidenceStatus({ label, value }: { label: string; value: DeviceDiagnost
 }
 
 export function RealHardwarePanel() {
-  const [readiness, setReadiness] = useState<DeviceReadiness | null>(null);
+  const {
+    summary,
+    pendingAction: sessionPending,
+    authorize: authorizeSession,
+    revoke: revokeSession,
+    refresh: refreshSession,
+  } = useRealSession();
+  const readiness = summary.readiness;
+  const session = summary.session;
   const [fieldAcceptance, setFieldAcceptance] = useState<FieldAcceptanceStatusResponse | null>(null);
   const [diagnostics, setDiagnostics] = useState<DeviceDiagnostics | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
-  const [sessionPurpose, setSessionPurpose] = useState<OperatorSessionPurpose | null>(null);
   const [calibrationUiState, setCalibrationUiState] = useState<CalibrationUiState>('NOT_CONFIGURED');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedPurpose, setSelectedPurpose] = useState<OperatorSessionPurpose | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [stopResult, setStopResult] = useState<DeviceStopResponse | null>(null);
-  const ownedSessionRef = useRef<{
-    sessionId: string;
-    purpose: OperatorSessionPurpose;
-    scopesKey: string;
-  } | null>(null);
-
-  const clearOwnedSession = useCallback(() => {
-    ownedSessionRef.current = null;
-    setSessionToken(null);
-    setSessionExpiresAt(null);
-    setSessionPurpose(null);
-    setDiagnostics(null);
-  }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    const [readinessResult, acceptanceResult] = await Promise.allSettled([
-      getDeviceReadiness(signal),
+    const [, acceptanceResult] = await Promise.allSettled([
+      refreshSession(),
       getFieldAcceptanceStatus(signal),
     ]);
-    if (signal?.aborted) return null;
-    if (readinessResult.status === 'rejected') {
-      clearOwnedSession();
-      setError(messageFor(readinessResult.reason));
-      return null;
-    }
-    const next = readinessResult.value;
-    setReadiness(next);
-    const owned = ownedSessionRef.current;
-    if (owned && (
-      !next.session?.active ||
-      next.session.session_id !== owned.sessionId ||
-      next.session.purpose !== owned.purpose ||
-      [...next.session.scopes].sort().join('|') !== owned.scopesKey
-    )) {
-      clearOwnedSession();
-    }
+    if (signal?.aborted) return;
     if (acceptanceResult.status === 'fulfilled') {
       setFieldAcceptance(acceptanceResult.value);
       setError(null);
     } else {
       setError(messageFor(acceptanceResult.reason));
     }
-    return next;
-  }, [clearOwnedSession]);
+  }, [refreshSession]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -121,94 +101,60 @@ export function RealHardwarePanel() {
     };
   }, [refresh]);
 
-  useEffect(() => {
-    if (!sessionExpiresAt) return;
-    let timeout: number | undefined;
-    const expireSession = () => {
-      clearOwnedSession();
-      void refresh().finally(() => {
-        setError('Operator Session expired. Authorize again before any device access.');
-      });
-    };
-    const scheduleExpiryCheck = () => {
-      const remaining = Date.parse(sessionExpiresAt) - Date.now();
-      if (remaining <= 0) {
-        expireSession();
-        return;
-      }
-      // Browsers clamp timers to a signed 32-bit delay. Re-check long-lived test
-      // fixtures without letting an overflow expire a valid in-memory token.
-      timeout = window.setTimeout(scheduleExpiryCheck, Math.min(remaining, 2_147_000_000));
-    };
-    scheduleExpiryCheck();
-    return () => {
-      if (timeout !== undefined) window.clearTimeout(timeout);
-    };
-  }, [clearOwnedSession, refresh, sessionExpiresAt]);
-
   const sessionLabel = useMemo(() => {
-    if (!sessionExpiresAt) return null;
-    const expiry = new Date(sessionExpiresAt);
-    return Number.isNaN(expiry.valueOf()) ? sessionExpiresAt : expiry.toLocaleTimeString();
-  }, [sessionExpiresAt]);
+    if (!session) return null;
+    const expiry = new Date(session.expires_at);
+    return Number.isNaN(expiry.valueOf()) ? session.expires_at : expiry.toLocaleTimeString();
+  }, [session]);
 
-  const runWithToken = useCallback(async (
-    action: Exclude<PendingAction, 'authorize' | 'stop'>,
-    request: (token: string) => Promise<DeviceDiagnostics | void>,
+  const runProtected = useCallback(async (
+    action: Exclude<PendingAction, 'stop'>,
+    request: () => Promise<DeviceDiagnostics>,
   ) => {
-    if (!sessionToken) {
-      setError('A current in-memory Operator Session token is required.');
-      return;
-    }
     setPending(action);
     setError(null);
     try {
-      const result = await request(sessionToken);
-      if (result) setDiagnostics(result);
+      setDiagnostics(await request());
       await refresh();
-      if (action === 'revoke' || action === 'disconnect') {
-        clearOwnedSession();
-      }
     } catch (requestError) {
-      const message = messageFor(requestError);
-      setError(message);
-      if (requestError instanceof ApiError && requestError.status === 401) {
-        clearOwnedSession();
-      }
+      setError(messageFor(requestError));
       await refresh();
     } finally {
       setPending(null);
     }
-  }, [clearOwnedSession, refresh, sessionToken]);
+  }, [refresh]);
 
-  const authorize = async (confirmationText: string, physicalEstopConfirmed: boolean) => {
-    const purpose = readiness?.confirmation.session_purpose;
-    if (!purpose) {
+  const authorize = async (
+    confirmationText: string,
+    physicalEstopConfirmed: boolean,
+    workspaceClearConfirmed: boolean,
+  ) => {
+    if (!selectedPurpose) {
       setDialogError('The backend did not provide a purpose-specific authorization request.');
       return;
     }
-    setPending('authorize');
     setDialogError(null);
     try {
-      const session = await createOperatorSession(
-        purpose,
+      await authorizeSession(
+        selectedPurpose,
         confirmationText,
         physicalEstopConfirmed,
+        workspaceClearConfirmed,
       );
-      ownedSessionRef.current = {
-        sessionId: session.session_id,
-        purpose: session.purpose,
-        scopesKey: [...session.scopes].sort().join('|'),
-      };
-      setSessionToken(session.session_token);
-      setSessionExpiresAt(session.expires_at);
-      setSessionPurpose(session.purpose);
       setDialogOpen(false);
-      await refresh();
+      setSelectedPurpose(null);
     } catch (requestError) {
       setDialogError(messageFor(requestError));
-    } finally {
-      setPending(null);
+    }
+  };
+
+  const endSession = async () => {
+    setError(null);
+    try {
+      await revokeSession();
+      setDiagnostics(null);
+    } catch (requestError) {
+      setError(messageFor(requestError));
     }
   };
 
@@ -227,22 +173,25 @@ export function RealHardwarePanel() {
   };
 
   const blockedReasons = readiness?.blocking_reasons ?? ['Readiness has not been loaded.'];
-  const hasOwnedSession = Boolean(sessionToken && sessionExpiresAt);
-  const commissioningSession = hasOwnedSession && sessionPurpose === 'COMMISSIONING_READ_ONLY';
-  const motionSession = hasOwnedSession && sessionPurpose === 'REAL_MOTION';
-  const commissioningAvailable = Boolean(
-    readiness?.capabilities.commissioning_diagnostics_ready &&
-    readiness.capabilities.calibration_capture_ready,
-  );
-  const motionPrerequisitesAvailable = Boolean(
-    readiness?.motion_session_authorizable || readiness?.capabilities.real_joint_motion_ready,
-  );
+  const hasSession = session !== null;
+  const commissioningSession = session?.purpose === 'COMMISSIONING_READ_ONLY' &&
+    summary.capabilityDetails.commissioning_read_only.authorized;
+  const motionSession = session?.purpose === 'REAL_MOTION';
+  const commissioningAvailable = summary.capabilityDetails.commissioning_read_only.ready ||
+    readiness?.commissioning_session_authorizable === true;
+  const commissioningMotionAvailable =
+    summary.capabilityDetails.commissioning_motion_test.ready ||
+    readiness?.commissioning_motion_session_authorizable === true;
+  const motionPrerequisitesAvailable = summary.capabilityDetails.real_joint_motion.ready ||
+    readiness?.motion_session_authorizable === true;
   const accessMode = !readiness || HARDWARE_DISABLED_STATES.has(readiness.state)
     ? 'DISABLED'
-    : readiness.confirmation.session_purpose === 'COMMISSIONING_READ_ONLY'
+    : commissioningAvailable || commissioningMotionAvailable ||
+        session?.purpose.startsWith('COMMISSIONING')
       ? 'COMMISSIONING'
       : 'REAL_MOTION';
-  const commissioningControlsDisabled = !commissioningSession || pending !== null;
+  const busy = pending !== null || sessionPending !== null;
+  const commissioningControlsDisabled = !commissioningSession || busy;
   const calibrationConfigured =
     calibrationUiState === 'CONFIGURED' || readiness?.calibration_configured === true;
   const calibrationLabel = calibrationUiState === 'DRAFT'
@@ -252,18 +201,26 @@ export function RealHardwarePanel() {
         ? 'Calibration configured'
         : 'Calibration configured · Field acceptance pending'
       : 'Not configured';
-  const fieldAcceptanceLabel = fieldAcceptance?.state === 'STALE'
+  const fieldAcceptanceStale = fieldAcceptance?.state === 'STALE' ||
+    fieldAcceptance?.state === 'STALE_LEGACY_EVIDENCE';
+  const fieldAcceptanceLabel = fieldAcceptanceStale
     ? 'STALE · PENDING'
     : fieldAcceptance?.effective_status ?? diagnostics?.field_acceptance ?? 'PENDING';
   const headerLabel = accessMode === 'COMMISSIONING'
-    ? commissioningAvailable
-      ? 'Commissioning available · READ ONLY'
+    ? commissioningMotionAvailable
+      ? 'Commissioning motion test available · SINGLE JOINT'
+      : commissioningAvailable
+        ? 'Commissioning available · READ ONLY'
       : 'Commissioning blocked · READ ONLY'
     : accessMode === 'REAL_MOTION'
       ? readiness?.ready
         ? 'Real Motion authorized'
         : 'Real Motion blocked'
       : 'Hardware access disabled';
+  const selectedAuthorization = summary.authorizationOptions.find(
+    (option) => option.purpose === selectedPurpose,
+  ) ?? null;
+  const displayError = error ?? summary.error;
 
   return (
     <section className="settings-section real-hardware" aria-labelledby="real-hardware-title">
@@ -279,23 +236,28 @@ export function RealHardwarePanel() {
 
       <p className="real-hardware__intro">
         Nothing on this page scans, homes, calibrates, or moves a robot automatically.
-        Device access requires every backend gate and a short-lived, memory-only Operator Session.
+        Device access requires every backend gate and a short-lived, HttpOnly cookie-backed Operator Session.
       </p>
 
       {accessMode === 'COMMISSIONING' && (
         <div className="commissioning-banner" role="status">
           <div>
             <strong>Commissioning mode</strong>
-            <span className="commissioning-badge">READ ONLY</span>
+            <span className="commissioning-badge">
+              {commissioningMotionAvailable ? 'STAGED' : 'READ ONLY'}
+            </span>
           </div>
-          <p>No motion commands are permitted. 仅允许明确设备的诊断读取与标定采集。</p>
+          <p>
+            Read-only diagnostics remain isolated. Motion Test requires its own session and
+            permits only one backend-bounded joint command while held.
+          </p>
         </div>
       )}
 
-      {error && (
+      {displayError && (
         <div className="settings-notice settings-notice--error" role="alert">
           <CircleAlert aria-hidden="true" />
-          <span>{error}</span>
+          <span>{displayError}</span>
         </div>
       )}
 
@@ -342,7 +304,7 @@ export function RealHardwarePanel() {
         </div>
       </div>
 
-      {fieldAcceptance?.state === 'STALE' && (
+      {fieldAcceptanceStale && (
         <div className="readiness-block real-blockers" role="status">
           <CircleAlert aria-hidden="true" />
           <div>
@@ -367,23 +329,39 @@ export function RealHardwarePanel() {
       {readiness && (
         <div className="real-capabilities" aria-label="Real capability readiness">
           {([
-            ['Commissioning diagnostics', readiness.capabilities.commissioning_diagnostics_ready],
-            ['Calibration capture', readiness.capabilities.calibration_capture_ready],
-            ['Joint motion', readiness.capabilities.real_joint_motion_ready],
-            ['Cartesian motion', readiness.capabilities.real_cartesian_motion_ready],
-            ['Playback', readiness.capabilities.real_playback_ready],
-            ['Vision Follow', readiness.capabilities.real_vision_follow_ready],
-          ] as const).map(([label, ready]) => (
-            <div className="real-capability" key={label}>
+            ['Commissioning read-only', 'commissioning_read_only'],
+            ['Commissioning motion test', 'commissioning_motion_test'],
+            ['Joint motion', 'real_joint_motion'],
+            ['Cartesian motion', 'real_cartesian_motion'],
+            ['Playback', 'real_playback'],
+            ['Vision Follow', 'real_vision_follow'],
+          ] as const).map(([label, key]) => {
+            const detail = summary.capabilityDetails[key];
+            return (
+            <div className="real-capability real-capability--detailed" key={label}>
               <span>{label}</span>
-              <strong>{ready ? 'READY' : 'BLOCKED'}</strong>
+              <strong>{detail.ready && detail.authorized
+                ? 'AUTHORIZED'
+                : detail.ready
+                  ? 'SESSION REQUIRED'
+                  : 'BLOCKED'}</strong>
+              {(detail.blocked_reasons.length > 0 || detail.required_evidence.length > 0) && (
+                <ul>
+                  {detail.blocked_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                  {detail.required_evidence.map((evidence) => (
+                    <li key={`evidence-${evidence}`}>Required evidence: {evidence}</li>
+                  ))}
+                </ul>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {readiness && (
         <dl className="real-evidence-grid real-evidence-grid--panel">
+          <div><dt>Robot unit ID</dt><dd><code>{readiness.confirmation.robot_unit_id ?? 'Not configured'}</code></dd></div>
           <div><dt>Variant</dt><dd>{readiness.confirmation.variant ?? 'Not configured'}</dd></div>
           <div><dt>Serial</dt><dd><code>{readiness.confirmation.masked_serial_port ?? 'Not configured'}</code></dd></div>
           <div><dt>Servo IDs</dt><dd>{maskedList(readiness.confirmation.masked_servo_ids)}</dd></div>
@@ -396,26 +374,37 @@ export function RealHardwarePanel() {
       <div className="real-session-bar">
         <div>
           <span>Operator Session</span>
-          <strong>{hasOwnedSession
-            ? `${sessionPurpose === 'COMMISSIONING_READ_ONLY' ? 'READ ONLY' : 'REAL MOTION'} · Expires at ${sessionLabel}`
-            : 'No token held by this page'}</strong>
-          <small>Tokens are never persisted or remembered.</small>
+          <strong>{session
+            ? `${purposeLabel(session.purpose)} · Expires at ${sessionLabel}`
+            : 'No active cookie-backed session'}</strong>
+          <small>The HttpOnly authorization cookie is never exposed to JavaScript.</small>
         </div>
         <div className="real-actions">
-          <button
-            className="command-button command-button--primary"
-            disabled={!readiness?.session_authorizable || pending !== null || hasOwnedSession}
-            onClick={() => { setDialogError(null); setDialogOpen(true); }}
-            type="button"
-          >
-            {readiness?.confirmation.session_purpose === 'COMMISSIONING_READ_ONLY'
-              ? 'Authorize READ ONLY'
-              : 'Authorize Real Motion'}
-          </button>
+          {summary.authorizationOptions.map((option) => (
+            <button
+              className={option.purpose === 'COMMISSIONING_MOTION_TEST'
+                ? 'command-button command-button--danger-solid'
+                : 'command-button command-button--primary'}
+              disabled={!option.authorizable || busy || hasSession}
+              key={option.purpose}
+              onClick={() => {
+                setDialogError(null);
+                setSelectedPurpose(option.purpose);
+                setDialogOpen(true);
+              }}
+              type="button"
+            >
+              {option.purpose === 'COMMISSIONING_READ_ONLY'
+                ? 'Authorize READ ONLY'
+                : option.purpose === 'COMMISSIONING_MOTION_TEST'
+                  ? 'Authorize Motion Test'
+                  : 'Authorize Real Motion'}
+            </button>
+          ))}
           <button
             className="command-button"
-            disabled={!hasOwnedSession || pending !== null}
-            onClick={() => void runWithToken('revoke', revokeOperatorSession)}
+            disabled={!hasSession || busy}
+            onClick={() => void endSession()}
             type="button"
           >
             End session
@@ -423,17 +412,11 @@ export function RealHardwarePanel() {
         </div>
       </div>
 
-      {readiness?.session?.active && !hasOwnedSession && (
-        <p className="real-session-warning" role="status">
-          A backend session is active, but its token is not held by this page. No device controls are available here.
-        </p>
-      )}
-
       <div className="real-actions real-actions--device">
         <button
           className="command-button"
           disabled={commissioningControlsDisabled || readiness?.connected === true}
-          onClick={() => void runWithToken('connect', connectRealDevice)}
+          onClick={() => void runProtected('connect', connectRealDevice)}
           type="button"
         >
           <Link2 aria-hidden="true" /> Connect Read-Only
@@ -441,7 +424,7 @@ export function RealHardwarePanel() {
         <button
           className="command-button"
           disabled={commissioningControlsDisabled || readiness?.connected !== true}
-          onClick={() => void runWithToken('diagnostics', runDeviceDiagnostics)}
+          onClick={() => void runProtected('diagnostics', runDeviceDiagnostics)}
           type="button"
         >
           <RefreshCw aria-hidden="true" /> Diagnostics
@@ -449,14 +432,14 @@ export function RealHardwarePanel() {
         <button
           className="command-button"
           disabled={commissioningControlsDisabled || readiness?.connected !== true}
-          onClick={() => void runWithToken('disconnect', disconnectRealDevice)}
+          onClick={() => void runProtected('disconnect', disconnectRealDevice)}
           type="button"
         >
           <Link2Off aria-hidden="true" /> Disconnect
         </button>
         <button
           className="command-button command-button--stop"
-          disabled={!motionSession || pending !== null}
+          disabled={!motionSession || busy}
           onClick={() => void stop()}
           type="button"
         >
@@ -513,26 +496,35 @@ export function RealHardwarePanel() {
         </div>
       )}
 
-      {commissioningSession && sessionToken && readiness?.capabilities.calibration_capture_ready && (
+      {commissioningSession && summary.capabilityDetails.commissioning_read_only.ready && (
         <CalibrationWizard
           connected={readiness?.connected === true}
           initiallyConfigured={calibrationConfigured}
           onStatusChange={setCalibrationUiState}
           onSessionInvalidated={() => {
-            clearOwnedSession();
             void refresh();
           }}
-          operatorToken={sessionToken}
         />
       )}
 
-      {dialogOpen && readiness && (
+      <CommissioningMotionPanel diagnostics={diagnostics} />
+
+      {dialogOpen && selectedAuthorization && (
         <OperatorSessionDialog
           error={dialogError}
-          evidence={readiness.confirmation}
-          onCancel={() => { if (pending !== 'authorize') setDialogOpen(false); }}
-          onConfirm={(text, estop) => void authorize(text, estop)}
-          pending={pending === 'authorize'}
+          evidence={selectedAuthorization.confirmation}
+          onCancel={() => {
+            if (sessionPending !== 'authorize') {
+              setDialogOpen(false);
+              setSelectedPurpose(null);
+            }
+          }}
+          onConfirm={(text, estop, workspaceClear) => void authorize(
+            text,
+            estop,
+            workspaceClear,
+          )}
+          pending={sessionPending === 'authorize'}
         />
       )}
     </section>

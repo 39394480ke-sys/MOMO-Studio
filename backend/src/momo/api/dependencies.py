@@ -1,8 +1,11 @@
 """FastAPI dependencies sourced from app state, not process globals."""
 
+from __future__ import annotations
+
+import secrets
 from typing import Annotated, cast
 
-from fastapi import Header, Request
+from fastapi import Depends, Header, Request
 
 from momo.application.services.device_diagnostics_service import DeviceDiagnosticsService
 from momo.application.services.jog_service import JogLeaseService
@@ -55,9 +58,47 @@ def get_vision_service(request: Request) -> VisionApplicationService:
     return cast(VisionApplicationService, request.app.state.vision_service)
 
 
+OPERATOR_SESSION_COOKIE = "momo_operator_session"
+
+
+def get_optional_operator_session_token(
+    request: Request,
+    header_token: Annotated[
+        str | None,
+        Header(alias="X-MOMO-Operator-Session", min_length=20, max_length=200),
+    ] = None,
+) -> str | None:
+    """Resolve an ephemeral operator session from HttpOnly cookie or legacy header.
+
+    The header remains a bounded compatibility path for non-browser/local tooling.
+    Supplying two different credentials is rejected instead of choosing one.
+    """
+
+    cookie_token = request.cookies.get(OPERATOR_SESSION_COOKIE)
+    if cookie_token is not None and not 20 <= len(cookie_token) <= 200:
+        raise OperatorSessionTokenError("The operator session cookie is malformed")
+    if (
+        cookie_token is not None
+        and header_token is not None
+        and not secrets.compare_digest(cookie_token, header_token)
+    ):
+        raise OperatorSessionTokenError("Conflicting operator session credentials were supplied")
+    token = cookie_token or header_token
+    return token
+
+
+def get_operator_session_token(
+    token: Annotated[str | None, Depends(get_optional_operator_session_token)],
+) -> str:
+    if token is None:
+        raise OperatorSessionTokenError("A valid operator session token is required")
+    return token
+
+
+OperatorToken = Annotated[str, Depends(get_operator_session_token)]
 OptionalOperatorToken = Annotated[
     str | None,
-    Header(alias="X-MOMO-Operator-Session"),
+    Depends(get_optional_operator_session_token),
 ]
 
 

@@ -112,14 +112,27 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
         "/api/v1/device/calibration/sessions/{session_id}/confirm": frozenset({"post"}),
         "/api/v1/device/calibration/sessions/{session_id}/preview": frozenset({"post"}),
         "/api/v1/device/calibration/sessions/{session_id}/read": frozenset({"post"}),
+        "/api/v1/device/commissioning/joints/{joint_id}/arm": frozenset({"post"}),
+        "/api/v1/device/commissioning/joints/{joint_id}/tests/start": frozenset({"post"}),
+        "/api/v1/device/commissioning/session": frozenset({"post"}),
+        "/api/v1/device/commissioning/status": frozenset({"get"}),
+        "/api/v1/device/commissioning/tests/heartbeat": frozenset({"post"}),
+        "/api/v1/device/commissioning/tests/stop": frozenset({"post"}),
         "/api/v1/device/diagnostics": frozenset({"post"}),
         "/api/v1/device/disconnect": frozenset({"post"}),
         "/api/v1/device/field-acceptance": frozenset({"get", "post"}),
+        "/api/v1/device/field-acceptance/joint-motion": frozenset({"post"}),
+        "/api/v1/device/field-acceptance/pre-motion-checks": frozenset({"post"}),
+        "/api/v1/device/field-acceptance/progress": frozenset({"get"}),
         "/api/v1/device/operator-session": frozenset({"post", "delete"}),
         "/api/v1/device/readiness": frozenset({"get"}),
         "/api/v1/device/stop": frozenset({"post"}),
         "/api/v1/health": frozenset({"get"}),
         "/api/v1/kinematics/ik": frozenset({"post"}),
+        "/api/v1/kinematics-verification": frozenset({"get"}),
+        "/api/v1/kinematics-verification/draft": frozenset({"post"}),
+        "/api/v1/kinematics-verification/draft/{draft_id}/commit": frozenset({"post"}),
+        "/api/v1/kinematics-verification/draft/{draft_id}/measurement": frozenset({"post"}),
         "/api/v1/meta": frozenset({"get"}),
         "/api/v1/meta/product-scope": frozenset({"get"}),
         "/api/v1/motion/cartesian-jog": frozenset({"post"}),
@@ -180,6 +193,7 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
         "/api/v1/vision/stream": frozenset({"get"}),
         "/api/v1/vision/tracking/reset": frozenset({"post"}),
     }
+    assert app.openapi()["paths"]["/api/v1/device/field-acceptance"]["post"]["deprecated"] is True
 
     route_tree = list(iter_route_tree(app.routes))
     websocket_routes = [route for route in route_tree if isinstance(route, WebSocketRoute)]

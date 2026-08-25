@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
+from uuid import UUID
 
+from momo.domain.commissioning import PreparedCommissioningTestCommand
 from momo.domain.real_hardware import (
     HardwareDependencyStatus,
     RealHardwareAccessGrant,
@@ -12,6 +16,125 @@ from momo.domain.real_hardware import (
     ServoPingResult,
     ServoWriteResult,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class CommissioningPositionReadback:
+    """One timestamped raw position captured from one explicit servo ID."""
+
+    servo_id: int
+    raw_position: int
+    captured_at: datetime
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.servo_id, bool)
+            or not isinstance(self.servo_id, int)
+            or not 1 <= self.servo_id <= 253
+        ):
+            raise ValueError("servo_id must be an integer from 1 through 253")
+        if isinstance(self.raw_position, bool) or not isinstance(self.raw_position, int):
+            raise TypeError("raw_position must be an integer")
+        if self.captured_at.tzinfo is None or self.captured_at.utcoffset() is None:
+            raise ValueError("captured_at must include a timezone offset")
+
+
+@runtime_checkable
+class CommissioningMotionServoBus(Protocol):
+    """Capability-minimal boundary for an authorized one-joint test.
+
+    Deliberately absent: device discovery/opening, scans, multi-servo writes,
+    arbitrary registers, operating-mode writes, torque writes, Home, Cartesian
+    motion, playback, and every production-motion primitive.  The application
+    service prepares the immutable command before it can reach this boundary.
+    """
+
+    async def read_present_position(
+        self,
+        servo_id: int,
+    ) -> CommissioningPositionReadback: ...
+
+    async def write_prepared_command(
+        self,
+        command: PreparedCommissioningTestCommand,
+    ) -> ServoWriteResult: ...
+
+    async def stop_or_hold(self, servo_id: int) -> RealStopOutcome: ...
+
+    async def reset_for_session(self, session_id: UUID) -> None: ...
+
+    async def close(self) -> None: ...
+
+
+class CommissioningMotionServoBusFacade:
+    """Private capability-narrowing facade with an immutable ID allowlist."""
+
+    __slots__ = ("__allowed_servo_ids", "__bus")
+
+    def __init__(
+        self,
+        bus: CommissioningMotionServoBus,
+        *,
+        allowed_servo_ids: tuple[int, ...],
+    ) -> None:
+        if not allowed_servo_ids:
+            raise ValueError("at least one explicitly allowed servo ID is required")
+        if len(allowed_servo_ids) != len(set(allowed_servo_ids)):
+            raise ValueError("allowed servo IDs must be unique")
+        for servo_id in allowed_servo_ids:
+            self._validate_servo_id(servo_id)
+        self.__bus = bus
+        self.__allowed_servo_ids = frozenset(allowed_servo_ids)
+
+    async def read_present_position(self, servo_id: int) -> CommissioningPositionReadback:
+        self._require_allowed(servo_id)
+        readback = await self.__bus.read_present_position(servo_id)
+        if not isinstance(readback, CommissioningPositionReadback):
+            raise TypeError("commissioning adapter returned an invalid position readback")
+        if readback.servo_id != servo_id:
+            raise RuntimeError("commissioning adapter returned a different servo ID")
+        return readback
+
+    async def write_prepared_command(
+        self,
+        command: PreparedCommissioningTestCommand,
+    ) -> ServoWriteResult:
+        if not isinstance(command, PreparedCommissioningTestCommand):
+            raise TypeError("only a prepared commissioning test command may be written")
+        self._require_allowed(command.servo_id)
+        result = await self.__bus.write_prepared_command(command)
+        if not isinstance(result, ServoWriteResult):
+            raise TypeError("commissioning adapter returned an invalid write result")
+        if result.requested_ids != (command.servo_id,):
+            raise RuntimeError("commissioning adapter write result escaped the single-ID grant")
+        return result
+
+    async def stop_or_hold(self, servo_id: int) -> RealStopOutcome:
+        self._require_allowed(servo_id)
+        outcome = await self.__bus.stop_or_hold(servo_id)
+        if not isinstance(outcome, RealStopOutcome):
+            raise TypeError("commissioning adapter returned an invalid Stop/Hold outcome")
+        if outcome.requested_ids != (servo_id,):
+            raise RuntimeError("commissioning adapter Stop result escaped the single-ID grant")
+        return outcome
+
+    async def reset_for_session(self, session_id: UUID) -> None:
+        if not isinstance(session_id, UUID):
+            raise TypeError("commissioning session_id must be a UUID")
+        await self.__bus.reset_for_session(session_id)
+
+    async def close(self) -> None:
+        await self.__bus.close()
+
+    def _require_allowed(self, servo_id: int) -> None:
+        self._validate_servo_id(servo_id)
+        if servo_id not in self.__allowed_servo_ids:
+            raise PermissionError("servo ID is outside the commissioning allowlist")
+
+    @staticmethod
+    def _validate_servo_id(servo_id: int) -> None:
+        if isinstance(servo_id, bool) or not isinstance(servo_id, int) or not 1 <= servo_id <= 253:
+            raise ValueError("servo ID must be an integer from 1 through 253")
 
 
 @runtime_checkable
@@ -119,6 +242,9 @@ class ServoBusFactory(Protocol):
 
 
 __all__ = [
+    "CommissioningMotionServoBus",
+    "CommissioningMotionServoBusFacade",
+    "CommissioningPositionReadback",
     "ReadOnlyServoBus",
     "ReadOnlyServoBusFacade",
     "ServoBus",

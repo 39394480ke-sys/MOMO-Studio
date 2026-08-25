@@ -5,6 +5,7 @@ import type {
   HardwareAccessPolicy,
   MotionCommandState,
   MotionStopResponse,
+  OperatorSessionScope,
   RobotVariant,
 } from '../api/types';
 
@@ -119,6 +120,7 @@ interface MockBackendOptions {
   controlMode?: ControlMode;
   hardwareAccessPolicy?: HardwareAccessPolicy;
   realMotionEnabled?: boolean;
+  realSessionScopes?: OperatorSessionScope[];
 }
 
 interface RecordedRequest {
@@ -131,6 +133,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
   const controlMode = options.controlMode ?? 'DRY_RUN';
   const hardwareAccessPolicy = options.hardwareAccessPolicy ?? 'DISABLED';
   const realMotionEnabled = options.realMotionEnabled ?? false;
+  const realSessionScopes = options.realSessionScopes ?? null;
   let variant = options.variant ?? 'V2';
   let currentRobot = robotFor(variant, options.connected ?? true);
   if (options.robotStale !== undefined) {
@@ -182,6 +185,109 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         profile_match: true, joint_set_match: true, mapping_match: true, complete: true,
         calibration_valid: true, real_readiness: 'BLOCKED_BY_STAGE_POLICY',
         blocking_reasons: ['Stage 4 remains Dry Run only'],
+      });
+    }
+    if (path === '/device/readiness') {
+      const hasSession = realSessionScopes !== null;
+      const scopeSet = new Set(realSessionScopes ?? []);
+      const readOnlyAuthorizable = !hasSession && hardwareAccessPolicy === 'READ_ONLY';
+      const motionAuthorizable = !hasSession && hardwareAccessPolicy === 'FULL';
+      const blocker = hardwareAccessPolicy === 'READ_ONLY'
+        ? 'Commissioning READ ONLY · 禁止运动'
+        : 'Backend capability authorization is required';
+      const confirmation = (purpose: 'COMMISSIONING_READ_ONLY' | 'COMMISSIONING_MOTION_TEST' | 'REAL_MOTION') => ({
+        robot_id: 'primary',
+        robot_unit_id: 'MOMO-V2-UNIT-001',
+        variant,
+        profile_fingerprint: PROFILE_FINGERPRINT,
+        calibration_fingerprint: 'c'.repeat(64),
+        kinematics_fingerprint: KINEMATICS_FINGERPRINT,
+        masked_serial_port: '/dev/***USB0',
+        masked_servo_ids: ['**1', '**2'],
+        protocol: 'STS',
+        session_purpose: purpose,
+        field_acceptance_evidence_id: null,
+        physical_estop_required: true,
+        workspace_clear_required: purpose === 'COMMISSIONING_MOTION_TEST',
+        required_confirmation_text: purpose === 'COMMISSIONING_MOTION_TEST'
+          ? 'I CONFIRM THE WORKSPACE IS CLEAR'
+          : 'I CONFIRM THE PHYSICAL E-STOP IS READY',
+      });
+      const detail = (scope: OperatorSessionScope, requiredEvidence: string[] = []) => {
+        const authorized = scopeSet.has(scope);
+        return {
+          ready: authorized,
+          authorized,
+          blocked_reasons: authorized ? [] : [blocker],
+          required_evidence: authorized ? [] : requiredEvidence,
+        };
+      };
+      const allMotionAuthorized = [
+        'REAL_JOINT_MOTION',
+        'REAL_CARTESIAN_MOTION',
+        'REAL_PLAYBACK',
+        'REAL_VISION_FOLLOW',
+      ].every((scope) => scopeSet.has(scope as OperatorSessionScope));
+      return jsonResponse({
+        state: hasSession ? 'OPERATOR_SESSION_ACTIVE' : 'COMMISSIONING_READY',
+        ready: hasSession && allMotionAuthorized,
+        session_authorizable: readOnlyAuthorizable || motionAuthorizable,
+        commissioning_session_authorizable: readOnlyAuthorizable,
+        commissioning_motion_session_authorizable: false,
+        motion_session_authorizable: motionAuthorizable,
+        blocking_reasons: hasSession && allMotionAuthorized ? [] : [blocker],
+        capabilities: {
+          commissioning_diagnostics_ready: true,
+          calibration_capture_ready: true,
+          commissioning_motion_test_ready: false,
+          real_joint_motion_ready: scopeSet.has('REAL_JOINT_MOTION'),
+          real_cartesian_motion_ready: scopeSet.has('REAL_CARTESIAN_MOTION'),
+          real_playback_ready: scopeSet.has('REAL_PLAYBACK'),
+          real_vision_follow_ready: scopeSet.has('REAL_VISION_FOLLOW'),
+        },
+        capability_details: {
+          commissioning_read_only: {
+            ready: true,
+            authorized: false,
+            blocked_reasons: ['COMMISSIONING_OPERATOR_SESSION_REQUIRED'],
+            required_evidence: [],
+          },
+          commissioning_motion_test: detail(
+            'COMMISSIONING_SINGLE_JOINT_TEST',
+            ['PER_JOINT_COMMISSIONING_EVIDENCE'],
+          ),
+          real_joint_motion: detail('REAL_JOINT_MOTION'),
+          real_cartesian_motion: detail('REAL_CARTESIAN_MOTION', ['KINEMATICS_FIELD_EVIDENCE']),
+          real_playback: detail('REAL_PLAYBACK', ['PLAYBACK_FIELD_ACCEPTANCE']),
+          real_vision_follow: detail('REAL_VISION_FOLLOW', ['VISION_FOLLOW_FIELD_ACCEPTANCE']),
+        },
+        authorization_options: [
+          {
+            purpose: 'COMMISSIONING_READ_ONLY',
+            authorizable: readOnlyAuthorizable,
+            confirmation: confirmation('COMMISSIONING_READ_ONLY'),
+          },
+          {
+            purpose: 'COMMISSIONING_MOTION_TEST',
+            authorizable: false,
+            confirmation: confirmation('COMMISSIONING_MOTION_TEST'),
+          },
+          {
+            purpose: 'REAL_MOTION',
+            authorizable: motionAuthorizable,
+            confirmation: confirmation('REAL_MOTION'),
+          },
+        ],
+        confirmation: confirmation('COMMISSIONING_READ_ONLY'),
+        session: hasSession ? {
+          active: true,
+          session_id: '33333333-3333-4333-8333-333333333333',
+          expires_at: '2099-08-25T00:00:00Z',
+          purpose: 'REAL_MOTION',
+          scopes: realSessionScopes,
+        } : null,
+        calibration_configured: true,
+        connected: currentRobot.connected,
       });
     }
     if (path === '/robot/diagnostics') {

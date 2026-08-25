@@ -3,6 +3,10 @@ import type {
   AbandonMotionDraftSaveIntentRequest,
   BootstrapResponse,
   CalibrationStatus,
+  CommissioningMotionStatus,
+  CommissioningMotionTestState,
+  CommissioningRelativeTestRequest,
+  CommissioningTestEvidence,
   CapturePoseRequest,
   CartesianJogRequest,
   CreateMotionRequest,
@@ -14,6 +18,9 @@ import type {
   EntityPage,
   ErrorResponse,
   ForwardKinematicsResponse,
+  FieldAcceptanceCapability,
+  FieldAcceptanceProgress,
+  FieldAcceptanceProgressState,
   FieldAcceptanceStatusResponse,
   ForkMotionDraftRequest,
   GotoPoseRequest,
@@ -25,6 +32,13 @@ import type {
   JogSessionResponse,
   JogSessionStartRequest,
   JointJogStepRequest,
+  KinematicsVerificationDraft,
+  KinematicsVerificationEvidence,
+  KinematicsVerificationJointState,
+  KinematicsVerificationMeasurementRequest,
+  KinematicsVerificationPoint,
+  KinematicsVerificationStatus,
+  KinematicsVerificationThresholds,
   MetaResponse,
   MotionCommandState,
   MotionCommandStatus,
@@ -72,6 +86,10 @@ import type {
   VisionStatus,
   VisionTrackingState,
   DeviceConfirmationEvidence,
+  DeviceAuthorizationOption,
+  DeviceCapabilityDetail,
+  DeviceCapabilityDetails,
+  DeviceCapabilityKey,
   DeviceDiagnostics,
   DeviceReadiness,
   DeviceReadinessEvidence,
@@ -1258,12 +1276,14 @@ function nullableUuid(value: unknown, field: string): string | null {
 
 const OPERATOR_SESSION_PURPOSES = new Set<OperatorSessionPurpose>([
   'COMMISSIONING_READ_ONLY',
+  'COMMISSIONING_MOTION_TEST',
   'REAL_MOTION',
 ]);
 
 const OPERATOR_SESSION_SCOPES = new Set<OperatorSessionScope>([
   'DIAGNOSTICS_READ',
   'CALIBRATION_CAPTURE',
+  'COMMISSIONING_SINGLE_JOINT_TEST',
   'REAL_JOINT_MOTION',
   'REAL_CARTESIAN_MOTION',
   'REAL_PLAYBACK',
@@ -1300,8 +1320,10 @@ function validateOperatorSessionScopes(
     'DIAGNOSTICS_READ',
     'CALIBRATION_CAPTURE',
   ]);
-  const jointOnly = new Set<OperatorSessionScope>(['REAL_JOINT_MOTION']);
-  const fullMotion = new Set<OperatorSessionScope>([
+  const commissioningMotion = new Set<OperatorSessionScope>([
+    'COMMISSIONING_SINGLE_JOINT_TEST',
+  ]);
+  const realMotion = new Set<OperatorSessionScope>([
     'REAL_JOINT_MOTION',
     'REAL_CARTESIAN_MOTION',
     'REAL_PLAYBACK',
@@ -1312,14 +1334,17 @@ function validateOperatorSessionScopes(
   );
   const valid = purpose === 'COMMISSIONING_READ_ONLY'
     ? exact(commissioning)
-    : exact(jointOnly) || exact(fullMotion);
+    : purpose === 'COMMISSIONING_MOTION_TEST'
+      ? exact(commissioningMotion)
+      : actual.size > 0 && [...actual].every((scope) => realMotion.has(scope));
   if (!valid) {
     throw new TypeError('Backend returned scopes incoherent with Operator Session purpose');
   }
 }
 
 function deviceConfirmation(value: unknown): DeviceConfirmationEvidence {
-  if (!isRecord(value) || value.physical_estop_required !== true) {
+  if (!isRecord(value) || value.physical_estop_required !== true ||
+    typeof value.workspace_clear_required !== 'boolean') {
     throw new TypeError('Backend returned invalid device confirmation evidence');
   }
   const requiredText = stringValue(value.required_confirmation_text);
@@ -1331,6 +1356,7 @@ function deviceConfirmation(value: unknown): DeviceConfirmationEvidence {
   }
   return {
     robot_id: nullableString(value.robot_id, 'device robot ID'),
+    robot_unit_id: nullableString(value.robot_unit_id, 'device robot unit ID'),
     variant,
     profile_fingerprint: nullableString(value.profile_fingerprint, 'device Profile fingerprint'),
     calibration_fingerprint: nullableString(value.calibration_fingerprint, 'device Calibration fingerprint'),
@@ -1348,8 +1374,88 @@ function deviceConfirmation(value: unknown): DeviceConfirmationEvidence {
       'Field Acceptance evidence ID',
     ),
     physical_estop_required: true,
+    workspace_clear_required: value.workspace_clear_required,
     required_confirmation_text: requiredText,
   };
+}
+
+const DEVICE_CAPABILITY_KEYS: readonly DeviceCapabilityKey[] = [
+  'commissioning_read_only',
+  'commissioning_motion_test',
+  'real_joint_motion',
+  'real_cartesian_motion',
+  'real_playback',
+  'real_vision_follow',
+];
+
+function boundedUniqueStrings(value: unknown, field: string): string[] {
+  const values = boundedArray(value, field, 64).map((item) => {
+    const parsed = stringValue(item);
+    if (!parsed || parsed.length > 256) {
+      throw new TypeError(`Backend returned an invalid ${field}`);
+    }
+    return parsed;
+  });
+  if (new Set(values).size !== values.length) {
+    throw new TypeError(`Backend returned duplicate ${field}`);
+  }
+  return values;
+}
+
+function deviceCapabilityDetail(
+  value: unknown,
+  key: DeviceCapabilityKey,
+): DeviceCapabilityDetail {
+  if (!isRecord(value) || typeof value.ready !== 'boolean' ||
+    typeof value.authorized !== 'boolean') {
+    throw new TypeError(`Backend returned invalid ${key} capability detail`);
+  }
+  if (value.authorized && !value.ready) {
+    throw new TypeError(`Backend authorized unavailable ${key} capability`);
+  }
+  return {
+    ready: value.ready,
+    authorized: value.authorized,
+    blocked_reasons: boundedUniqueStrings(
+      value.blocked_reasons,
+      `${key} capability blocking reasons`,
+    ),
+    required_evidence: boundedUniqueStrings(
+      value.required_evidence,
+      `${key} capability evidence requirements`,
+    ),
+  };
+}
+
+function deviceCapabilityDetails(value: unknown): DeviceCapabilityDetails {
+  if (!isRecord(value)) {
+    throw new TypeError('Backend returned invalid Real capability details');
+  }
+  return Object.fromEntries(DEVICE_CAPABILITY_KEYS.map((key) => (
+    [key, deviceCapabilityDetail(value[key], key)]
+  ))) as DeviceCapabilityDetails;
+}
+
+function deviceAuthorizationOptions(value: unknown): DeviceAuthorizationOption[] {
+  const options = boundedArray(value, 'Operator Session authorization options', 3)
+    .map((item) => {
+      if (!isRecord(item) || typeof item.authorizable !== 'boolean') {
+        throw new TypeError('Backend returned an invalid Operator Session authorization option');
+      }
+      const purpose = operatorSessionPurpose(item.purpose, 'authorization option purpose');
+      const confirmation = deviceConfirmation(item.confirmation);
+      if (confirmation.session_purpose !== purpose) {
+        throw new TypeError('Backend returned authorization evidence for another purpose');
+      }
+      return { purpose, authorizable: item.authorizable, confirmation };
+    });
+  const purposes = new Set(options.map((option) => option.purpose));
+  if (options.length !== OPERATOR_SESSION_PURPOSES.size ||
+    purposes.size !== options.length ||
+    [...OPERATOR_SESSION_PURPOSES].some((purpose) => !purposes.has(purpose))) {
+    throw new TypeError('Backend returned incoherent Operator Session authorization options');
+  }
+  return options;
 }
 
 export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
@@ -1357,6 +1463,7 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
     typeof value.session_authorizable !== 'boolean' || typeof value.connected !== 'boolean' ||
     typeof value.calibration_configured !== 'boolean' ||
     typeof value.commissioning_session_authorizable !== 'boolean' ||
+    typeof value.commissioning_motion_session_authorizable !== 'boolean' ||
     typeof value.motion_session_authorizable !== 'boolean' ||
     !isRecord(value.capabilities)) {
     throw new TypeError('Backend returned invalid Real readiness');
@@ -1391,8 +1498,11 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
   if (value.ready && (!session?.active || blockingReasons.length > 0)) {
     throw new TypeError('Backend claimed Real readiness without a valid session');
   }
+  const commissioningMotionSessionAuthorizable =
+    value.commissioning_motion_session_authorizable;
   if (value.session_authorizable !== (
-    value.commissioning_session_authorizable || value.motion_session_authorizable
+    value.commissioning_session_authorizable || commissioningMotionSessionAuthorizable ||
+    value.motion_session_authorizable
   )) {
     throw new TypeError('Backend returned incoherent purpose-specific session readiness');
   }
@@ -1402,6 +1512,7 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
   const capabilities = {
     commissioning_diagnostics_ready: value.capabilities.commissioning_diagnostics_ready,
     calibration_capture_ready: value.capabilities.calibration_capture_ready,
+    commissioning_motion_test_ready: value.capabilities.commissioning_motion_test_ready,
     real_joint_motion_ready: value.capabilities.real_joint_motion_ready,
     real_cartesian_motion_ready: value.capabilities.real_cartesian_motion_ready,
     real_playback_ready: value.capabilities.real_playback_ready,
@@ -1410,6 +1521,7 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
   if (Object.values(capabilities).some((item) => typeof item !== 'boolean')) {
     throw new TypeError('Backend returned invalid Real capability readiness');
   }
+  const normalizedCapabilities = capabilities as DeviceReadiness['capabilities'];
   const motionCapabilities = [
     capabilities.real_joint_motion_ready,
     capabilities.real_cartesian_motion_ready,
@@ -1424,15 +1536,34 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
   )) {
     throw new TypeError('Backend claimed Commissioning authorization without read-only capabilities');
   }
+  const capabilityDetails = deviceCapabilityDetails(value.capability_details);
+  if (Object.values(capabilityDetails).some((detail) => detail.authorized) && !session?.active) {
+    throw new TypeError('Backend authorized a Real capability without an active Operator Session');
+  }
+  const confirmation = deviceConfirmation(value.confirmation);
+  const authorizationOptions = deviceAuthorizationOptions(value.authorization_options);
+  for (const option of authorizationOptions) {
+    const expected = option.purpose === 'COMMISSIONING_READ_ONLY'
+      ? value.commissioning_session_authorizable
+      : option.purpose === 'COMMISSIONING_MOTION_TEST'
+        ? commissioningMotionSessionAuthorizable
+        : value.motion_session_authorizable;
+    if (option.authorizable !== expected) {
+      throw new TypeError('Backend returned incoherent Operator Session authorization option');
+    }
+  }
   return {
     state,
     ready: value.ready,
     session_authorizable: value.session_authorizable,
     commissioning_session_authorizable: value.commissioning_session_authorizable,
+    commissioning_motion_session_authorizable: commissioningMotionSessionAuthorizable,
     motion_session_authorizable: value.motion_session_authorizable,
     blocking_reasons: blockingReasons,
-    capabilities: capabilities as DeviceReadiness['capabilities'],
-    confirmation: deviceConfirmation(value.confirmation),
+    capabilities: normalizedCapabilities,
+    capability_details: capabilityDetails,
+    authorization_options: authorizationOptions,
+    confirmation,
     session,
     calibration_configured: value.calibration_configured,
     connected: value.connected,
@@ -1543,11 +1674,10 @@ export function normalizeDeviceDiagnostics(value: unknown): DeviceDiagnostics {
 
 function operatorSession(value: unknown): OperatorSessionResponse {
   if (!isRecord(value)) throw new TypeError('Backend returned invalid Operator Session');
-  const sessionToken = stringValue(value.session_token);
   const sessionId = stringValue(value.session_id);
   const issuedAt = stringValue(value.issued_at);
   const expiresAt = stringValue(value.expires_at);
-  if (!sessionToken || !sessionId || !issuedAt || !expiresAt) {
+  if (!sessionId || !issuedAt || !expiresAt) {
     throw new TypeError('Backend returned incomplete Operator Session');
   }
   const purpose = operatorSessionPurpose(value.purpose, 'Operator Session purpose');
@@ -1558,7 +1688,6 @@ function operatorSession(value: unknown): OperatorSessionResponse {
     throw new TypeError('Backend returned Operator Session evidence for another purpose');
   }
   return {
-    session_token: sessionToken,
     session_id: sessionId,
     issued_at: issuedAt,
     expires_at: expiresAt,
@@ -1566,11 +1695,6 @@ function operatorSession(value: unknown): OperatorSessionResponse {
     scopes,
     evidence,
   };
-}
-
-function sessionHeaders(token: string): HeadersInit {
-  if (!token) throw new TypeError('Operator Session token is required');
-  return { 'X-MOMO-Operator-Session': token };
 }
 
 const SECURITY_SURFACES = new Set<SecuritySurface>([
@@ -1619,7 +1743,7 @@ export async function getDeviceReadiness(signal?: AbortSignal): Promise<DeviceRe
 
 export function normalizeFieldAcceptanceStatus(value: unknown): FieldAcceptanceStatusResponse {
   if (!isRecord(value)) throw new TypeError('Backend returned invalid Field Acceptance status');
-  const states = ['MISSING', 'STALE', 'VALID'] as const;
+  const states = ['MISSING', 'STALE', 'STALE_LEGACY_EVIDENCE', 'VALID'] as const;
   const statuses = ['NOT_REQUIRED', 'PENDING', 'PASSED', 'FAILED'] as const;
   const state = stringValue(value.state);
   const effectiveStatus = stringValue(value.effective_status);
@@ -1669,45 +1793,529 @@ export async function getFieldAcceptanceStatus(
   ));
 }
 
+const FIELD_ACCEPTANCE_PROGRESS_STATES = new Set<FieldAcceptanceProgressState>([
+  'NOT_STARTED',
+  'READ_ONLY_COMMISSIONING_COMPLETE',
+  'CALIBRATION_COMPLETE',
+  'PRE_MOTION_CHECKS_COMPLETE',
+  'JOINT_MOTION_TESTING',
+  'JOINT_MOTION_ACCEPTED',
+  'KINEMATICS_VERIFICATION_PENDING',
+  'CARTESIAN_ACCEPTED',
+  'PLAYBACK_ACCEPTED',
+  'VISION_FOLLOW_ACCEPTED',
+  'FULL_ACCEPTANCE_COMPLETE',
+]);
+
+const FIELD_ACCEPTANCE_CAPABILITIES = new Set<FieldAcceptanceCapability>([
+  'PRE_MOTION_CHECKS',
+  'JOINT_MOTION',
+  'CARTESIAN',
+  'PLAYBACK',
+  'VISION_FOLLOW',
+]);
+
+function requiredUuid(value: unknown, field: string): string {
+  const parsed = nullableUuid(value, field);
+  if (parsed === null) throw new TypeError(`Backend returned a missing ${field}`);
+  return parsed;
+}
+
+function boundedUniqueUuids(value: unknown, field: string, maximum = 128): string[] {
+  const items = boundedArray(value, field, maximum)
+    .map((item) => requiredUuid(item, field));
+  if (new Set(items).size !== items.length) {
+    throw new TypeError(`Backend returned duplicate ${field}`);
+  }
+  return items;
+}
+
+function fieldAcceptanceJoint(value: unknown): FieldAcceptanceProgress['joints'][number] {
+  if (!isRecord(value) || typeof value.complete !== 'boolean' ||
+    (value.unit !== 'mm' && value.unit !== 'deg')) {
+    throw new TypeError('Backend returned an invalid Field Acceptance joint');
+  }
+  const jointId = stringValue(value.joint_id);
+  if (!jointId || jointId.length > 64) {
+    throw new TypeError('Backend returned an invalid Field Acceptance joint identity');
+  }
+  const positiveEvidenceId = nullableUuid(
+    value.positive_evidence_id,
+    'positive Commissioning evidence ID',
+  );
+  const negativeEvidenceId = nullableUuid(
+    value.negative_evidence_id,
+    'negative Commissioning evidence ID',
+  );
+  if (value.complete !== (positiveEvidenceId !== null && negativeEvidenceId !== null)) {
+    throw new TypeError('Backend returned incoherent Field Acceptance joint progress');
+  }
+  return {
+    joint_id: jointId,
+    unit: value.unit,
+    positive_evidence_id: positiveEvidenceId,
+    negative_evidence_id: negativeEvidenceId,
+    complete: value.complete,
+  };
+}
+
+export function normalizeFieldAcceptanceProgress(value: unknown): FieldAcceptanceProgress {
+  if (!isRecord(value) || value.physical_stop_verification !== 'PENDING') {
+    throw new TypeError('Backend returned invalid Field Acceptance progress');
+  }
+  const state = stringValue(value.state);
+  const robotUnitId = stringValue(value.robot_unit_id);
+  const checklistVersion = stringValue(value.checklist_version);
+  if (!state || !FIELD_ACCEPTANCE_PROGRESS_STATES.has(state as FieldAcceptanceProgressState) ||
+    !robotUnitId || robotUnitId.length > 128 ||
+    !checklistVersion || checklistVersion.length > 64) {
+    throw new TypeError('Backend returned incomplete Field Acceptance progress');
+  }
+  const booleanFields = [
+    value.pre_motion_checks_complete,
+    value.joint_motion_tests_complete,
+    value.joint_motion_accepted,
+    value.ready_to_accept_joint_motion,
+    value.full_acceptance_complete,
+  ];
+  if (booleanFields.some((item) => typeof item !== 'boolean')) {
+    throw new TypeError('Backend returned invalid Field Acceptance completion state');
+  }
+  const validCapabilities = boundedArray(
+    value.valid_capabilities,
+    'Field Acceptance capabilities',
+    FIELD_ACCEPTANCE_CAPABILITIES.size,
+  ).map((item) => {
+    if (typeof item !== 'string' ||
+      !FIELD_ACCEPTANCE_CAPABILITIES.has(item as FieldAcceptanceCapability)) {
+      throw new TypeError('Backend returned an invalid Field Acceptance capability');
+    }
+    return item as FieldAcceptanceCapability;
+  });
+  if (new Set(validCapabilities).size !== validCapabilities.length) {
+    throw new TypeError('Backend returned duplicate Field Acceptance capabilities');
+  }
+  const joints = boundedArray(value.joints, 'Field Acceptance joints', 32)
+    .map(fieldAcceptanceJoint);
+  if (new Set(joints.map((item) => item.joint_id)).size !== joints.length) {
+    throw new TypeError('Backend returned duplicate Field Acceptance joints');
+  }
+  const selectedIds = boundedUniqueUuids(
+    value.selected_test_evidence_ids,
+    'selected Commissioning evidence IDs',
+    64,
+  );
+  const jointEvidenceIds = joints.flatMap((joint) => [
+    joint.positive_evidence_id,
+    joint.negative_evidence_id,
+  ]).filter((item): item is string => item !== null);
+  const completedDirections = integerValue(
+    value.completed_joint_directions,
+    'completed joint directions',
+  );
+  const requiredDirections = integerValue(
+    value.required_joint_directions,
+    'required joint directions',
+  );
+  const testsComplete = joints.length > 0 && completedDirections === requiredDirections;
+  if (requiredDirections !== joints.length * 2 ||
+    completedDirections !== selectedIds.length ||
+    completedDirections !== jointEvidenceIds.length ||
+    selectedIds.some((id, index) => id !== jointEvidenceIds[index]) ||
+    value.joint_motion_tests_complete !== testsComplete ||
+    value.pre_motion_checks_complete !== validCapabilities.includes('PRE_MOTION_CHECKS') ||
+    value.joint_motion_accepted !== validCapabilities.includes('JOINT_MOTION') ||
+    value.ready_to_accept_joint_motion !== (
+      value.pre_motion_checks_complete && testsComplete && !value.joint_motion_accepted
+    ) ||
+    value.full_acceptance_complete !== (
+      validCapabilities.length === FIELD_ACCEPTANCE_CAPABILITIES.size
+    )) {
+    throw new TypeError('Backend returned incoherent Field Acceptance progress');
+  }
+  return {
+    state: state as FieldAcceptanceProgressState,
+    robot_unit_id: robotUnitId,
+    checklist_version: checklistVersion,
+    valid_capabilities: validCapabilities,
+    pre_motion_checks_complete: value.pre_motion_checks_complete,
+    joint_motion_tests_complete: value.joint_motion_tests_complete,
+    joint_motion_accepted: value.joint_motion_accepted,
+    ready_to_accept_joint_motion: value.ready_to_accept_joint_motion,
+    completed_joint_directions: completedDirections,
+    required_joint_directions: requiredDirections,
+    joints,
+    selected_test_evidence_ids: selectedIds,
+    rejected_test_evidence_ids: boundedUniqueUuids(
+      value.rejected_test_evidence_ids,
+      'rejected Commissioning evidence IDs',
+    ),
+    stale_field_acceptance_evidence_ids: boundedUniqueUuids(
+      value.stale_field_acceptance_evidence_ids,
+      'stale Field Acceptance evidence IDs',
+    ),
+    legacy_field_acceptance_evidence_ids: boundedUniqueUuids(
+      value.legacy_field_acceptance_evidence_ids,
+      'legacy Field Acceptance evidence IDs',
+    ),
+    physical_stop_verification: 'PENDING',
+    full_acceptance_complete: value.full_acceptance_complete,
+  };
+}
+
+export async function getFieldAcceptanceProgress(
+  signal?: AbortSignal,
+): Promise<FieldAcceptanceProgress> {
+  return normalizeFieldAcceptanceProgress(await requestJson<unknown>(
+    '/device/field-acceptance/progress',
+    { signal },
+  ));
+}
+
+function currentChecklistVersion(value: string): string {
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 64) {
+    throw new TypeError('Field Acceptance checklist version must contain 1–64 characters');
+  }
+  return normalized;
+}
+
+export async function completeFieldPreMotionChecks(
+  checklistVersion: string,
+): Promise<FieldAcceptanceProgress> {
+  return normalizeFieldAcceptanceProgress(await postJson<unknown>(
+    '/device/field-acceptance/pre-motion-checks',
+    { checklist_version: currentChecklistVersion(checklistVersion) },
+  ));
+}
+
+export async function acceptFieldJointMotion(
+  checklistVersion: string,
+): Promise<FieldAcceptanceProgress> {
+  return normalizeFieldAcceptanceProgress(await postJson<unknown>(
+    '/device/field-acceptance/joint-motion',
+    { checklist_version: currentChecklistVersion(checklistVersion) },
+  ));
+}
+
+function kinematicsThresholds(value: unknown): KinematicsVerificationThresholds {
+  if (!isRecord(value)) {
+    throw new TypeError('Backend returned invalid Kinematics verification thresholds');
+  }
+  const position = finiteNumber(
+    value.max_position_error_mm,
+    'Kinematics position-error threshold',
+    Number.EPSILON,
+  );
+  const orientation = finiteNumber(
+    value.max_orientation_error_deg,
+    'Kinematics orientation-error threshold',
+    Number.EPSILON,
+  );
+  if (position > 25 || orientation > 15) {
+    throw new TypeError('Backend returned out-of-range Kinematics verification thresholds');
+  }
+  return {
+    max_position_error_mm: position,
+    max_orientation_error_deg: orientation,
+  };
+}
+
+function kinematicsJointState(value: unknown): KinematicsVerificationJointState {
+  if (!isRecord(value) || !isRecord(value.positions) ||
+    !(value.units === null || isRecord(value.units))) {
+    throw new TypeError('Backend returned an invalid Kinematics joint state');
+  }
+  const positionEntries = Object.entries(value.positions);
+  if (positionEntries.length === 0 || positionEntries.length > 32) {
+    throw new TypeError('Backend returned an invalid Kinematics joint-state size');
+  }
+  const positions: Record<string, number> = {};
+  for (const [jointId, position] of positionEntries) {
+    if (!jointId || jointId.length > 64) {
+      throw new TypeError('Backend returned an invalid Kinematics joint identity');
+    }
+    positions[jointId] = signedFiniteNumber(position, `Kinematics ${jointId} position`);
+  }
+  let units: KinematicsVerificationJointState['units'] = null;
+  if (value.units !== null) {
+    const unitEntries = Object.entries(value.units);
+    if (unitEntries.length !== positionEntries.length ||
+      unitEntries.some(([jointId, unit]) => (
+        !(jointId in positions) || (unit !== 'mm' && unit !== 'deg')
+      ))) {
+      throw new TypeError('Backend returned incoherent Kinematics joint units');
+    }
+    units = Object.fromEntries(unitEntries) as Record<string, 'mm' | 'deg'>;
+  }
+  return { positions, units };
+}
+
+function kinematicsTcpPose(value: unknown, field: string): KinematicsVerificationPoint['measured_tcp'] {
+  if (!isRecord(value) || !isRecord(value.position_mm) ||
+    !isRecord(value.orientation_quaternion_xyzw)) {
+    throw new TypeError(`Backend returned an invalid ${field}`);
+  }
+  const frame = stringValue(value.frame);
+  if (!frame || frame.length > 128) throw new TypeError(`Backend returned an invalid ${field} frame`);
+  const orientation = {
+    x: signedFiniteNumber(value.orientation_quaternion_xyzw.x, `${field} quaternion X`),
+    y: signedFiniteNumber(value.orientation_quaternion_xyzw.y, `${field} quaternion Y`),
+    z: signedFiniteNumber(value.orientation_quaternion_xyzw.z, `${field} quaternion Z`),
+    w: signedFiniteNumber(value.orientation_quaternion_xyzw.w, `${field} quaternion W`),
+  };
+  const quaternionNormSquared = orientation.x ** 2 + orientation.y ** 2 +
+    orientation.z ** 2 + orientation.w ** 2;
+  if (quaternionNormSquared < 1e-24) {
+    throw new TypeError(`Backend returned a zero-norm ${field} quaternion`);
+  }
+  return {
+    frame,
+    position_mm: {
+      x: signedFiniteNumber(value.position_mm.x, `${field} X coordinate`),
+      y: signedFiniteNumber(value.position_mm.y, `${field} Y coordinate`),
+      z: signedFiniteNumber(value.position_mm.z, `${field} Z coordinate`),
+    },
+    orientation_quaternion_xyzw: orientation,
+  };
+}
+
+function kinematicsPoint(value: unknown): KinematicsVerificationPoint {
+  if (!isRecord(value)) throw new TypeError('Backend returned an invalid Kinematics point');
+  const label = stringValue(value.label);
+  const jointStateCapturedAt = stringValue(value.joint_state_captured_at);
+  const measuredAt = stringValue(value.measured_at);
+  if (!label || label.length > 128 || !jointStateCapturedAt || !measuredAt) {
+    throw new TypeError('Backend returned an incomplete Kinematics point');
+  }
+  return {
+    point_id: requiredUuid(value.point_id, 'Kinematics point ID'),
+    label,
+    joint_state: kinematicsJointState(value.joint_state),
+    joint_state_sequence: integerValue(
+      value.joint_state_sequence,
+      'Kinematics joint-state sequence',
+    ),
+    joint_state_captured_at: jointStateCapturedAt,
+    snapshot_session_id: requiredUuid(
+      value.snapshot_session_id,
+      'Kinematics snapshot Operator Session ID',
+    ),
+    predicted_tcp: kinematicsTcpPose(value.predicted_tcp, 'predicted TCP pose'),
+    measured_tcp: kinematicsTcpPose(value.measured_tcp, 'measured TCP pose'),
+    position_error_mm: finiteNumber(value.position_error_mm, 'Kinematics position error'),
+    orientation_error_deg: finiteNumber(
+      value.orientation_error_deg,
+      'Kinematics orientation error',
+    ),
+    measured_at: measuredAt,
+  };
+}
+
+export function normalizeKinematicsVerificationStatus(
+  value: unknown,
+): KinematicsVerificationStatus {
+  if (!isRecord(value) || !['MISSING', 'STALE', 'VALID'].includes(String(value.state))) {
+    throw new TypeError('Backend returned invalid Kinematics verification status');
+  }
+  const evidenceId = nullableUuid(value.evidence_id, 'Kinematics verification evidence ID');
+  const pointCount = integerValue(value.point_count, 'Kinematics verification point count');
+  const staleFields = boundedUniqueStrings(
+    value.stale_fields,
+    'Kinematics verification stale fields',
+  );
+  if ((value.state === 'MISSING' && (evidenceId !== null || pointCount !== 0)) ||
+    (value.state === 'VALID' && (evidenceId === null || pointCount < 3))) {
+    throw new TypeError('Backend returned incoherent Kinematics verification status');
+  }
+  return {
+    state: value.state as KinematicsVerificationStatus['state'],
+    stale_fields: staleFields,
+    evidence_id: evidenceId,
+    point_count: pointCount,
+  };
+}
+
+export function normalizeKinematicsVerificationDraft(
+  value: unknown,
+): KinematicsVerificationDraft {
+  if (!isRecord(value)) throw new TypeError('Backend returned an invalid Kinematics draft');
+  const operatorId = stringValue(value.operator_id);
+  const robotUnitId = stringValue(value.robot_unit_id);
+  const softwareCommit = stringValue(value.software_commit);
+  const checklist = stringValue(value.verification_checklist_version);
+  if (!operatorId || operatorId.length > 128 || !robotUnitId || robotUnitId.length > 128 ||
+    !softwareCommit || softwareCommit.length > 64 || !checklist || checklist.length > 64) {
+    throw new TypeError('Backend returned an incomplete Kinematics draft');
+  }
+  const points = boundedArray(value.points, 'Kinematics verification points', 128)
+    .map(kinematicsPoint);
+  if (new Set(points.map((point) => point.point_id)).size !== points.length) {
+    throw new TypeError('Backend returned duplicate Kinematics point IDs');
+  }
+  const operatorSessionId = requiredUuid(
+    value.operator_session_id,
+    'Kinematics Operator Session ID',
+  );
+  if (points.some((point) => point.snapshot_session_id !== operatorSessionId)) {
+    throw new TypeError('Backend returned a Kinematics point from another Operator Session');
+  }
+  return {
+    draft_id: requiredUuid(value.draft_id, 'Kinematics draft ID'),
+    operator_session_id: operatorSessionId,
+    operator_id: operatorId,
+    robot_unit_id: robotUnitId,
+    profile_fingerprint: fingerprint(value.profile_fingerprint, 'Kinematics Profile fingerprint'),
+    calibration_fingerprint: fingerprint(
+      value.calibration_fingerprint,
+      'Kinematics Calibration fingerprint',
+    ),
+    device_fingerprint: fingerprint(value.device_fingerprint, 'Kinematics device fingerprint'),
+    kinematics_fingerprint: fingerprint(
+      value.kinematics_fingerprint,
+      'Kinematics model fingerprint',
+    ),
+    software_commit: softwareCommit,
+    verification_checklist_version: checklist,
+    thresholds: kinematicsThresholds(value.thresholds),
+    points,
+  };
+}
+
+export function normalizeKinematicsVerificationEvidence(
+  value: unknown,
+): KinematicsVerificationEvidence {
+  if (!isRecord(value) || value.schema_version !== 1 || value.revision !== 1 ||
+    (value.variant !== 'V1' && value.variant !== 'V2')) {
+    throw new TypeError('Backend returned invalid Kinematics verification evidence');
+  }
+  const robotUnitId = stringValue(value.robot_unit_id);
+  const modelSchema = stringValue(value.kinematics_model_schema_version);
+  const checklist = stringValue(value.verification_checklist_version);
+  const acceptedAt = stringValue(value.accepted_at);
+  const acceptedBy = stringValue(value.accepted_by);
+  const softwareCommit = stringValue(value.software_commit);
+  if (!robotUnitId || !modelSchema || !checklist || !acceptedAt || !acceptedBy ||
+    !softwareCommit) {
+    throw new TypeError('Backend returned incomplete Kinematics verification evidence');
+  }
+  const thresholds = kinematicsThresholds(value.thresholds);
+  const points = boundedArray(value.test_points, 'Kinematics evidence points', 128)
+    .map(kinematicsPoint);
+  if (points.length < 3 || new Set(points.map((point) => point.point_id)).size !== points.length ||
+    new Set(points.map((point) => point.joint_state_sequence)).size !== points.length ||
+    points.some((point) => (
+      point.position_error_mm > thresholds.max_position_error_mm ||
+      point.orientation_error_deg > thresholds.max_orientation_error_deg
+    ))) {
+    throw new TypeError('Backend returned incoherent Kinematics verification evidence');
+  }
+  return {
+    schema_version: 1,
+    revision: 1,
+    id: requiredUuid(value.id, 'Kinematics verification evidence ID'),
+    robot_unit_id: robotUnitId,
+    variant: value.variant,
+    profile_fingerprint: fingerprint(value.profile_fingerprint, 'Kinematics Profile fingerprint'),
+    calibration_fingerprint: fingerprint(
+      value.calibration_fingerprint,
+      'Kinematics Calibration fingerprint',
+    ),
+    device_fingerprint: fingerprint(value.device_fingerprint, 'Kinematics device fingerprint'),
+    kinematics_fingerprint: fingerprint(
+      value.kinematics_fingerprint,
+      'Kinematics model fingerprint',
+    ),
+    kinematics_model_schema_version: modelSchema,
+    verification_checklist_version: checklist,
+    test_points: points,
+    thresholds,
+    accepted_at: acceptedAt,
+    accepted_by: acceptedBy,
+    software_commit: softwareCommit,
+  };
+}
+
+export async function getKinematicsVerificationStatus(
+  signal?: AbortSignal,
+): Promise<KinematicsVerificationStatus> {
+  return normalizeKinematicsVerificationStatus(await requestJson<unknown>(
+    '/kinematics-verification',
+    { signal },
+  ));
+}
+
+export async function startKinematicsVerificationDraft(
+  thresholds: KinematicsVerificationThresholds | null = null,
+): Promise<KinematicsVerificationDraft> {
+  const normalizedThresholds = thresholds === null ? null : kinematicsThresholds(thresholds);
+  return normalizeKinematicsVerificationDraft(await postJson<unknown>(
+    '/kinematics-verification/draft',
+    { thresholds: normalizedThresholds },
+  ));
+}
+
+export async function addKinematicsVerificationMeasurement(
+  draftId: string,
+  request: KinematicsVerificationMeasurementRequest,
+): Promise<KinematicsVerificationDraft> {
+  const normalizedDraftId = requiredUuid(draftId, 'Kinematics draft ID');
+  const label = request.label.trim();
+  if (!label || label.length > 128) {
+    throw new TypeError('Kinematics measurement label must contain 1–128 characters');
+  }
+  return normalizeKinematicsVerificationDraft(await postJson<unknown>(
+    `/kinematics-verification/draft/${encodeURIComponent(normalizedDraftId)}/measurement`,
+    {
+      label,
+      measured_tcp: kinematicsTcpPose(request.measured_tcp, 'measured TCP pose'),
+    },
+  ));
+}
+
+export async function commitKinematicsVerificationDraft(
+  draftId: string,
+): Promise<KinematicsVerificationEvidence> {
+  const normalizedDraftId = requiredUuid(draftId, 'Kinematics draft ID');
+  return normalizeKinematicsVerificationEvidence(await postJson<unknown>(
+    `/kinematics-verification/draft/${encodeURIComponent(normalizedDraftId)}/commit`,
+  ));
+}
+
 export async function createOperatorSession(
   purpose: OperatorSessionPurpose,
   confirmationText: string,
   physicalEstopConfirmed: boolean,
+  workspaceClearConfirmed = false,
 ): Promise<OperatorSessionResponse> {
   return operatorSession(await postJson<unknown>('/device/operator-session', {
     purpose,
     confirmation_text: confirmationText,
     physical_estop_confirmed: physicalEstopConfirmed,
+    workspace_clear_confirmed: workspaceClearConfirmed,
   }));
 }
 
-export async function revokeOperatorSession(token: string): Promise<void> {
+export async function revokeOperatorSession(): Promise<void> {
   await requestJson<unknown>('/device/operator-session', {
     method: 'DELETE',
-    headers: sessionHeaders(token),
   });
 }
 
-export async function connectRealDevice(token: string): Promise<DeviceDiagnostics> {
-  const value = await postJson<unknown>('/device/connect', undefined, {
-    headers: sessionHeaders(token),
-  });
+export async function connectRealDevice(): Promise<DeviceDiagnostics> {
+  const value = await postJson<unknown>('/device/connect');
   if (!isRecord(value)) throw new TypeError('Backend returned invalid Real connect result');
   return normalizeDeviceDiagnostics(value.diagnostics ?? value);
 }
 
-export async function disconnectRealDevice(token: string): Promise<DeviceDiagnostics> {
-  const value = await postJson<unknown>('/device/disconnect', undefined, {
-    headers: sessionHeaders(token),
-  });
+export async function disconnectRealDevice(): Promise<DeviceDiagnostics> {
+  const value = await postJson<unknown>('/device/disconnect');
   if (!isRecord(value)) throw new TypeError('Backend returned invalid Real disconnect result');
   return normalizeDeviceDiagnostics(value.diagnostics ?? value);
 }
 
-export async function runDeviceDiagnostics(token: string): Promise<DeviceDiagnostics> {
-  return normalizeDeviceDiagnostics(await postJson<unknown>('/device/diagnostics', undefined, {
-    headers: sessionHeaders(token),
-  }));
+export async function runDeviceDiagnostics(): Promise<DeviceDiagnostics> {
+  return normalizeDeviceDiagnostics(await postJson<unknown>('/device/diagnostics'));
 }
 
 export async function stopRealDevice(): Promise<DeviceStopResponse> {
@@ -1728,6 +2336,179 @@ export async function stopRealDevice(): Promise<DeviceStopResponse> {
     physical_estop_required: value.physical_estop_required,
     detail,
   };
+}
+
+const COMMISSIONING_MOTION_STATES = new Set<CommissioningMotionTestState>([
+  'IDLE',
+  'AUTHORIZED',
+  'ARMED',
+  'MOVING',
+  'VERIFYING',
+  'STOPPING',
+  'COMPLETED',
+  'FAILED',
+  'EXPIRED',
+]);
+
+export function normalizeCommissioningMotionStatus(value: unknown): CommissioningMotionStatus {
+  if (!isRecord(value) || value.physical_stop_verification !== 'PENDING') {
+    throw new TypeError('Backend returned invalid Commissioning Motion status');
+  }
+  const state = stringValue(value.state);
+  if (!state || !COMMISSIONING_MOTION_STATES.has(state as CommissioningMotionTestState)) {
+    throw new TypeError('Backend returned invalid Commissioning Motion state');
+  }
+  return {
+    state: state as CommissioningMotionTestState,
+    session_id: nullableUuid(value.session_id, 'Commissioning Motion session ID'),
+    active_joint_id: nullableString(value.active_joint_id, 'Commissioning active joint'),
+    command_count: integerValue(value.command_count, 'Commissioning command count'),
+    session_expires_at: nullableString(
+      value.session_expires_at,
+      'Commissioning session expiry',
+    ),
+    deadman_expires_at: nullableString(
+      value.deadman_expires_at,
+      'Commissioning deadman expiry',
+    ),
+    last_evidence_id: nullableUuid(value.last_evidence_id, 'Commissioning evidence ID'),
+    failure_reason: nullableString(value.failure_reason, 'Commissioning failure reason'),
+    physical_stop_verification: 'PENDING',
+  };
+}
+
+export function normalizeCommissioningTestEvidence(value: unknown): CommissioningTestEvidence {
+  if (!isRecord(value) || value.schema_version !== 1 || value.revision !== 1 ||
+    (value.robot_variant !== 'V1' && value.robot_variant !== 'V2') ||
+    (value.unit !== 'mm' && value.unit !== 'deg')) {
+    throw new TypeError('Backend returned invalid Commissioning Test evidence');
+  }
+  const id = nullableUuid(value.id, 'Commissioning Test evidence ID');
+  const sessionId = nullableUuid(value.session_id, 'Commissioning Test session ID');
+  const robotUnitId = stringValue(value.robot_unit_id);
+  const jointId = stringValue(value.joint_id);
+  const measuredResult = stringValue(value.measured_or_observed_result);
+  const startedAt = stringValue(value.started_at);
+  const completedAt = stringValue(value.completed_at);
+  const softwareCommit = stringValue(value.software_commit);
+  const operatorId = stringValue(value.operator_id);
+  const requestId = stringValue(value.request_id);
+  const directionExpected = value.direction_expected;
+  const directionObserved = value.direction_observed;
+  const stopBehavior = value.stop_behavior;
+  const result = value.result;
+  if (!id || !sessionId || !robotUnitId || !jointId || !measuredResult || !startedAt ||
+    !completedAt || !softwareCommit || !operatorId || !requestId ||
+    !['POSITIVE', 'NEGATIVE'].includes(String(directionExpected)) ||
+    !(directionObserved === null || ['POSITIVE', 'NEGATIVE'].includes(String(directionObserved))) ||
+    ![
+      'NOT_REQUESTED',
+      'SOFTWARE_PATH_VERIFIED',
+      'SOFTWARE_PATH_FAILED',
+      'PHYSICAL_BEHAVIOR_PENDING',
+    ].includes(String(stopBehavior)) || !['PASSED', 'FAILED'].includes(String(result))) {
+    throw new TypeError('Backend returned incomplete Commissioning Test evidence');
+  }
+  const failureReason = nullableString(
+    value.failure_reason_optional,
+    'Commissioning Test failure reason',
+  );
+  if ((result === 'PASSED' && failureReason !== null) ||
+    (result === 'FAILED' && failureReason === null)) {
+    throw new TypeError('Backend returned incoherent Commissioning Test evidence');
+  }
+  return {
+    schema_version: 1,
+    revision: 1,
+    id,
+    robot_unit_id: robotUnitId,
+    robot_variant: value.robot_variant,
+    profile_fingerprint: fingerprint(value.profile_fingerprint, 'Commissioning Profile fingerprint'),
+    calibration_fingerprint: fingerprint(
+      value.calibration_fingerprint,
+      'Commissioning Calibration fingerprint',
+    ),
+    device_fingerprint: fingerprint(value.device_fingerprint, 'Commissioning device fingerprint'),
+    joint_id: jointId,
+    unit: value.unit,
+    start_value: signedFiniteNumber(value.start_value, 'Commissioning start value'),
+    requested_delta: signedFiniteNumber(value.requested_delta, 'Commissioning requested delta'),
+    target_value: signedFiniteNumber(value.target_value, 'Commissioning target value'),
+    final_value: signedFiniteNumber(value.final_value, 'Commissioning final value'),
+    start_raw: integerValue(value.start_raw, 'Commissioning start raw', Number.MIN_SAFE_INTEGER),
+    final_raw: integerValue(value.final_raw, 'Commissioning final raw', Number.MIN_SAFE_INTEGER),
+    requested_speed: finiteNumber(value.requested_speed, 'Commissioning requested speed', Number.EPSILON),
+    measured_or_observed_result: measuredResult,
+    direction_expected: directionExpected as CommissioningTestEvidence['direction_expected'],
+    direction_observed: directionObserved as CommissioningTestEvidence['direction_observed'],
+    divergence: finiteNumber(value.divergence, 'Commissioning divergence'),
+    stop_behavior: stopBehavior as CommissioningTestEvidence['stop_behavior'],
+    started_at: startedAt,
+    completed_at: completedAt,
+    software_commit: softwareCommit,
+    operator_id: operatorId,
+    request_id: requestId,
+    session_id: sessionId,
+    prepared_target_raw: integerValue(
+      value.prepared_target_raw,
+      'Commissioning prepared raw target',
+      Number.MIN_SAFE_INTEGER,
+    ),
+    result: result as CommissioningTestEvidence['result'],
+    failure_reason_optional: failureReason,
+  };
+}
+
+export async function getCommissioningMotionStatus(
+  signal?: AbortSignal,
+): Promise<CommissioningMotionStatus> {
+  return normalizeCommissioningMotionStatus(await requestJson<unknown>(
+    '/device/commissioning/status',
+    { signal },
+  ));
+}
+
+export async function startCommissioningMotionSession(): Promise<CommissioningMotionStatus> {
+  return normalizeCommissioningMotionStatus(await postJson<unknown>(
+    '/device/commissioning/session',
+  ));
+}
+
+export async function armCommissioningJoint(
+  jointId: string,
+): Promise<CommissioningMotionStatus> {
+  return normalizeCommissioningMotionStatus(await postJson<unknown>(
+    `/device/commissioning/joints/${encodeURIComponent(jointId)}/arm`,
+  ));
+}
+
+export async function startCommissioningJointTest(
+  jointId: string,
+  request: CommissioningRelativeTestRequest,
+): Promise<CommissioningTestEvidence> {
+  return normalizeCommissioningTestEvidence(await postJson<unknown>(
+    `/device/commissioning/joints/${encodeURIComponent(jointId)}/tests/start`,
+    request,
+  ));
+}
+
+export async function heartbeatCommissioningMotionTest(): Promise<CommissioningMotionStatus> {
+  return normalizeCommissioningMotionStatus(await postJson<unknown>(
+    '/device/commissioning/tests/heartbeat',
+  ));
+}
+
+export async function stopCommissioningMotionTest(
+  reason: string,
+): Promise<CommissioningMotionStatus> {
+  const normalizedReason = reason.trim();
+  if (!normalizedReason || normalizedReason.length > 128) {
+    throw new TypeError('Commissioning Stop reason must contain 1–128 characters');
+  }
+  return normalizeCommissioningMotionStatus(await postJson<unknown>(
+    '/device/commissioning/tests/stop',
+    { reason: normalizedReason },
+  ));
 }
 
 const CALIBRATION_STATES = new Set<CalibrationWorkflowState>([
@@ -2022,46 +2803,42 @@ function calibrationRevision(value: unknown): CalibrationRevisionSummary {
   };
 }
 
-export async function startCalibrationSession(token: string): Promise<CalibrationWorkflowStatus> {
+export async function startCalibrationSession(): Promise<CalibrationWorkflowStatus> {
   return normalizeCalibrationWorkflowStatus(await postJson<unknown>(
     '/device/calibration/sessions',
     { source: 'EXISTING_REAL' },
-    { headers: sessionHeaders(token) },
   ));
 }
 
 export async function readCalibrationJoint(
-  token: string,
   sessionId: string,
   jointId: string,
 ): Promise<CalibrationWorkflowStatus> {
   return normalizeCalibrationWorkflowStatus(await postJson<unknown>(
     `/device/calibration/sessions/${encodeURIComponent(sessionId)}/read`,
     { joint_id: jointId },
-    { headers: sessionHeaders(token) },
   ));
 }
 
+type CalibrationJointPreviewRequest = {
+  joint_id: string;
+  logical_value: number;
+  direction: -1 | 1;
+  phase: number | null;
+  raw_bounds: [number, number];
+};
+
 export async function previewCalibrationJoint(
-  token: string,
   sessionId: string,
-  request: {
-    joint_id: string;
-    logical_value: number;
-    direction: -1 | 1;
-    phase: number | null;
-    raw_bounds: [number, number];
-  },
+  request: CalibrationJointPreviewRequest,
 ): Promise<CalibrationJointPreview> {
   return calibrationJointPreview(await postJson<unknown>(
     `/device/calibration/sessions/${encodeURIComponent(sessionId)}/preview`,
     request,
-    { headers: sessionHeaders(token) },
   ));
 }
 
 export async function confirmCalibrationJoint(
-  token: string,
   sessionId: string,
   jointId: string,
   previewFingerprint: string,
@@ -2074,12 +2851,10 @@ export async function confirmCalibrationJoint(
       preview_fingerprint: previewFingerprint,
       confirmation,
     },
-    { headers: sessionHeaders(token) },
   ));
 }
 
 export async function completeCalibrationSession(
-  token: string,
   sessionId: string,
   proposedCalibrationFingerprint: string,
   confirmation: string,
@@ -2090,16 +2865,14 @@ export async function completeCalibrationSession(
       proposed_calibration_fingerprint: proposedCalibrationFingerprint,
       confirmation,
     },
-    { headers: sessionHeaders(token) },
   ));
 }
 
 export async function cancelCalibrationSession(
-  token: string,
   sessionId: string,
 ): Promise<CalibrationWorkflowStatus> {
   return normalizeCalibrationWorkflowStatus(await requestJson<unknown>(
     `/device/calibration/sessions/${encodeURIComponent(sessionId)}`,
-    { method: 'DELETE', headers: sessionHeaders(token) },
+    { method: 'DELETE' },
   ));
 }

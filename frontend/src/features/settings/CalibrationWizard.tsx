@@ -33,7 +33,6 @@ function integerOrNull(value: string): number | null {
 interface CalibrationWizardProps {
   connected: boolean;
   initiallyConfigured: boolean;
-  operatorToken: string;
   onSessionInvalidated?: () => void;
   onStatusChange?: (status: 'NOT_CONFIGURED' | 'DRAFT' | 'CONFIGURED') => void;
 }
@@ -41,7 +40,6 @@ interface CalibrationWizardProps {
 export function CalibrationWizard({
   connected,
   initiallyConfigured,
-  operatorToken,
   onSessionInvalidated,
   onStatusChange,
 }: CalibrationWizardProps) {
@@ -97,7 +95,7 @@ export function CalibrationWizard({
   };
 
   const start = () => run('start', async () => {
-    const next = await startCalibrationSession(operatorToken);
+    const next = await startCalibrationSession();
     setStatus(next);
     selectDraftJoint(next, next.required_joint_ids[0] ?? '');
     setPreview(null);
@@ -107,7 +105,7 @@ export function CalibrationWizard({
 
   const read = () => run('read', async () => {
     if (!status || !selectedJoint) return;
-    const next = await readCalibrationJoint(operatorToken, status.session_id, selectedJoint);
+    const next = await readCalibrationJoint(status.session_id, selectedJoint);
     setStatus(next);
     setPreview(null);
     setJointConfirmation('');
@@ -119,7 +117,7 @@ export function CalibrationWizard({
     const upper = integerOrNull(rawUpper);
     const parsedPhase = phase.trim() === '' ? null : integerOrNull(phase);
     if (lower === null || upper === null || (phase.trim() !== '' && parsedPhase === null)) return;
-    const next = await previewCalibrationJoint(operatorToken, status.session_id, {
+    const next = await previewCalibrationJoint(status.session_id, {
       joint_id: selectedJoint,
       logical_value: Number(logicalValue),
       direction,
@@ -133,7 +131,6 @@ export function CalibrationWizard({
   const confirm = () => run('confirm', async () => {
     if (!status || !preview) return;
     const next = await confirmCalibrationJoint(
-      operatorToken,
       status.session_id,
       preview.joint_id,
       preview.preview_fingerprint,
@@ -147,7 +144,6 @@ export function CalibrationWizard({
   const complete = () => run('complete', async () => {
     if (!status?.save_preview) return;
     const revision = await completeCalibrationSession(
-      operatorToken,
       status.session_id,
       status.save_preview.proposed_calibration_fingerprint,
       saveConfirmation,
@@ -160,7 +156,7 @@ export function CalibrationWizard({
   });
 
   const cancel = () => run('cancel', async () => {
-    if (status) await cancelCalibrationSession(operatorToken, status.session_id);
+    if (status) await cancelCalibrationSession(status.session_id);
     setStatus(null);
     setPreview(null);
     setSaveConfirmation('');

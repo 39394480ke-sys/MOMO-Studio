@@ -16,10 +16,15 @@ import type {
   TrajectoryPreview,
 } from '../api/types';
 import {
+  RealSessionContext,
+  type RealSessionContextValue,
+} from '../components/realSessionContext';
+import {
   RuntimeStatusContext,
   SAFE_RUNTIME_STATUS,
   type RuntimeStatus,
 } from '../components/runtimeStatusContext';
+import { realSessionFixture } from '../test/realSessionFixtures';
 import { robotFor, stage3Ids, v2Profile } from '../test/stage3Fixtures';
 import { StudioPage } from './StudioPage';
 
@@ -807,12 +812,15 @@ function renderStudio(
   path = `/studio?draft=${DRAFT_ID}`,
   strict = false,
   status = runtime(),
+  realSession: RealSessionContextValue = realSessionFixture(),
 ) {
   const content: ReactNode = (
     <MemoryRouter initialEntries={[path]}>
       <RuntimeStatusContext.Provider value={status}>
-        <StudioPage />
-        <LocationProbe />
+        <RealSessionContext.Provider value={realSession}>
+          <StudioPage />
+          <LocationProbe />
+        </RealSessionContext.Provider>
       </RuntimeStatusContext.Provider>
     </MemoryRouter>
   );
@@ -855,14 +863,24 @@ afterEach(() => {
 describe('Stage 6 Studio workspace', () => {
   it('blocks Goto, capture, and Playback in Commissioning READ ONLY', async () => {
     const backend = mockStudioBackend();
-    renderStudio(`/studio?draft=${DRAFT_ID}`, false, runtime({
-      controlMode: 'REAL',
-      hardwareAccessPolicy: 'READ_ONLY',
-      realMotionEnabled: false,
-    }));
+    renderStudio(
+      `/studio?draft=${DRAFT_ID}`,
+      false,
+      runtime({
+        controlMode: 'REAL',
+        hardwareAccessPolicy: 'READ_ONLY',
+        realMotionEnabled: false,
+      }),
+      realSessionFixture({
+        capabilities: {
+          real_joint_motion: { blocked_reasons: ['unsafe runtime policy'] },
+          real_playback: { blocked_reasons: ['unsafe runtime policy'] },
+        },
+      }),
+    );
 
     await screen.findByLabelText('Motion name');
-    expect(screen.getByRole('button', { name: 'Dry Run Goto' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Real Goto' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Capture current/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Prepare playback' })).toBeDisabled();
     expect(screen.getAllByText(/unsafe runtime policy/).length).toBeGreaterThan(0);
@@ -870,6 +888,46 @@ describe('Stage 6 Studio workspace', () => {
     expect(backend.requests.some((request) =>
       request.path.endsWith('/play') && request.method === 'POST'
     )).toBe(false);
+  });
+
+  it('uses the shared Real Joint capability for Studio Goto with honest Real copy', async () => {
+    const user = userEvent.setup();
+    const backend = mockStudioBackend();
+    renderStudio(
+      `/studio?draft=${DRAFT_ID}`,
+      false,
+      runtime({
+        controlMode: 'REAL',
+        hardwareAccessPolicy: 'FULL',
+        realMotionEnabled: true,
+      }),
+      realSessionFixture({
+        session: {
+          active: true,
+          session_id: '33333333-3333-4333-8333-333333333333',
+          expires_at: '2099-08-25T00:00:00Z',
+          purpose: 'REAL_MOTION',
+          scopes: ['REAL_JOINT_MOTION'],
+        },
+        capabilities: {
+          real_joint_motion: {
+            ready: true,
+            authorized: true,
+            blocked_reasons: [],
+          },
+        },
+      }),
+    );
+
+    await screen.findByLabelText('Motion name');
+    const goto = screen.getByRole('button', { name: 'Real Goto' });
+    await waitFor(() => expect(goto).toBeEnabled());
+    await user.click(goto);
+    expect(screen.getByText(/backend-authorized Real Joint Motion gateway/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Confirm Real Goto' }));
+    await waitFor(() => expect(backend.requests.some(
+      (request) => request.path.includes('/goto') && request.method === 'POST',
+    )).toBe(true));
   });
 
   it('starts blank, captures current state, adds a Pose, and autosaves two playable frames', async () => {

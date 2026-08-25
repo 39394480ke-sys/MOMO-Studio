@@ -104,6 +104,7 @@ def authorization_for(
     return CalibrationAuthorization(
         session_id=uuid4(),
         robot_id="primary",
+        robot_unit_id="MOMO-V2-UNIT-SYNTHETIC",
         variant=resolved_profile.variant,
         profile_fingerprint=resolved_profile.fingerprint,
         calibration_fingerprint=(

@@ -76,6 +76,29 @@ describe('Stage 3 Control workspace', () => {
     expect(backend.requestsFor('/motion/home')).toHaveLength(0);
   });
 
+  it('enables only the backend-authorized Real capability from the global session', async () => {
+    const user = userEvent.setup();
+    const backend = mockStage3Backend({
+      controlMode: 'REAL',
+      hardwareAccessPolicy: 'FULL',
+      realMotionEnabled: true,
+      realSessionScopes: ['REAL_JOINT_MOTION'],
+    });
+    renderControl();
+
+    const jointMove = await screen.findByRole('button', { name: '移动全部关节' });
+    await waitFor(() => expect(jointMove).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '机器人回零' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Jog X positive' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '连接' })).toBeDisabled();
+
+    await user.click(jointMove);
+    await waitFor(() => expect(backend.requestsFor('/motion/joints')).toHaveLength(1));
+    expect(backend.requestsFor('/motion/pose')).toHaveLength(0);
+  });
+
   it('renders responsive keyed V2 controls with J10 in millimetres and no unrelated tools', async () => {
     mockStage3Backend();
     const view = renderControl();

@@ -106,6 +106,7 @@ def test_hardware_local_authorization_requires_exact_explicit_local_config(
     local = tmp_path / "local.yaml"
     local.write_text(
         "hardware_local_config_enabled: true\n"
+        "robot_unit_id: MOMO-V2-UNIT-SYNTHETIC\n"
         "serial_port: /dev/explicit-test-only\n"
         "servo_ids: [1, 2]\n"
         "servo_protocol: sts\n",
@@ -113,6 +114,7 @@ def test_hardware_local_authorization_requires_exact_explicit_local_config(
     )
     configured = load_settings(default_config_path=default, local_config_path=local)
     assert configured.hardware_local_config_enabled is True
+    assert configured.robot_unit_id == "MOMO-V2-UNIT-SYNTHETIC"
     assert configured.servo_ids == (1, 2)
 
     monkeypatch.setenv("MOMO_SERIAL_PORT", "/dev/environment-mismatch")

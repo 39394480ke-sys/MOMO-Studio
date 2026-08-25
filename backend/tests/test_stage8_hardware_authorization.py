@@ -18,6 +18,7 @@ from momo.application.services.operator_session_service import (
 from momo.application.services.real_hardware_authorization import (
     RealHardwareAuthorization,
 )
+from momo.domain.commissioning import ValidatedFieldAcceptanceBundle
 from momo.domain.enums import (
     ControlMode,
     HardwareAccessPolicy,
@@ -104,7 +105,7 @@ def test_safe_defaults_are_not_session_authorizable() -> None:
         ),
         (
             {"field_acceptance_status": FieldAcceptanceStatus.PENDING},
-            RealHardwareBlocker.FIELD_ACCEPTANCE_NOT_PASSED,
+            RealHardwareBlocker.JOINT_MOTION_ACCEPTANCE_PENDING,
         ),
         (
             {"dependency_state": HardwareDependencyState.PENDING_ADAPTER_VERIFICATION},
@@ -151,8 +152,11 @@ def test_profile_calibration_kinematics_and_explicit_ids_must_match() -> None:
     provisional = good.kinematics.model_copy(
         update={"verification_status": KinematicsVerificationStatus.PROVISIONAL_DRY_RUN}
     )
-    report = evaluate(real_context(kinematics=provisional), clock)
-    assert RealHardwareBlocker.KINEMATICS_NOT_VERIFIED_FOR_REAL in report.blocking_reasons
+    provisional_context = real_context(kinematics=provisional).model_copy(
+        update={"kinematics_verification_evidence": None}
+    )
+    report = evaluate(provisional_context, clock)
+    assert RealHardwareBlocker.KINEMATICS_VERIFICATION_PENDING in report.blocking_reasons
     report = evaluate(real_context(expected_kinematics_fingerprint="f" * 64), clock)
     assert RealHardwareBlocker.KINEMATICS_FINGERPRINT_MISMATCH in report.blocking_reasons
 
@@ -443,8 +447,19 @@ def test_context_drift_revokes_effective_authorization() -> None:
         replacement_acceptance = context.field_acceptance_evidence.model_copy(
             update={"evidence_id": uuid4()}
         )
+        replacement_records = tuple(
+            replacement_acceptance
+            if item.evidence_id == context.field_acceptance_evidence.evidence_id
+            else item
+            for item in context.field_acceptance_bundle.records
+        )
         acceptance_drift = context.model_copy(
-            update={"field_acceptance_evidence": replacement_acceptance}
+            update={
+                "field_acceptance_evidence": replacement_acceptance,
+                "field_acceptance_bundle": ValidatedFieldAcceptanceBundle(
+                    records=replacement_records
+                ),
+            }
         )
         mismatch = RealHardwareAuthorization().evaluate(
             RealHardwareGateInput(
@@ -473,14 +488,20 @@ def test_context_drift_revokes_effective_authorization() -> None:
     asyncio.run(scenario())
 
 
-def test_provisional_kinematics_allows_joint_only_but_blocks_geometry_capabilities() -> None:
+def test_missing_kinematics_evidence_blocks_geometry_but_not_joint_playback() -> None:
     async def scenario() -> None:
-        context = real_context()
-        assert context.kinematics is not None
-        provisional = context.kinematics.model_copy(
+        accepted_context = real_context()
+        assert accepted_context.kinematics is not None
+        assert accepted_context.kinematics_verification_evidence is not None
+        provisional = accepted_context.kinematics.model_copy(
             update={"verification_status": KinematicsVerificationStatus.PROVISIONAL_DRY_RUN}
         )
-        context = context.model_copy(update={"kinematics": provisional})
+        context = accepted_context.model_copy(
+            update={
+                "kinematics": provisional,
+                "kinematics_verification_evidence": None,
+            }
+        )
         clock = FakeClock()
         authorization = RealHardwareAuthorization()
         sessions = OperatorSessionService(clock, authorization, ttl_s=60.0)
@@ -508,20 +529,27 @@ def test_provisional_kinematics_allows_joint_only_but_blocks_geometry_capabiliti
         assert report.state is RealHardwareReadinessState.BLOCKED_BY_KINEMATICS
         assert report.capabilities.real_joint_motion_ready is True
         assert report.capabilities.real_cartesian_motion_ready is False
-        assert report.capabilities.real_playback_ready is False
+        assert report.capabilities.real_playback_ready is True
         assert report.capabilities.real_vision_follow_ready is False
         for purpose in (
             RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
-            RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
             RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
         ):
             with pytest.raises(OperatorSessionScopeError):
                 await sessions.authorize(token, context, purpose=purpose)
-
-        upgraded_kinematics = provisional.model_copy(
-            update={"verification_status": KinematicsVerificationStatus.VERIFIED_FOR_REAL}
+        await sessions.authorize(
+            token,
+            context,
+            purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
         )
-        upgraded_context = context.model_copy(update={"kinematics": upgraded_kinematics})
+
+        upgraded_context = context.model_copy(
+            update={
+                "kinematics_verification_evidence": (
+                    accepted_context.kinematics_verification_evidence
+                )
+            }
+        )
         with pytest.raises(OperatorSessionScopeError):
             await sessions.authorize(
                 token,

@@ -173,6 +173,7 @@ class FeetechServoBus:
     async def open(self, device: str, protocol: str) -> None:
         _validate_device_protocol(device, protocol)
         candidate = ExplicitServoDevice(
+            robot_unit_id=self._authorization.session.robot_unit_id,
             serial_port=device,
             protocol=protocol,
             servo_ids=self._authorization.session.allowed_servo_ids,

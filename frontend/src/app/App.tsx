@@ -1,12 +1,15 @@
 import { BrowserRouter } from 'react-router-dom';
 
+import { RealSessionProvider } from '../components/RealSessionProvider';
 import { RuntimeStatusProvider } from '../components/RuntimeStatusProvider';
 import { AppRoutes } from './AppRoutes';
 
 export function AppContent() {
   return (
     <RuntimeStatusProvider>
-      <AppRoutes />
+      <RealSessionProvider>
+        <AppRoutes />
+      </RealSessionProvider>
     </RuntimeStatusProvider>
   );
 }

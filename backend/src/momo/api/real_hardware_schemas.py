@@ -8,9 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from momo.domain.commissioning import FieldAcceptanceEvidenceState
 from momo.domain.enums import HardwareAccessPolicy, RobotVariant
 from momo.domain.real_hardware import (
-    FieldAcceptanceEvidenceState,
     FieldAcceptanceStatus,
     HardwareDependencyState,
     OperatorSessionPurpose,
@@ -24,16 +24,19 @@ class HardwareConfirmationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     robot_id: str | None
+    robot_unit_id: str | None
     variant: RobotVariant | None
     profile_fingerprint: str | None
     calibration_fingerprint: str | None
     kinematics_fingerprint: str | None
     field_acceptance_evidence_id: UUID | None
+    pre_motion_evidence_id: UUID | None
     masked_serial_port: str | None
     masked_servo_ids: list[str]
     protocol: str | None
     session_purpose: OperatorSessionPurpose
     physical_estop_required: Literal[True]
+    workspace_clear_required: bool
     required_confirmation_text: Annotated[
         str,
         StringConstraints(min_length=1, max_length=200),
@@ -53,12 +56,42 @@ class OperatorSessionStatusResponse(BaseModel):
 class RealHardwareCapabilityReadinessResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    commissioning_read_only_ready: bool
     commissioning_diagnostics_ready: bool
     calibration_capture_ready: bool
+    commissioning_motion_test_ready: bool
     real_joint_motion_ready: bool
     real_cartesian_motion_ready: bool
     real_playback_ready: bool
     real_vision_follow_ready: bool
+
+
+class CapabilityReadinessDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ready: bool
+    authorized: bool
+    blocked_reasons: list[str]
+    required_evidence: list[str]
+
+
+class RealHardwareCapabilityDetailsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commissioning_read_only: CapabilityReadinessDetailResponse
+    commissioning_motion_test: CapabilityReadinessDetailResponse
+    real_joint_motion: CapabilityReadinessDetailResponse
+    real_cartesian_motion: CapabilityReadinessDetailResponse
+    real_playback: CapabilityReadinessDetailResponse
+    real_vision_follow: CapabilityReadinessDetailResponse
+
+
+class OperatorSessionAuthorizationOptionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    purpose: OperatorSessionPurpose
+    authorizable: bool
+    confirmation: HardwareConfirmationResponse
 
 
 class RealHardwareReadinessResponse(BaseModel):
@@ -68,9 +101,12 @@ class RealHardwareReadinessResponse(BaseModel):
     ready: bool
     session_authorizable: bool
     commissioning_session_authorizable: bool
+    commissioning_motion_session_authorizable: bool
     motion_session_authorizable: bool
     blocking_reasons: list[str]
     capabilities: RealHardwareCapabilityReadinessResponse
+    capability_details: RealHardwareCapabilityDetailsResponse
+    authorization_options: list[OperatorSessionAuthorizationOptionResponse]
     confirmation: HardwareConfirmationResponse
     session: OperatorSessionStatusResponse | None
     calibration_configured: bool
@@ -86,15 +122,16 @@ class OperatorSessionCreateRequest(BaseModel):
         StringConstraints(min_length=1, max_length=200),
     ]
     physical_estop_confirmed: Literal[True]
+    workspace_clear_confirmed: bool = False
+    operator_id: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+    ] = "operator"
 
 
 class OperatorSessionCreateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    session_token: Annotated[
-        str,
-        StringConstraints(min_length=20, max_length=200),
-    ] = Field(repr=False)
     session_id: UUID
     issued_at: datetime
     expires_at: datetime
@@ -118,6 +155,17 @@ class FieldAcceptanceCreateRequest(BaseModel):
         ]
         | None
     ) = None
+
+
+class FieldAcceptanceChecklistRequest(BaseModel):
+    """Select the configured checklist; it never carries an acceptance verdict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    checklist_version: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    ]
 
 
 class FieldAcceptanceStatusResponse(BaseModel):

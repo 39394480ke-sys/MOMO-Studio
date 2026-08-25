@@ -18,6 +18,11 @@ import type {
   PlaybackStatus,
   TrajectoryPreflightReport,
 } from '../../api/types';
+import {
+  realCapabilityAvailability,
+  useRealSession,
+  type RealSessionSummary,
+} from '../../components/realSessionContext';
 import type { RuntimeStatus } from '../../components/runtimeStatusContext';
 import type { StudioDraftDocument } from './studioEditorState';
 
@@ -51,17 +56,25 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : 'The Studio operation failed.';
 }
 
-function motionDisabledReason(runtime: RuntimeStatus): string | null {
+function motionDisabledReason(
+  runtime: RuntimeStatus,
+  realSession: RealSessionSummary,
+  capability: 'real_joint_motion' | 'real_playback',
+): string | null {
   if (runtime.backend !== 'connected') return 'backend unavailable';
-  if (!runtime.robot?.connected) return 'connect the Dry Run robot';
+  if (!runtime.robot?.connected) {
+    return runtime.controlMode === 'REAL'
+      ? 'backend reports the Real robot disconnected'
+      : 'connect the Dry Run robot';
+  }
   if (runtime.robot.stale || runtime.stale) return 'robot state is stale';
   if (!runtime.profile) return 'robot profile unavailable';
-  if (
-    runtime.controlMode !== 'DRY RUN' ||
-    runtime.hardwareAccessPolicy !== 'DISABLED' ||
-    runtime.realMotionEnabled !== false
-  ) {
-    return 'unsafe runtime policy';
+  if (runtime.controlMode === 'REAL') {
+    const availability = realCapabilityAvailability(realSession, capability);
+    return availability.allowed ? null : availability.reason;
+  }
+  if (runtime.hardwareAccessPolicy !== 'DISABLED' || runtime.realMotionEnabled !== false) {
+    return 'Dry Run hardware isolation is unavailable';
   }
   return null;
 }
@@ -69,8 +82,10 @@ function motionDisabledReason(runtime: RuntimeStatus): string | null {
 function draftMotionDisabledReason(
   runtime: RuntimeStatus,
   document: StudioDraftDocument,
+  realSession: RealSessionSummary,
+  capability: 'real_joint_motion' | 'real_playback',
 ): string | null {
-  const runtimeReason = motionDisabledReason(runtime);
+  const runtimeReason = motionDisabledReason(runtime, realSession, capability);
   if (runtimeReason) return runtimeReason;
   if (runtime.robot?.variant !== document.robotVariant) {
     return `active robot is ${runtime.robot?.variant ?? 'unavailable'}, draft is ${document.robotVariant}`;
@@ -110,6 +125,7 @@ export function useStudioMotionSession({
   runtime,
   savedMotion,
 }: UseStudioMotionSessionOptions) {
+  const { summary: realSession } = useRealSession();
   const [action, setAction] = useState<string | null>(null);
   const [playbackPreflight, setPlaybackPreflight] = useState<TrajectoryPreflightReport | null>(null);
   const [playback, setPlayback] = useState<PlaybackStatus | null>(null);
@@ -132,7 +148,12 @@ export function useStudioMotionSession({
   }, [document, savedMotion?.id, savedMotion?.revision]);
 
   const preparePlayback = useCallback(async () => {
-    if (!savedMotion) return;
+    if (!savedMotion || draftMotionDisabledReason(
+      runtime,
+      documentRef.current,
+      realSession,
+      'real_playback',
+    )) return;
     const actionName = 'prepare-playback';
     const epoch = playbackEpochRef.current + 1;
     playbackEpochRef.current = epoch;
@@ -161,10 +182,16 @@ export function useStudioMotionSession({
         setAction((currentAction) => currentAction === actionName ? null : currentAction);
       }
     }
-  }, [onError, savedMotion]);
+  }, [onError, realSession, runtime, savedMotion]);
 
   const play = useCallback(async () => {
-    if (!savedMotion || !playbackPreflight?.passed || !playbackPreflight.digest) return;
+    if (!savedMotion || !playbackPreflight?.passed || !playbackPreflight.digest ||
+      draftMotionDisabledReason(
+        runtime,
+        documentRef.current,
+        realSession,
+        'real_playback',
+      )) return;
     const actionName = 'play';
     const epoch = playbackEpochRef.current + 1;
     playbackEpochRef.current = epoch;
@@ -192,7 +219,7 @@ export function useStudioMotionSession({
         setAction((currentAction) => currentAction === actionName ? null : currentAction);
       }
     }
-  }, [onError, playbackPreflight, savedMotion]);
+  }, [onError, playbackPreflight, realSession, runtime, savedMotion]);
 
   const playbackAction = useCallback(async (
     actionName: string,
@@ -251,7 +278,12 @@ export function useStudioMotionSession({
 
   const gotoFrame = useCallback(async (frameId: string) => {
     const frame = documentRef.current.frames.find((candidate) => candidate.id === frameId);
-    if (!frame || draftMotionDisabledReason(runtime, documentRef.current)) return;
+    if (!frame || draftMotionDisabledReason(
+      runtime,
+      documentRef.current,
+      realSession,
+      'real_joint_motion',
+    )) return;
     const epoch = studioCommandEpochRef.current + 1;
     studioCommandEpochRef.current = epoch;
     setAction('goto');
@@ -270,7 +302,7 @@ export function useStudioMotionSession({
       if (studioCommandEpochRef.current !== epoch) return;
       setStudioCommand(submission.command);
       setStudioCommandPollGeneration(epoch);
-      onMessage(`Submitted “${frame.label}” through the reviewed Dry Run gateway.`);
+      onMessage(`Submitted “${frame.label}” through the reviewed motion gateway.`);
     })();
     studioGotoRequestRef.current = operation;
     try {
@@ -284,7 +316,7 @@ export function useStudioMotionSession({
       if (studioGotoRequestRef.current === operation) studioGotoRequestRef.current = null;
       setAction((currentAction) => currentAction === 'goto' ? null : currentAction);
     }
-  }, [onDraftConflict, onError, onMessage, persistWorkspace, runtime]);
+  }, [onDraftConflict, onError, onMessage, persistWorkspace, realSession, runtime]);
 
   const studioCommandId = studioCommand?.command_id ?? null;
   const studioCommandIsActive = Boolean(
@@ -372,7 +404,9 @@ export function useStudioMotionSession({
         }
       }
       if (firstError) throw firstError;
-      onMessage('Priority Stop was accepted by the active Dry Run motion path.');
+      onMessage(runtime.controlMode === 'REAL'
+        ? 'Priority Stop was accepted by the active Real motion path.'
+        : 'Priority Stop was accepted by the active Dry Run motion path.');
     } catch (caught) {
       if (
         playbackEpochRef.current === playbackEpoch &&
@@ -384,11 +418,22 @@ export function useStudioMotionSession({
         setAction((currentAction) => currentAction === 'stop' ? null : currentAction);
       }
     }
-  }, [onError, onMessage, playback?.state]);
+  }, [onError, onMessage, playback?.state, runtime.controlMode]);
 
   return {
     action,
-    disabledReason: draftMotionDisabledReason(runtime, document),
+    disabledReason: draftMotionDisabledReason(
+      runtime,
+      document,
+      realSession,
+      'real_joint_motion',
+    ),
+    playbackDisabledReason: draftMotionDisabledReason(
+      runtime,
+      document,
+      realSession,
+      'real_playback',
+    ),
     gotoFrame,
     pause: () => playbackAction('pause', pausePlayback),
     play,

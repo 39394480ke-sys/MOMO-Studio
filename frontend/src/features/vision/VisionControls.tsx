@@ -92,17 +92,25 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
   else if (!sourceOperational) detectionBlockReason = 'Vision source is not operational';
   else if (!frameFresh) detectionBlockReason = 'Wait for a fresh frame';
   let startReason: string | null = null;
-  if (!workspace.dryRunFollowAllowed) {
-    startReason = workspace.runtimePolicy === 'READ_ONLY'
-      ? 'Commissioning READ ONLY permits no Follow'
-      : 'REAL_MOTION Operator Session required';
+  if (!workspace.followAllowed) {
+    startReason = workspace.followBlockedReason ?? 'Backend capability is not authorized';
   } else if (!workspace.online) startReason = 'Backend unavailable';
   else if (!workspace.statusReachable) startReason = 'Vision status unavailable';
   else if (!workspace.capabilities) startReason = 'Provider capability is still loading';
+  else if (
+    workspace.runtimeMode === 'REAL' &&
+    !workspace.capabilities.real_follow_allowed
+  ) {
+    startReason = workspace.capabilities.real_follow_blocked_reason;
+  }
   else if (!sourceAvailable) startReason = 'Vision source or bounded stream is unavailable';
   else if (workspace.streamFailed) startReason = 'Vision stream is disconnected';
   else if (!workspace.mapping) startReason = 'Active Profile has no verified pan/tilt mapping';
-  else if (!robotConnected) startReason = 'Connect the Dry Run robot';
+  else if (!robotConnected) {
+    startReason = workspace.runtimeMode === 'REAL'
+      ? 'Backend reports the Real robot disconnected'
+      : 'Connect the Dry Run robot';
+  }
   else if (!sourceOperational) {
     startReason = `Vision source is ${workspace.status?.source_state ?? 'not ready'}`;
   } else if (!frameFresh) startReason = 'Wait for a fresh frame';
@@ -187,7 +195,7 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
       </section>
 
       <section className="vision-control-card">
-        <p className="eyebrow">Dry Run controller</p>
+        <p className="eyebrow">{workspace.runtimeMode === 'REAL' ? 'Real capability controller' : 'Dry Run controller'}</p>
         <h2>Follow tuning</h2>
         <div className="vision-follow-grid">
           <NumericControl disabled={tuningDisabled} label="EMA alpha" min={0.05} max={1} step={0.05} value={workspace.configuration.ema_alpha} onChange={(value) => updateNumber(workspace, 'ema_alpha', value)} />
@@ -209,9 +217,9 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
             className="command-button command-button--primary"
             disabled={startDisabled}
             onClick={() => void workspace.startFollow()}
-            title={startReason ?? 'Start a lease-bound Dry Run Follow session'}
+            title={startReason ?? `Start a lease-bound ${workspace.runtimeMode === 'REAL' ? 'Real' : 'Dry Run'} Follow session`}
             type="button"
-          >Start Dry Run Follow</button>
+          >Start {workspace.runtimeMode === 'REAL' ? 'Real' : 'Dry Run'} Follow</button>
           <button
             className="command-button command-button--stop"
             disabled={!stopAvailable || workspace.busy === 'stop-follow'}

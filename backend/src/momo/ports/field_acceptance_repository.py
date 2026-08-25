@@ -2,7 +2,7 @@
 
 from typing import Protocol, runtime_checkable
 
-from momo.domain.real_hardware import FieldAcceptanceEvidence
+from momo.domain.commissioning import FieldAcceptanceEvidence
 
 
 @runtime_checkable
