@@ -1,190 +1,131 @@
 # MOMO Studio
 
-MOMO Studio is a local photography motion workstation for MOMO V1 and V2 robot arms. The intended workflow is to connect one active robot, find camera positions with joint or Cartesian control, capture poses and keyframes, arrange a motion on a timeline, save it to a library, preflight it, and play it back safely. Stage 8 hardens the release boundary around that Dry Run/Synthetic product: Real hardware remains multi-factor and field-acceptance gated.
-
-This repository is the new web-first system. The legacy [`MOMO_RobotARM`](https://github.com/39394480ke-sys/MOMO_RobotARM) V2 branch is read-only migration evidence; MOMO Studio does not copy its hardware implementation wholesale. The pinned source point is recorded in the migration documents and Stage reports.
+MOMO Studio is a local motion-production workstation for MOMO V1/V2 camera robots.
+It supports robot positioning, keyframe capture, pose and motion libraries,
+timeline-based trajectory authoring, trajectory playback, and vision following.
 
 ## Current status
 
-MOMO Studio `0.1.0-rc1` contains the complete Stages 1–8 software implementation. The
-Dry Run end-to-end workflow is validated, and Draft PR
-[#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) contains the current release
-candidate. Real-hardware commissioning and physical field acceptance remain pending.
-The software must not be considered hardware-verified until the field-acceptance
-checklist has been completed on the exact physical robot.
+| Area | Status |
+|---|---|
+| Version | `0.1.0-rc1` |
+| Dry Run | **VALIDATED** |
+| V1/V2 software model | **VALIDATED** |
+| Joint / Cartesian software control | **VALIDATED IN DRY RUN** |
+| Pose / Motion Library | **VALIDATED** |
+| Trajectory / Playback | **VALIDATED IN DRY RUN** |
+| Studio Timeline | **VALIDATED** |
+| Synthetic Vision / Follow | **VALIDATED IN DRY RUN** |
+| Commissioning software workflow | **VALIDATED WITH FAKE/BOMB/ISOLATED ADAPTERS** |
+| Real Feetech hardware | **FIELD VERIFICATION REQUIRED** |
+| Physical Stop | **FIELD VERIFICATION REQUIRED** |
+| Real Kinematics | **FIELD VERIFICATION REQUIRED** |
+| Real Cartesian / Playback / Vision | **BLOCKED UNTIL FIELD ACCEPTANCE** |
 
-Stage 3 is complete on top of the completed Stage 2 robot core. Its dedicated commit is
-`133318e9437dff133a4c25bf01aec09cce5ae6e3` and is pushed to
-`origin/codex/v1-autonomous-completion`. It adds
-mesh-free V1/V2 kinematics models, deterministic FK/IK, Base/Tool Cartesian composition,
-one Motion Safety Gateway, cancellable interpolated Dry Run execution, a renewable Jog
-deadman lease, a bounded read-only robot-status WebSocket, and the complete responsive
-Control workspace. The final evidence is 226 passing backend tests and 54 passing
-frontend tests, green lint/type/format/build/schema/lock/audit checks, desktop/mobile and
-breakpoint browser acceptance, an empty final browser console, and focused
-hardware/camera isolation. See the
-[Stage 3 report](docs/stage-reports/stage-03-kinematics-and-control.md).
+This is a software user-acceptance candidate. Automated commissioning evidence proves
+the software path only; it is not physical field acceptance.
 
-Both kinematics models are `PROVISIONAL_DRY_RUN`. V1 is rail-less and contains exactly
-`j11`-`j15`; V2 contains `j10`-`j15`, with prismatic J10 converted between UI/domain
-millimetres and adapter metres only at a named boundary. Provisional geometry, limits,
-workspace, velocity, and acceleration values are software characterization inputs, not
-physical authority.
+## What MOMO Studio does
 
-The product remains locked to `DRY_RUN`, hardware access remains `DISABLED`, and
-`real_motion_enabled` remains false. Stage 3 imports or instantiates no serial or Feetech
-adapter, reads no real Calibration, opens no camera, and commands no physical hardware.
-Every movement source passes through the same reviewed application gateway; there is no
-raw-servo or direct-driver API.
+- Positions one active MOMO camera robot through Joint or Cartesian controls.
+- Captures immutable Pose snapshots and reusable Motion keyframes.
+- Authors Joint and Cartesian-linear transitions on a Studio timeline.
+- Preflights, previews, and plays trajectories through one Motion Safety Gateway.
+- Provides deterministic Synthetic Vision, tracking, and safe Dry Run Follow.
+- Provides read-only commissioning, initial Calibration, staged field evidence, and
+  explainable Real-capability gates without silently enabling hardware.
 
-Stage 4 is complete and GREEN. Its dedicated scope introduces independent
-Pose/Motion schema `2.0.0` contracts, UUID-named atomic file repositories with optimistic
-revisions and corrupt-file isolation, coherent Pose Capture, Dry Run Goto through the
-existing gateway, a bounded Library API/UI, and an explicit default-dry-run Legacy action
-importer. The final gate passed 273 backend tests, 71 frontend tests across 8 files,
-dependency checks, a 65-test route/import/hardware suite, and full desktop/mobile browser
-acceptance. The independent audit passes P1=0/P2=0. The containing commit uses subject
-`feat: add pose and motion library workflows`; its exact self-SHA/remote state is recorded
-by the next Stage rather than fabricated inside its own report.
+## Product workflow
 
-See the [Stage 4 report](docs/stage-reports/stage-04-library.md),
-[atomic repository decision](docs/adr/0011-atomic-entity-repositories.md), and
-[Legacy import guide](docs/legacy-action-import.md).
+```text
+CONTROL
+    ↓
+Find camera position
+    ↓
+Capture Pose / Keyframe
+    ↓
 
-Stage 5 is complete and GREEN. It adds deterministic Joint/Cartesian-linear/hold
-compilation, whole-plan preflight, immutable prepared trajectories with semantic
-SHA-256 identity, bounded preview, and monotonic Dry Run playback with pause, resume,
-Stop, rate, closed-loop, progress, and read-only WebSocket status. Playback revalidates
-the exact prepared object through the existing Motion Safety Gateway and shares the one
-motion slot. The final gate passed 352 backend tests, 85 frontend tests, a 128-test
-focused isolation/integration suite, dependency/schema/build checks, and desktop/mobile
-browser acceptance with zero console warnings/errors. Real playback remains blocked.
+STUDIO
+    ↓
+Arrange keyframes
+    ↓
+Configure Joint / Cartesian transitions
+    ↓
+Preflight
+    ↓
 
-See the [Stage 5 report](docs/stage-reports/stage-05-trajectory-and-playback.md),
-[compiled trajectory decision](docs/adr/0012-compiled-trajectory-and-digest.md), and
-[trajectory semantics](docs/trajectory-semantics.md).
+LIBRARY
+    ↓
+Save / Reuse Motion
+    ↓
 
-Stage 6 implementation gates pass: 393 backend tests, an independently rerun 36-test
-Stage 6 domain/repository/coordinator/actions/API selection, 174 frontend tests across
-12 files, and a focused 89-test Studio selection pass. Ruff and Ruff format pass across
-141 files, strict mypy passes across 141 source files, ESLint/TypeScript/build and
-isolated desktop/mobile browser acceptance pass, and the final independent integrated
-audit closes at P1=0/P2=0. The backend is split into a bounded Draft/compile facade,
-formal-save coordinator, and robot-actions collaborator; the frontend composes separate
-Draft, Motion, Pose, and dirty-navigation sessions around the pure reducer. The implementation keeps incomplete work in a separate strict
-`MotionDraft` schema, preserves explicit directed-edge/default semantics, reconciles
-cross-repository formal saves with a fail-closed write-ahead intent and exact operator
-release, compiles non-executable previews only on the backend, and routes
-persisted-keyframe Goto through the existing Dry Run Motion Safety Gateway. Conflict
-Save As uses an authoritative, provenance-preserving Draft fork without overwriting the
-original Draft or Motion.
+PLAYBACK
+```
 
-Lock and npm vulnerability gates also pass. Stage 6 is complete in commit
-`37783bdf8c01146d3a312980dbe4a25716e5468c`, pushed to
-`origin/codex/v1-autonomous-completion`. See the
-[Stage 6 report](docs/stage-reports/stage-06-studio-timeline.md),
-[MotionDraft decision](docs/adr/0013-motion-draft-and-timeline-editor.md), and
-[Studio workflow](docs/studio-user-workflow.md).
+Vision is a separate workflow:
 
-Stage 7 implementation and static gates are green: 432 backend tests (including 34
-focused Vision core/Follow/API tests), 190 frontend tests across 14 files (including 16
-focused Vision client/page tests), backend/frontend lint/type/format/build, deterministic
-schema generation, lock, and npm-audit checks pass. The Vision workspace provides a
-deterministic Synthetic stream, frame-bound manual ROI, honest person/face/tracker
-capabilities, tracking overlays, controller metrics, and one heartbeat-renewed Dry Run
-Follow lease. Stale/lost/low-confidence/disconnect/fault/conflict/expiry/Stop events stop
-ownership and cancel Vision commands through the normal motion application path.
+```text
+VISION
+    ↓
+Select subject
+    ↓
+Track
+    ↓
+Safe Follow
+```
 
-Camera access defaults to `SYNTHETIC_ONLY`. OpenCV was not added as a dependency; its
-optional camera shell imports lazily only after a complete explicit live grant, and
-Stage 7 startup neither opens nor enumerates a camera. Synthetic detectors and the
-tracker are deterministic fixtures, not general models. Real Follow remains blocked.
-Desktop/mobile browser acceptance and final independent audit pass P1=0/P2=0. The Stage
-7 dedicated commit is `dedbdabb9a35aefea01df05f0652214428305a93` and is pushed to
-`origin/codex/v1-autonomous-completion`. See the
-[Stage 7 report](docs/stage-reports/stage-07-vision-following.md),
-[provider capabilities](docs/vision-provider-capabilities.md), and
-[Vision access/Follow lease decision](docs/adr/0014-vision-access-policy-and-follow-lease.md).
+## Supported robots
 
-Stage 8 software implementation and Dry Run release-candidate verification are complete
-for `0.1.0-rc1` with `FIELD_ACCEPTANCE_REQUIRED`; its dedicated commit is pushed and the
-current release candidate remains in Draft PR #1. Final pre-merge hardening separates
-three non-upgradeable purposes: `COMMISSIONING_READ_ONLY`, the restricted
-`COMMISSIONING_MOTION_TEST`, and production `REAL_MOTION`. It adds stable local
-`robot_unit_id` binding, a backend-enforced single-joint commissioning envelope and
-deadman, staged capability evidence, and a local Kinematics verification overlay. A
-legacy global `PASSED` value cannot grant authority. The default composition still
-supplies no Real bus factory or physical Kinematics snapshot provider, does not promote
-persisted Kinematics JSON after restart, and cannot open hardware.
+| Robot | Enabled joints | Rail | Units |
+|---|---|---|---|
+| MOMO V1 | `j11`–`j15` | None | `deg` |
+| MOMO V2 | `j10`–`j15` | `j10` is prismatic | `j10`: `mm`; `j11`–`j15`: `deg` |
 
-The release boundary also includes exact-Origin local/LAN authentication, bounded
-HttpOnly browser sessions, ongoing WebSocket/Vision stream reauthorization, structured
-redacted audit, deterministic config-free backup, one-use preview grants, exact-revision
-restore, and a durable write-ahead restore journal recovered before application traffic.
-The built SPA can be hosted by the same backend from relative local assets; interactive
-CDN-backed API documentation is disabled and no runtime CDN is required.
+V1 never contains `j10`. V1 and V2 are hardware variants, not software versions. Both
+committed Kinematics models remain `PROVISIONAL_DRY_RUN`.
 
-Feetech remains **Pending Adapter Verification**: the optional shell performs no import
-until a complete grant is supplied, goal writes stay disabled, and unverified Stop
-returns `SAFETY_STATE_UNCERTAIN`. Both committed kinematics models remain
-`PROVISIONAL_DRY_RUN`, field acceptance is still `PENDING`, and every item in the Real
-field checklist remains unchecked.
+## Core features
 
-The historical Stage 8 software gate passed 563 backend tests with one existing Starlette/httpx
-deprecation warning and 201 frontend tests across 17 files. Ruff, format, strict mypy,
-ESLint, TypeScript, schema determinism, lock/dependency compatibility, the 52-test
-hardware/camera isolation suite, secret scan, npm audit, and the 1,642-module Vite build
-all pass. Desktop 1440×960, mobile 390×844, and 850/830 breakpoint acceptance complete
-the V2 Dry Run Control→Library→Studio→Playback→Synthetic Vision workflow with no
-horizontal overflow and console warnings/errors `[]`. The final independent audit closes
-P1=0/P2=0 after 74 focused tests. Exact evidence and remaining delivery/field gates are
-in the [Stage 8 report](docs/stage-reports/stage-08-release-hardening.md).
+- Responsive Control workspace with lifecycle, Joint Jog, continuous Jog, FK/IK,
+  Cartesian Jog, Move Pose, Home, and priority Stop in Dry Run.
+- UUID-backed Pose and Motion Library with revisions, compatibility checks, search,
+  tags, duplicate, and safe deletion.
+- Deterministic Joint, hold, and Cartesian-linear trajectory compilation and whole-plan
+  preflight.
+- Playback with pause, resume, Stop, rate, loop, progress, and one active-motion slot.
+- Timeline Studio with capture, reorder, duration, hold, easing, Undo/Redo, Save, and
+  Save As.
+- Synthetic Vision with ROI selection, tracking overlays, filtering, a renewable Follow
+  lease, and automatic Stop on stale/lost targets.
+- Backend-derived capability explanations shared by Control, Library, Studio, Vision,
+  and Settings.
 
-The commissioning authorization fix is currently verified by 591 backend tests, 215
-frontend tests across 18 files, 88 focused commissioning tests, 102 safe-gate
-hardware/camera isolation tests, clean Python/npm audits, deterministic schemas, and an
-isolated READ_ONLY browser flow through Calibration Revision 1. Exact current evidence is
-in the [commissioning fix report](docs/stage-reports/commissioning-authorization-fix.md).
+## Quick start
 
-The final hardening work resolves the second commissioning deadlock without declaring a
-robot accepted before it can be tested. Field progress is now derived from independent
-pre-motion, Joint, Kinematics, Cartesian, Playback, and Vision evidence for the exact
-robot unit. An HttpOnly same-origin operator cookie carries authority; the global
-frontend session context retains only the backend summary, capability matrix, expiry,
-and blocked reasons. Control, Library, Studio, and Vision consume that one backend-derived
-view and remain blocked whenever required physical evidence is absent.
-
-Automated Fake/Bomb coverage can validate the software workflow but is not physical
-acceptance. Feetech goal writes, software/physical Stop behavior, the physical E-stop,
-physical V1/V2 Kinematics, backlash, flex, timing, and live-camera behavior remain
-`FIELD VERIFICATION REQUIRED`. See the
-[commissioning test contract](docs/commissioning-motion-test.md),
-[staged acceptance model](docs/field-acceptance-model.md),
-[Kinematics verification flow](docs/kinematics-field-verification.md), and
-[final hardening report](docs/stage-reports/final-pre-merge-hardening.md). Final command,
-browser, audit, and CI results belong in that report only after they are actually run.
-
-## Develop locally
-
-Requirements: Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and a current Node.js/npm release. `make install` consumes both committed lockfiles.
-
-Create the ignored `config/local.yaml` with the explicit reviewed bind, for example
-`server_host: 127.0.0.1` and `server_port: 8000`, then run:
+Requirements: Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and a current
+Node.js/npm release.
 
 ```bash
+git clone https://github.com/39394480ke-sys/MOMO-Studio.git
+cd MOMO-Studio
 make install
+cp config/default.yaml config/local.yaml
 make dev-backend LOCAL_CONFIG=config/local.yaml
 ```
 
-In another terminal:
+In a second terminal:
 
 ```bash
 make dev-frontend
 ```
 
-The frontend development server proxies `/api` to the local FastAPI server. Direct route refreshes are handled by Vite's SPA fallback.
+Open the Vite URL printed by the frontend command. The copied configuration remains
+`DRY_RUN`, hardware access is disabled, Real and commissioning motion are disabled, and
+Vision is Synthetic-only.
 
-## Test and build
+> Running the default development configuration cannot control a real robot.
+
+## Development
 
 ```bash
 make test
@@ -195,49 +136,93 @@ make schemas
 make audit
 ```
 
-Backend commands use `backend/.venv`; frontend commands run through npm in `frontend/`.
+The REST and read-only WebSocket surfaces are versioned under `/api/v1`. Backend commands
+use `backend/.venv`; frontend commands run through npm in `frontend/`.
 
-## Repository map
+## Project structure
 
-- `backend/` — FastAPI factory, application services, domain models, ports/adapters, schema generator, tests.
-- `frontend/` — React/Vite application, REST fallback, lifecycle/motion controls,
-  Pose/Motion Library and playback, Studio timeline authoring, Synthetic Vision/Follow,
-  Real-readiness/Calibration diagnostics, release status, security session controls,
-  and tests.
-- `kinematics_models/` — mesh-free, fingerprinted V1/V2 provisional Dry Run serial chains.
-- `config/default.yaml` — safe repository defaults: loopback, Dry Run, hardware Disabled,
-  commissioning-motion and production-motion false, empty physical-unit identity,
-  Synthetic camera, and field acceptance Pending.
-- `robot_profiles/` — fingerprinted product-contract examples, never device-ready profiles.
-- `calibration/examples/` — synthetic template calibrations, never real-device calibration.
-- `data/examples/` — reviewed schema examples; operational Pose/Motion/Draft/runtime and
-  quarantine data is ignored.
-- `docs/` — product, architecture, safety, domain, ADR, audit, and Stage evidence.
+- `backend/` — FastAPI application, domain/application layers, ports/adapters, tests,
+  and JSON Schema generation.
+- `frontend/` — React/Vite Control, Library, Studio, Vision, Settings, and tests.
+- `robot_profiles/` — V1/V2 product-contract examples, not device-ready profiles.
+- `kinematics_models/` — mesh-free provisional Dry Run models.
+- `calibration/examples/` — synthetic templates, never real-device Calibration.
+- `data/examples/` — reviewed Pose/Motion examples; runtime and user data are ignored.
+- `config/default.yaml` — deny-by-default repository configuration.
+- `docs/` — product, architecture, safety, operation, acceptance, ADR, and historical
+  Stage evidence.
 
-## First-version scope
+## Safety model
 
-First-version scope includes connection, Dry Run plus a field-gated Real software boundary, joint and Cartesian
-control, FK/IK, poses, keyframes, motions, Studio authoring, library/playback,
-camera-fed vision following, device diagnostics, and safety checks for one active
-robot. Stages 1–8 software implementation, Dry Run browser acceptance, and independent
-audit are evidence-backed and included in Draft PR #1. Real commissioning evidence and
-all physical field acceptance remain separate unresolved gates.
+- `DRY_RUN` and hardware access `DISABLED` are the defaults.
+- Every motion source passes through the Motion Safety Gateway.
+- `COMMISSIONING_READ_ONLY` has no write capability.
+- `COMMISSIONING_MOTION_TEST` permits only a separately armed, bounded, relative
+  single-joint test under a backend deadman.
+- `REAL_MOTION` is a separate purpose and requires current capability evidence.
+- Session purpose never upgrades; a new purpose requires a new confirmation and session.
+- Field acceptance is staged. No writable global `PASSED` value can authorize motion.
+- The normal release composition does not create a production write-capable Feetech bus.
+- Camera access defaults to `SYNTHETIC_ONLY` and never auto-opens a real camera.
 
-Explicitly excluded: PyQt or another standalone GUI, AI/voice/natural-language control, gesture control, cinematic director/subject-lock directing, photography or video recording, grippers, teach mode, PyBullet product windows, community features, Camera Hub media management, and multi-arm product workflows.
+See the [Safety model](docs/safety.md) and
+[staged field-acceptance decision](docs/adr/0019-staged-field-acceptance.md).
 
-See [product scope](docs/product-scope.md), [architecture](docs/architecture.md),
-[safety](docs/safety.md), the [Stage 2 report](docs/stage-reports/stage-02-robot-core.md),
-and the complete [Stage 3 report](docs/stage-reports/stage-03-kinematics-and-control.md).
+## Real hardware status
 
-## Release boundary
+Real hardware is intentionally unavailable in the release-candidate defaults. Feetech
+goal write, physical Stop/E-stop behavior, servo timing, physical geometry, TCP,
+Kinematics, Cartesian motion, Playback, and Vision Follow require evidence for the exact
+physical robot. The field procedure is separate from software user acceptance.
 
-Stages 3–8 are complete and GREEN. Stage 8 commit
-`4f7a75606aacb3fc93128445d7487ff196ce9efb` is pushed, and Draft PR
-[#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open. Stage 8 owns the
-separately gated Real hardware/release boundary. Every motion source
-must reuse the Motion Safety Gateway rather than introducing a route-to-driver shortcut.
-Real hardware, Real Joint/Cartesian/Playback/Follow, and any physical Stop claim remain
-capability-evidence, adapter-verification, and exact-unit field-acceptance gated. The
-field procedure follows Phases 0–10; it never creates a global pass before test motion.
+See [Real-hardware field acceptance](docs/real-hardware-acceptance.md).
 
-No open-source license has been selected. See `THIRD_PARTY_NOTICES.md` for provenance tracking; license selection remains a project decision.
+## Documentation
+
+Start with the [documentation index](docs/README.md). Key entry points:
+
+- [Release candidate summary](docs/release-candidate-0.1.0-rc1.md)
+- [Software user-acceptance checklist](docs/user-acceptance-checklist.md)
+- [Operator guide](docs/operator-guide.md)
+- [Architecture](docs/architecture.md)
+- [Safety](docs/safety.md)
+- [Final user-acceptance handoff](docs/stage-reports/v0.1.0-rc1-user-acceptance-handoff.md)
+
+## Test status
+
+The latest candidate verification passes:
+
+- Backend: 629 tests.
+- Frontend: 230 tests across 19 files.
+- Hardware/camera/commissioning isolation: 140 tests.
+- Ruff, Ruff format, strict mypy, ESLint, TypeScript, Vite production build,
+  deterministic schemas, lock/dependency checks, secret scan, `pip-audit`, and
+  `npm audit`.
+
+The exact final candidate commit and CI runs are recorded in the Draft PR and final
+handoff.
+
+## Known limitations
+
+- Feetech goal-write and Physical Stop/E-stop behavior are not physically verified.
+- Servo timing and V1/V2 physical geometry are not verified.
+- Mechanical backlash/flex is not characterized; physical TCP calibration is incomplete.
+- Kinematics remain provisional; Real Cartesian is blocked.
+- Real Playback remains blocked where its required evidence is incomplete.
+- Real Vision Follow is blocked; camera latency and Vision gains are not field tuned.
+- Desktop/Tauri packaging is not implemented.
+- The project license decision remains pending, and Legacy asset redistribution rights
+  must not be assumed.
+
+## Roadmap
+
+The software candidate is complete. Remaining work is sequenced through user software
+acceptance, physical adapter/commissioning evidence, capability-specific field
+acceptance, Vision tuning, and optional desktop packaging. See the
+[roadmap](docs/roadmap.md).
+
+## License and third-party notice
+
+No repository license has been selected. Project license decision pending. Do not assume
+redistribution rights for Legacy assets. Dependency and provenance notes are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
