@@ -86,13 +86,23 @@ React Vision workspace
               -> Motion application service -> MotionSafetyGateway
 
 React Settings / release workspace
-  -> readiness, masked device evidence, Operator Session, diagnostics, Calibration wizard
+  -> readiness, stable unit identity, staged acceptance, Operator Session, diagnostics,
+     Calibration, and restricted commissioning-motion workflow
       -> DeviceDiagnosticsService / CalibrationWorkflowCoordinator
           -> RealHardwareAuthorization (pure all-gates decision)
           -> OperatorSessionService (bounded, context-bound, expiring)
-          -> ServoBus port (explicit device + explicit IDs; no scan/register API)
-              -> FakeServoBus in automated evidence
+          -> ReadOnlyServoBus (explicit device + explicit IDs; no write/scan/register API)
+      -> CommissioningMotionTestService
+          -> immutable safety-envelope snapshot + backend deadman
+          -> CommissioningMotionServoBus (one prepared joint goal only)
+              -> FakeCommissioningMotionBus in automated evidence
               -> optional Feetech shell: Pending Adapter Verification / writes disabled
+      -> FieldAcceptanceBundle + KinematicsVerificationEvidence repositories
+          -> ignored, UUID-owned, exact-unit/fingerprint-bound local evidence
+  -> RealSessionContext
+      -> HttpOnly operator cookie transport
+      -> backend summary/capability matrix/expiry/blocked reasons only
+      -> shared by Control, Library, Studio, and Vision
   -> LAN browser session exchange and revoke
       -> one SecurityService for REST, control, WebSocket, and Vision
 
@@ -150,12 +160,20 @@ confirmation. It deliberately omits `real_motion_enabled`, Calibration, acceptan
 Kinematics prerequisites. Its readiness is exposed separately as commissioning
 diagnostics and Calibration capture.
 
-`REAL_MOTION` requires `REAL`, `FULL`, all motion/startup/local opt-ins, a verified
-non-template Profile, complete matching non-template Calibration, current
-fingerprint-bound Field Acceptance Evidence, available adapter, exact device, and a new
-operator confirmation. Joint, Cartesian, Playback, and Vision Follow remain separate;
-provisional Kinematics blocks geometry-dependent scopes. Purpose cannot change, so a
-commissioning token never becomes a motion token after Calibration or acceptance.
+`COMMISSIONING_MOTION_TEST` is a third, independent purpose. It requires `REAL`, `FULL`,
+the separate `commissioning_motion_test_enabled` switch, both opt-ins, a non-empty local
+`robot_unit_id`, verified Profile, complete matching Calibration, exact Device identity,
+pre-motion evidence, and explicit operator/E-stop/workspace confirmations. It does not
+require final Field Acceptance, production `real_motion_enabled`, or verified
+Kinematics. It exposes only `COMMISSIONING_SINGLE_JOINT_TEST` and cannot call the
+production executor.
+
+`REAL_MOTION` requires `REAL`, `FULL`, production motion/startup/local opt-ins, a
+verified non-template Profile, complete matching non-template Calibration, current
+capability-specific Field Acceptance, available adapter, exact Device, and a new operator
+confirmation. Joint, Cartesian, Playback, and Vision Follow are derived separately;
+provisional Kinematics blocks geometry-dependent scopes. Purpose cannot change, so
+neither commissioning token becomes a production token after evidence changes.
 
 The full `ServoBus` port is deliberately bounded, but commissioning services never
 receive it. They receive `ReadOnlyServoBus`, exposing only explicit open/close, exact-ID
@@ -163,6 +181,73 @@ ping, and typed present-position/mode/torque reads. It has no goal, Stop/Hold, t
 write, arbitrary register, raw SDK, scan, enumeration, Home, or motion surface. Connect
 opens only the configured device, pings only configured IDs, validates bounded reads,
 and does not move. Any partial connection failure closes and clears authorization.
+
+The restricted write workflow receives only `CommissioningMotionServoBus`. The service
+reads one selected joint, calculates a relative target from fresh readback, validates the
+session-snapshotted hard envelope plus logical/raw limits, maps through the exact Profile
+and Calibration, and emits one immutable prepared command. The port can write only that
+explicitly authorized joint and request the typed Stop/Hold behavior; multi-joint,
+Home, Cartesian, Playback, Vision, raw-register, scan, enumeration, mode, torque, and
+arbitrary-ID operations are absent. A backend-owned renewable deadman ends/faults the
+attempt on timeout even when the browser cannot send Stop.
+
+Physical identity is separate from model identity. `robot_unit_id` comes only from
+ignored local configuration and enters Device/Calibration/session/evidence/audit binding
+and Device fingerprinting. It is deliberately excluded from `RobotProfile.fingerprint`,
+because a Profile describes a variant rather than one physical specimen.
+The Device fingerprint is canonical SHA-256 over the unit ID, explicit serial port,
+protocol, and ordered Servo-ID allowlist; those transport fields never generate the unit
+ID.
+
+Field Acceptance is a bundle of independent pre-motion, Joint, Cartesian, Playback, and
+Vision Follow evidence. Full completion is derived, not written. Schema-v1/global
+records remain audit history as `STALE_LEGACY_EVIDENCE`; an old `PASSED` value cannot
+authorize. Kinematics uses a separate multi-point ignored local evidence overlay while
+the tracked V1/V2 YAML stays `PROVISIONAL_DRY_RUN`.
+
+File-loaded Field Acceptance records are non-authoritative until an application service
+semantically resolves their embedded/referenced evidence and creates a transient
+validated bundle. Joint evidence must resolve to current positive and negative passing
+tests for every Profile-enabled joint, each embedded prepared command, and the exact
+current commissioning envelope; matching fingerprints or a hand-authored UUID list are
+insufficient.
+
+Pre-motion evidence embeds a typed read-only diagnostic snapshot with session/time and
+exact per-joint Servo ping, mode, raw/logical value, bounds, and torque-off state.
+Bootstrap verifies exact enabled-joint/Servo coverage, Calibration mapping/mode/bounds,
+capture-to-acceptance timing, and current context before restoring the capability. This
+survives the required READ_ONLY → FULL restart without a fingerprint-only trust path.
+Later CARTESIAN, PLAYBACK, and VISION_FOLLOW acceptance records remain audit-only because
+this release has no typed field-test repositories/resolvers for them.
+
+PRE_MOTION/JOINT transition publication is linearized under the Device Diagnostics
+guard: reauthorize the same token/session/operator and current context, durably persist,
+invalidate/close, then publish the resolved bundle before unlocking. A concurrent revoke
+that wins first leaves no pass record; a transition that wins commits before revoke may
+continue. Kinematics is intentionally audit-first: it persists, then reauthorizes under
+the Device guard before live publication. A losing Kinematics race may leave only a local
+audit record, never live or restart authority.
+
+Kinematics measurement similarly rejects a browser-supplied joint state. A field adapter
+must provide a fresh server-owned snapshot bound to the current unit, Profile,
+Calibration, Device, and Operator Session; the service reauthorizes after capture and
+computes FK/residuals itself. The `0.1.0-rc1` release composition has no such physical
+adapter and bootstrap does not promote persisted Kinematics JSON. Those records are
+audit-only after restart, so Real Kinematics remains fail-closed pending a reviewed
+adapter and fresh verification.
+
+Operator authority is transported in an HttpOnly, SameSite=Strict API cookie (Secure
+under HTTPS). The frontend global context never stores the raw token; it restores only
+the backend session summary, capability matrix, expiry, and structured blocked reasons.
+All product pages consume that one view. Refresh does not create a session and restart
+invalidates it.
+
+Audit note: there is no unsafe or module-global God Object, but
+`DeviceDiagnosticsService` remains a 974-line app-scoped, guard-locked Stage 8
+coordinator covering sessions/readiness, connection/diagnostics, Calibration/Profile
+invalidation, Field/Kinematics publication, Stop, and shutdown. The final audit classifies
+this as P3 post-merge decomposition debt: current paths remain fail-closed behind typed
+ports, and no safety bypass was found.
 
 The Feetech implementation is an independently written optional shell. Import is lazy
 inside a fully granted factory, construction/open are separate, and the release
@@ -203,6 +288,14 @@ presentation prose.
 - V2 is exactly `j10`-`j15`; J10 is prismatic.
 - Both models are `PROVISIONAL_DRY_RUN`.
 - No model, FK result, or successful IK result authorizes Real Cartesian motion.
+
+Field verification never rewrites those tracked documents. An ignored local
+`KinematicsVerificationEvidence` overlay binds at least three measured points and frozen
+residual thresholds to the exact unit, Profile, Calibration, model fingerprint/schema,
+checklist, Device, operator, software commit, and server-owned snapshot provenance. Only
+a current overlay applied by the live workflow derives effective Real Kinematics
+readiness, and only alongside independent Cartesian/Playback/Vision evidence. Persisted
+overlay files are not bootstrap authority in `0.1.0-rc1`.
 
 UI/domain joint values remain keyed maps in `mm` and `deg`; canonical TCP positions are
 in `mm` with normalized XYZW quaternions. Named port helpers are the only conversion
@@ -378,6 +471,13 @@ application ports/services only. They accept bounded DTOs or uploaded backup byt
 a server filesystem path, SDK object, arbitrary Servo/register address, or executable
 sample. Default device calls report blockers without constructing a bus.
 
+Final pre-merge hardening adds only the narrow staged-commissioning surface: status,
+motion-test session/arm/start/heartbeat/Stop, plus Kinematics status/draft/measurement/
+commit. The historical field-acceptance compatibility read returns a derived summary;
+confirmation-only global `PASSED` creation has no authorization semantics. The complete
+current route/caller/service/scope disposition is maintained in `api-audit.md`; no route
+was deleted merely for lacking a current UI caller.
+
 One `SecurityService` protects normal REST, control, priority Stop, Vision, and
 WebSocket surfaces. LAN browsers exchange a long-term Bearer once for a short-lived
 HttpOnly `SameSite=Strict` cookie. The LAN policy permits only exact allowlisted HTTP
@@ -466,16 +566,16 @@ priority Stop, disconnect, or unmount. The checked 1440×960 and 390×844 real-a
 passed Synthetic Select/Detect/Follow/Stop and responsive bounds with console
 warnings/errors `[]`.
 
-The Stage 8 Settings additions display release identity, LAN browser-session state,
-masked artifact/device evidence, separate Commissioning Read-Only and Real Motion
-readiness, explicit read-only connect/diagnostics controls, and the protected Calibration
-wizard. Default data shows `Hardware access disabled`; a commissioning fixture shows a
-prominent `READ ONLY / No motion permitted` state. Control, Playback, and Follow remain
-disabled without Real Motion readiness and a motion-purpose session. Frontend controls retain
-only non-secret session expiry metadata; the long-term Bearer input is cleared after
-exchange and no session token is JavaScript-readable or stored in browser storage.
-Final Stage 8 browser acceptance passes at 1440×960, 390×844, and 850/830 breakpoint
-widths with no horizontal overflow and console warnings/errors `[]`.
+Settings displays release and masked identity evidence, `robot_unit_id`, the three
+purposes, staged progress, per-joint commissioning controls, Kinematics pending state,
+and structured capability blockers. Commissioning Motion is visually isolated from the
+normal Control page and exposes press-and-hold only. `RealSessionContext` reads one
+backend session summary and matrix for Control, Library, Studio, and Vision. It retains
+no raw operator token; authority is in the HttpOnly cookie. Default data remains blocked,
+and Fake completion cannot remove Feetech, physical Stop, or physical Kinematics gates.
+
+The Stage 8 responsive results remain historical evidence. Final three-purpose browser
+results are recorded separately only after the current Fake flow is executed.
 
 ## Configuration and persistence
 
@@ -487,13 +587,18 @@ The tracked Stage 8 release defaults remain:
 
 ```text
 control_mode: DRY_RUN
+commissioning_motion_test_enabled: false
 real_motion_enabled: false
 hardware_access_policy: DISABLED
+robot_unit_id: ""
 camera_access_policy: SYNTHETIC_ONLY
-field_acceptance_status: PENDING
 field_acceptance_checklist_version: "1"
 lan_enabled: false
 ```
+
+The settings/config surface has no writable `field_acceptance_status`; the release
+context initializes its backward/internal scalar as pending and derives capabilities
+only from resolved staged evidence.
 
 Capability-bearing values may be loaded only through one explicitly selected ignored
 local file or environment overrides, but no single value creates authority. The

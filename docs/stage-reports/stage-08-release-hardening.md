@@ -7,6 +7,12 @@
 - Release status: `FIELD_ACCEPTANCE_REQUIRED`
 - Stage commit: `4f7a75606aacb3fc93128445d7487ff196ce9efb`
 
+> Historical Stage report: the results below describe the original Stage 8 commit. ADR
+> 0018 then fixed first-Calibration authorization. Final pre-merge hardening later found
+> the second global-acceptance deadlock and partially superseded the two-purpose/single-
+> PASSED model with ADR 0019. Historical counts remain valid for their commits but are not
+> evidence for the final-hardening worktree.
+
 ## Outcome
 
 Stage 8 implements the software boundary required for a release candidate without
@@ -123,6 +129,46 @@ identity. A settings value of `PASSED` is display/compatibility input only and c
 authorize motion. Profile, Calibration, device, Kinematics, variant, or checklist drift
 makes the evidence stale and returns motion readiness to blocked until acceptance is
 explicitly repeated. See ADR 0018.
+
+## Final pre-merge hardening addendum
+
+The current model resolves the second deadlock without weakening production motion:
+
+- `COMMISSIONING_READ_ONLY`, `COMMISSIONING_MOTION_TEST`, and `REAL_MOTION` are separate,
+  non-upgradeable purposes with new confirmation/evidence for every transition;
+- stable local `robot_unit_id` binds Device fingerprint, Real Calibration, sessions,
+  commissioning evidence, Field Acceptance, Kinematics evidence, production evidence,
+  and audit, but is excluded from the generic Profile fingerprint;
+- restricted commissioning permits only a separately armed relative single-joint test,
+  with backend hard caps, fresh readback/mapping/limits, one prepared command, a 400 ms
+  backend deadman, and immutable pass/failure evidence;
+- the commissioning service receives a narrowed bus rather than the production executor;
+- Field Acceptance contains independent pre-motion, Joint, Cartesian, Playback, and
+  Vision Follow evidence; global/schema-v1 `PASSED` records remain
+  `STALE_LEGACY_EVIDENCE` and cannot grant authority; the writable
+  `field_acceptance_status` Settings/default-config surface is removed and the remaining
+  backward/internal scalar starts pending;
+- bootstrap grants no authority from deserialization/fingerprints alone: it semantically
+  revalidates the embedded typed pre-motion diagnostic snapshot and resolves every Joint
+  test UUID, prepared command, direction, enabled joint, and exact current envelope;
+- current Joint evidence requires both directions and readback for every explicit
+  enabled joint; later capabilities add Kinematics and their own acceptance records;
+- tracked Kinematics YAML remains `PROVISIONAL_DRY_RUN`; only an exact-unit, multi-point
+  live evidence overlay produced from server-owned joint snapshots can derive effective
+  Real verification; `0.1.0-rc1` has no physical snapshot provider and treats persisted
+  Kinematics JSON as audit-only after restart;
+- an HttpOnly operator cookie carries authority while the global frontend context stores
+  only the backend summary, capability matrix, expiry, and blocked reasons used by
+  Control, Library, Studio, and Vision.
+
+The field checklist now follows Phases 0–10 from physical preparation through final
+review. Feetech goal write, software/physical Stop, physical E-stop, physical Kinematics,
+and all Real capability acceptance remain pending. Final local hardening evidence passes
+629 backend tests, 230 frontend tests across 19 files, the exact 140-test CI isolation
+selection, all requested static/build/schema/dependency gates, and the Fake 12-direction
+browser flow with console warning/error `[]`. The re-audit closes P1=0/P2=0 and records
+one P3 `DeviceDiagnosticsService` decomposition debt. Final commit IDs and push/PR CI are
+recorded in `final-pre-merge-hardening.md` only after they exist.
 
 ## Real executor software path
 

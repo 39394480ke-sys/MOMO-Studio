@@ -8,6 +8,15 @@
 - Delivery commits: listed in the Git history and final handoff; a commit cannot embed
   its own final object ID.
 
+> Historical report: this fix correctly solved the first deadlock by separating
+> read-only commissioning from production motion. Final pre-merge hardening later found
+> a second deadlock between global Field Acceptance and the motion required to earn it.
+> ADR 0019 partially supersedes this report's two-purpose/global-PASSED model with
+> `COMMISSIONING_MOTION_TEST`, `robot_unit_id`, staged capability evidence, and a local
+> Kinematics verification overlay. It also removes the writable
+> `field_acceptance_status` Settings/default-config surface. The results below remain
+> evidence for the earlier baseline and are not final-hardening results.
+
 ## Problem and root cause
 
 ### Why the deadlock existed

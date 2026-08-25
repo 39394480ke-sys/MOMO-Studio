@@ -1,7 +1,13 @@
 # ADR 0015: Multi-factor Real-hardware authorization
 
-- Status: Accepted
+- Status: Accepted as the Stage 8 foundation; session transport and global-acceptance
+  details are superseded by ADR 0018 and ADR 0019.
 - Date: 2026-08-24
+
+Historical note: the invariant multi-factor/fail-closed boundary remains. Current
+operation has three immutable purposes, staged capability evidence, and an HttpOnly
+operator cookie; the raw-token-in-frontend and single passed-acceptance sentences below
+are retained only to show the original decision.
 
 ## Context
 

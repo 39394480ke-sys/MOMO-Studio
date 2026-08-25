@@ -205,7 +205,7 @@ change schema version or reinterpret existing fields.
 | POST / DELETE | `/api/v1/security/session` | Exchange a LAN Bearer for, or revoke, a bounded HttpOnly browser session | Verified |
 | GET | `/api/v1/device/readiness` | Read separate commissioning and motion capability blockers without connecting | Verified |
 | POST / DELETE | `/api/v1/device/operator-session` | Issue/revoke an immutable commissioning-read-only or Real-Motion session purpose and exact scopes | Verified |
-| GET / POST | `/api/v1/device/field-acceptance` | Read current/missing/stale local evidence or create exact-confirmed current-context evidence under commissioning authorization | Verified with local fixture repository |
+| GET / POST | `/api/v1/device/field-acceptance` | Historical global-evidence read/create surface | Historical Stage 8 verification; write semantics superseded—current authorization is capability-derived and cannot be forged by confirmation |
 | POST | `/api/v1/device/connect` | Explicitly connect only under commissioning read-only authorization | Verified with Fake/Write-Bomb composition |
 | POST | `/api/v1/device/diagnostics` | Read bounded masked explicit-ID diagnostics | Verified with Fake/blocked composition |
 | POST | `/api/v1/device/disconnect` | Explicit device cleanup | Verified with Fake/blocked composition |
@@ -231,6 +231,12 @@ same read-only WebSocket. No API may
 accept an arbitrary
 server path, Python code, raw register/address, driver selector, auto-scan, client
 trajectory samples, or hidden Real override.
+
+Final hardening minimally adds commissioning status/session/arm/start/heartbeat/Stop and
+Kinematics status/draft/measurement/commit routes. The exact current inventory, frontend
+caller, service, authorization scope, stage, and retained/deprecated disposition is
+`docs/api-audit.md`; the historical 79-path/93-operation count above is not silently
+relabelled as the final count.
 
 ## WebSocket and stream inventory
 
@@ -340,21 +346,48 @@ characterization documents.
 
 ## Real readiness and field acceptance
 
+> Final-hardening addendum: this report's Stage 8 counts and two-purpose statements are
+> historical baseline evidence. ADR 0019 adds the third restricted commissioning purpose,
+> exact-unit identity, staged acceptance, and Kinematics overlay. Its final worktree/
+> browser/CI results are recorded separately and are not inferred here.
+
 - Current control mode: `DRY_RUN`
 - Current hardware policy: `DISABLED`
+- `commissioning_motion_test_enabled`: `false`
 - `real_motion_enabled`: `false`
+- Physical `robot_unit_id`: empty in tracked/default configuration
 - Commissioning readiness under shipped defaults: **BLOCKED / hardware Disabled and no
   Real adapter**; a safe READ_ONLY fixture verifies the reachable first-commissioning path
 - Real Joint readiness: **BLOCKED / complete authorization, adapter verification, and field acceptance absent**
 - Real Cartesian readiness: **BLOCKED / provisional Kinematics**
 - Real Playback readiness: **BLOCKED**
 - Real Vision Follow readiness: **BLOCKED**
-- Operator Sessions: immutable `COMMISSIONING_READ_ONLY` and `REAL_MOTION` purposes;
-  neither is authorizable under shipped/default blockers
-- Field Acceptance: **REQUIRED / NOT PERFORMED**
+- Operator Sessions: immutable `COMMISSIONING_READ_ONLY`,
+  `COMMISSIONING_MOTION_TEST`, and `REAL_MOTION` purposes; none is authorizable under
+  shipped/default blockers and no purpose upgrades
+- Field Acceptance: **STAGED / REQUIRED / NOT PHYSICALLY PERFORMED**; legacy global
+  `PASSED` evidence has no authorization role; persisted pre-motion/Joint records become
+  usable only after semantic snapshot/test/prepared-command/current-envelope resolution
+- Kinematics field evidence: **ABSENT**; tracked models remain `PROVISIONAL_DRY_RUN`,
+  release composition has no physical joint-state snapshot provider, and persisted
+  evidence is audit-only after restart
 
 No committed example Profile, Calibration, Kinematics document, synthetic test record,
 environment variable, or frontend click may promote this status.
+
+Capability readiness is now derived independently: Joint needs complete all-joint
+positive/negative test acceptance; Cartesian adds valid multi-point Kinematics and
+Cartesian acceptance; Joint-only Playback adds Playback acceptance; Cartesian Playback
+also needs Kinematics/Cartesian; Vision Follow adds its own evidence and Kinematics when
+required by the controller. Authority is carried in an HttpOnly operator cookie; the
+global frontend context retains only the backend summary and blockers.
+
+The final-hardening local gate now passes 629 backend tests, 230 frontend tests across 19
+files, the exact 140-test CI isolation selection, requested static/build/schema/
+dependency checks, and the Fake 12-direction browser workflow with console warning/error
+`[]`. Its final architecture re-audit closes P1=0/P2=0 after 38 focused tests and records
+one P3 `DeviceDiagnosticsService` concentration/decomposition debt. Delivery-head CI is
+recorded separately after push.
 
 ## Verification ledger
 
@@ -467,6 +500,7 @@ unrun item with reason, never converted into a pass.
 | 6 | `docs/stage-reports/stage-06-studio-timeline.md` (complete in pushed `37783bdf8c01146d3a312980dbe4a25716e5468c`) |
 | 7 | `docs/stage-reports/stage-07-vision-following.md` (GREEN; pushed `dedbdabb9a35aefea01df05f0652214428305a93`) |
 | 8 | `docs/stage-reports/stage-08-release-hardening.md` (software/Dry Run GREEN; pushed; Draft PR open) |
+| Final pre-merge hardening | `docs/stage-reports/final-pre-merge-hardening.md` (results pending final execution) |
 
 ## Unresolved items
 

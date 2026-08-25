@@ -17,13 +17,18 @@ server_host: 127.0.0.1
 server_port: 8000
 control_mode: DRY_RUN
 hardware_access_policy: DISABLED
+commissioning_motion_test_enabled: false
 real_motion_enabled: false
 hardware_startup_enabled: false
 hardware_local_config_enabled: false
+robot_unit_id: ""
 camera_access_policy: SYNTHETIC_ONLY
-field_acceptance_status: PENDING
 field_acceptance_checklist_version: "1"
 ```
+
+There is no writable Field Acceptance status setting. Startup begins with a pending
+legacy scalar internally and derives every usable capability only from semantically
+resolved evidence.
 
 Starting the backend does not connect, enumerate, scan, home, calibrate, enable torque,
 move a Servo, or open/enumerate a camera.
@@ -92,34 +97,67 @@ Do not attempt Real operation until every item in
 [`real-hardware-acceptance.md`](real-hardware-acceptance.md) has been performed by an
 authorized field team with the correct physical robot and a tested physical E-stop.
 
-First commissioning is intentionally read-only. It requires Real mode, `READ_ONLY`
-hardware policy, startup and local opt-ins, a verified non-template Profile, an available
-verified adapter, and one explicitly configured serial device/protocol/Servo-ID set. It
-does not require an existing Calibration, `real_motion_enabled`, passed field acceptance,
-or verified Kinematics.
+Commissioning follows one evidence sequence, never “mark passed, then test”:
 
-For commissioning:
+```text
+0 Physical preparation
+1 Read-only commissioning
+2 Calibration
+3 Pre-motion safety checks
+4 Restricted joint motion test
+5 Joint motion acceptance
+6 Kinematics verification
+7 Cartesian acceptance
+8 Playback acceptance
+9 Vision Follow acceptance
+10 Final review
+```
 
-1. Open Settings and review every masked identity/fingerprint and blocked reason.
-2. Ensure the physical E-stop is reachable and the workspace is clear.
-3. Request a `COMMISSIONING_READ_ONLY` session with the exact confirmation.
-4. Use Connect Read-Only. Connection opens only the configured device, pings only the
-   configured IDs, reads bounded status, and never scans, homes, moves, or enables torque.
-5. Run diagnostics and the joint-explicit Calibration capture. No motion control is
-   available in this session.
-6. Complete field acceptance and store its fingerprint-bound local evidence. End or
-   retain the old session only for read-only work.
+The three session purposes are independent. `COMMISSIONING_READ_ONLY` allows explicit-ID
+diagnostics and Calibration capture only. `COMMISSIONING_MOTION_TEST` allows only one
+separately armed, low-speed, bounded relative joint test under the backend deadman.
+`REAL_MOTION` allows only production capabilities backed by current evidence. A purpose
+never upgrades; changing purpose requires another confirmation and session.
 
-Real Motion is a second authorization. It requires `FULL` policy,
-`real_motion_enabled`, the same opt-ins and exact device, a complete matching Calibration,
-current Field Acceptance Evidence, and a newly confirmed `REAL_MOTION` session. Verified
-matching Kinematics is additionally required for Cartesian, Cartesian Playback, and
-Vision Follow. Never reuse a commissioning token; it cannot be upgraded. Tokens live in
-backend/frontend memory only, expire, and fail closed after restart or context drift.
+For Phases 1–3, configure a stable `robot_unit_id` in ignored local configuration and
+verify the masked unit, variant, Profile, Device, and Calibration fingerprints in
+Settings. Request the read-only session, connect only the explicit device/Servo IDs, run
+diagnostics, create or revise Calibration, and complete pre-motion checks. No write,
+scan, Home, Jog, or motion is available. The committed pre-motion record embeds the typed
+read-only diagnostic snapshot. After the required READ_ONLY → FULL restart, bootstrap
+restores capability only if exact joint/Servo coverage, mode, torque-off state,
+raw/logical mapping/bounds, timestamp relationship, and current bindings all revalidate.
 
-The release candidate's committed configuration cannot pass these gates. The optional
-Feetech dependency remains unavailable until its exact package/API/license and physical
-Stop semantics are verified.
+Phase 4 is a visibly separate Settings → Commissioning workflow, not the Control page.
+It requires `FULL` policy and the independent default-false
+`commissioning_motion_test_enabled` switch, but not final acceptance, production
+`real_motion_enabled`, or verified Kinematics. Keep the tested physical E-stop ready and
+workspace clear. Press and hold `-` or `+` for one joint; release, pointer cancellation,
+blur, hidden visibility, route change, network loss, session/lease expiry, operator Stop,
+or backend shutdown ends the attempt. `STOP TEST` is a software request and must not be
+represented as equivalent to the physical E-stop.
+
+Complete positive and negative direction plus fresh logical/raw readback evidence for
+every enabled joint: V1 uses `j11`–`j15`; V2 uses `j10`–`j15`. Joint acceptance is then
+derived from those records. Kinematics verification uses at least three independently
+measured TCP points; the backend—not the browser—must capture the corresponding fresh
+joint states. It creates a local evidence overlay and does not alter the tracked
+provisional YAML. The release candidate has no physical snapshot adapter and does not
+restore persisted Kinematics authority after restart, so Phase 6 remains unavailable
+until that adapter is reviewed and must be repeated after restart. Cartesian, Playback,
+and Vision Follow each require their own later acceptance evidence. There is no Accept
+All or writable global `PASSED` action.
+
+Operator authority is carried by a same-origin HttpOnly cookie, not returned to or stored
+by JavaScript. The global UI context restores only the backend session summary,
+capabilities, expiry, and structured blocked reasons. Refresh never creates a session;
+backend restart invalidates it. Control, Library, Studio, and Vision all consume this
+same summary.
+
+The release candidate's committed configuration cannot pass the physical gates. The
+optional Feetech dependency, goal write, software/physical Stop, physical E-stop, and
+Real Kinematics remain pending field verification. Fake workflow success proves only the
+software path.
 
 ## Calibration workflow
 
@@ -130,8 +168,9 @@ write, change mode, toggle torque, or scan. For each enabled joint, enter the ob
 logical value and confirm direction, Home, phase, raw bounds, round-trip error, and the
 preview fingerprint. A complete validated first draft saves atomically as Revision 1;
 later recalibration saves Revision N+1 and preserves the prior backup. Rollback is
-explicit and forward-only. Calibration completion does not grant motion: field acceptance
-and a new Real Motion session are still required. Example Calibration cannot be promoted.
+explicit and forward-only. Calibration completion does not grant motion: current staged
+evidence for the requested capability and a new purpose-specific session are still
+required. Example Calibration cannot be promoted.
 Legacy import requires a separate exact confirmation and reviewed input.
 
 ## Backup and recovery

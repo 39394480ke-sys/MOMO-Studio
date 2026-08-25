@@ -6,6 +6,10 @@ not implementation claims.
 Every field item in `real-hardware-acceptance.md` must remain unchecked during autonomous
 work.
 
+The checked items below describe the earlier Stage 8/commissioning-fix baseline. Final
+pre-merge hardening has its own pending gate section and must not inherit a PASS from
+those historical results.
+
 ## Source and identity
 
 - [x] Branch is `codex/v1-autonomous-completion`; `main` was not merged or modified.
@@ -107,6 +111,47 @@ work.
   regression; the isolated READ_ONLY flow completed diagnostics and Revision 1 with
   motion blocked and console warning/error `[]`.
 - Independent commissioning safety audit: PASS; no P1/P2 safety bypass remains.
+
+## Final pre-merge hardening gates
+
+- [x] Three immutable session purposes are verified; read-only cannot write,
+  commissioning motion cannot call production motion, and no token upgrades.
+- [x] The compiled/default commissioning envelope is backend enforced; local config can
+  only narrow it and one ARM/lease can affect one enabled joint.
+- [x] Backend deadman stops/faults on lease, network, route/browser, session, and shutdown
+  loss; Fake Stop is not represented as physical verification.
+- [x] Stable local `robot_unit_id` binds Device fingerprint, Calibration, sessions,
+  commissioning evidence, Field Acceptance, Kinematics evidence, production evidence,
+  and audit while remaining outside Profile fingerprinting.
+- [x] Legacy/global PASSED evidence is audit-only stale; the writable
+  `field_acceptance_status` config surface is absent, and no confirmation-only endpoint
+  or UI action can forge full acceptance.
+- [x] All enabled joints and both directions are required for Joint acceptance; every
+  later capability uses its independent evidence prerequisites.
+- [x] Kinematics commit requires multiple measured points, accepts no client joint state,
+  uses a fresh server-owned session/device-bound snapshot, enforces thresholds/bindings,
+  and leaves tracked provisional YAML unchanged.
+- [x] Release bootstrap does not promote persisted Kinematics JSON; without a reviewed
+  physical snapshot provider, Kinematics measurement and geometry-dependent Real
+  capabilities fail closed and field verification must be repeated after restart.
+- [x] One backend session/capability summary drives Control, Library, Studio, and Vision;
+  raw operator authority remains only in the HttpOnly cookie.
+- [x] `docs/api-audit.md` matches final routes, callers, services, scopes, stages, and
+  retained/deprecated disposition; no bypass/raw/register/path/Python route remains.
+- [x] `make test`, `make lint`, `make format-check`, `make build`, `make schemas`, and
+  `git diff --check` pass on the final worktree.
+- [x] Focused session/envelope/deadman/evidence/staleness/Bomb/isolation matrices pass on
+  final worktree — 140 passed across the exact 13-file CI selection.
+- [x] `uv lock --check`, `uv pip check`, `pip-audit`, and `npm audit --audit-level=high`
+  pass without reduced strictness; no known Python vulnerabilities (local package skipped
+  as non-PyPI) and 0 npm vulnerabilities.
+- [x] Browser Fake V2 Phase 0–5 workflow passes with zero unhandled console errors while
+  Feetech, physical Stop, Kinematics, Cartesian, Playback, and Vision remain blocked.
+- [x] Architecture audit closes P1=0/P2=0 and records one supported P3: post-merge
+  decomposition debt in the fail-closed 974-line `DeviceDiagnosticsService` coordinator.
+- [ ] Push and pull-request CI are green for the final PR head; PR #1 remains Draft and
+  `main` remains untouched.
+- [x] Known user-acknowledged untracked duplicate files remain untouched and excluded.
 
 ## Historical Stage 8 delivery
 

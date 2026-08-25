@@ -33,6 +33,12 @@ The V1 and V2 mesh-free models are `PROVISIONAL_DRY_RUN`. V1 is exactly `j11`-`j
 with no rail; V2 is `j10`-`j15`, with J10 prismatic. Model fingerprints establish exact
 software compatibility only.
 
+The field-verification request accepts only a label and measured TCP. The backend must
+obtain the corresponding fresh joint state from a server-owned, session/device-bound
+snapshot provider and compute FK/residuals itself. `0.1.0-rc1` intentionally wires no
+physical provider and does not reload persisted Kinematics evidence as authorization;
+files remain audit history and verification must be repeated after restart.
+
 Physical link geometry, frames, axes, signs, zero references, TCP, joint limits,
 workspace, speed, acceleration, FK reference points, IK tolerances, and Cartesian path
 accuracy remain unverified. Therefore provisional models categorically block:
@@ -47,34 +53,63 @@ functions may convert them. Unit conversion cannot depend on the name `j10`.
 
 ## Commissioning and Real Motion authorization
 
-Real hardware has two disjoint Operator Session purposes. A
-`COMMISSIONING_READ_ONLY` session requires Real mode, `READ_ONLY` policy, startup and
-local hardware opt-ins, a verified non-template Profile, an explicit device/protocol and
-exact ordered Profile Servo IDs, an available verified adapter, and an explicit operator
-confirmation. It does **not** require `real_motion_enabled`, an existing Calibration,
-field acceptance, or verified Real Kinematics. Its only scopes are diagnostics read and
-Calibration capture.
+Real hardware has three disjoint Operator Session purposes:
 
-Commissioning services receive a capability-narrowed `ReadOnlyServoBus`: explicit
+| Purpose | Narrow authority |
+|---|---|
+| `COMMISSIONING_READ_ONLY` | Exact-device diagnostics and Calibration capture; no write capability |
+| `COMMISSIONING_MOTION_TEST` | One separately armed, bounded, relative single-joint test under a backend deadman |
+| `REAL_MOTION` | Only the production capabilities supported by current capability evidence |
+
+Purpose and scopes are immutable. Moving to another purpose requires a new session ID,
+expiry, operator confirmation, and evidence snapshot. Completion of Calibration, a test,
+acceptance, or Kinematics verification cannot upgrade an existing session.
+
+Read-only commissioning retains its capability-narrowed `ReadOnlyServoBus`: explicit
 open/close, exact-ID ping, and typed present-position/mode/torque reads. It has no goal,
 Stop/Hold, torque-write, arbitrary-register, scan, enumeration, Home, Jog, Playback, or
 Follow method. Partial open/ping/read failure closes the bus, revokes authorization, and
-cannot report Connected. A commissioning token presented to any motion API fails with an
-insufficient-scope error.
+cannot report Connected.
 
-A separate `REAL_MOTION` session requires Real mode, `FULL` policy,
-`real_motion_enabled`, both hardware opt-ins, verified non-template Profile, complete
-non-template matching Calibration, current fingerprint-bound Field Acceptance Evidence,
-available identified adapter, exact device evidence, and a fresh explicit operator
-confirmation. Joint, Cartesian, Playback, and Vision Follow readiness remain separate.
-Provisional Kinematics blocks Cartesian, Cartesian-containing Playback, and Follow even
-when Joint Motion is otherwise ready.
+Restricted commissioning motion has a separate default-false
+`commissioning_motion_test_enabled` gate and never reuses `real_motion_enabled`. It also
+requires Real mode, `FULL` policy, both hardware opt-ins, a non-empty local
+`robot_unit_id`, verified non-template Profile, complete matching Calibration, exact
+Device identity, current pre-motion-check evidence, and explicit operator/E-stop/
+workspace confirmations. It deliberately does not require final Field Acceptance or
+verified Kinematics.
 
-Both session types are short lived, returned once, and bound to current evidence. Tokens
-are not persisted or logged and are revoked on expiry, restart, disconnect/failure,
-explicit revoke, or relevant context drift. Purpose is immutable: completing Calibration
-or acceptance never upgrades a commissioning token. Backend-owned expiry cleanup closes
-a connected bus even if the browser has stopped sending requests.
+The commissioning-motion backend permits only `RELATIVE_SINGLE_JOINT_TEST`. The immutable
+hard envelope caps active joints at 1, command duration at 2 seconds, session duration at
+300 seconds, revolute/prismatic delta at 2 degrees/1 millimetre, speed at 2 degrees per
+second/1 millimetre per second, acceleration at 4 degrees per second squared/2 millimetres
+per second squared, deadman lease at 400 milliseconds, and commands per session at 24.
+Local configuration may only narrow these values. A narrowed
+`CommissioningMotionServoBus` can read the selected joint, write one prepared goal, and
+request the available typed Stop/Hold behavior; it has no production-motion, multi-joint,
+raw-register, mode, torque, scan, enumeration, or arbitrary-ID capability.
+
+Every test is separately armed and heartbeat-renewed. Pointer release/cancel, blur,
+hidden visibility, route teardown, network loss, session expiry, backend shutdown,
+operator Stop, Global Stop, or backend lease timeout requests Stop/fault. The backend
+owns the deadline; UI behavior is not the safety boundary. Every pass or failure records
+unit/fingerprint-bound immutable evidence after direction, raw/logical readback,
+freshness, limits, and divergence verification.
+
+A separate `REAL_MOTION` session requires `real_motion_enabled` and current evidence for
+the requested production capability. Joint, Cartesian, Playback, and Vision Follow are
+derived independently. Cartesian and Cartesian-containing Playback additionally require
+valid multi-point Kinematics evidence plus Cartesian acceptance. No global writable
+`PASSED` record or legacy status value can unlock them.
+
+Here, “valid” means evidence applied by the current live reviewed workflow. Persisted
+Kinematics JSON is not bootstrap authority in this release candidate.
+
+Browser authority uses an HttpOnly, SameSite=Strict, API-path cookie, Secure when served
+over HTTPS. Raw tokens are absent from React state, browser storage, URLs, logs, and audit
+events. The global frontend context holds only the backend session summary, expiry,
+capability readiness, and blocked reasons. Refresh re-reads the summary; restart
+invalidates the grant and never issues another automatically.
 
 The current-angle Calibration workflow is selected-joint and read-only at the Servo
 boundary. With no stored Calibration it creates an incomplete Profile-bound draft whose
@@ -87,18 +122,22 @@ scan. After a persistence attempt begins, the coordinator revokes/closes commiss
 authorization in `finally`, including on filesystem durability failure. Rollback is
 explicit and creates a new forward revision. A template/example can never be promoted.
 
-Completing Calibration grants no motion capability. Field acceptance remains pending
-until a local ignored `FieldAcceptanceEvidence` binds the reviewed checklist to the exact
-variant, Profile, Calibration, device, optional Kinematics fingerprint, and checklist
-version. A bare configured `PASSED` value is insufficient. Any bound value change makes
-the evidence stale and all affected motion readiness fails closed.
+Completing Calibration grants no motion capability. The local ignored
+`FieldAcceptanceBundle` contains independent pre-motion, Joint, Cartesian, Playback, and
+Vision Follow evidence bound to `robot_unit_id`, variant, Profile, Calibration, Device,
+applicable Kinematics, checklist version, operator, and software commit. Evidence without
+unit identity or capability—including historical schema-v1/global evidence—is retained
+as `STALE_LEGACY_EVIDENCE` and grants nothing. Any binding change stales the affected
+derived capabilities and invalidates sessions rather than upgrading them.
 
 The Real executor accepts only the already-preflighted immutable trajectory/digest and
 rechecks authorization/context/sequence/continuity. It maps samples through verified
 Profile/Calibration, validates every raw goal, uses monotonic deadlines, reads back, and
 fails on divergence, partial write, timeout, bus fault, disconnect, expiry, or
 cancellation. It never recompiles browser samples. The software path is tested only with
-Fake Bus and remains absent from default route composition.
+Fake Bus and remains absent from default route composition. Fake success proves
+software-path behavior only. Feetech goal write, software/physical Stop, physical
+E-stop, and physical Kinematics remain field-verification gates.
 
 ## Unified Motion Safety Gateway
 
@@ -612,3 +651,26 @@ isolation selection. Ruff/format, strict mypy across 214 files, ESLint, TypeScri
 isolated Fake READ_ONLY flow from no Calibration through Revision 1, revoked the old
 session after save, kept Field Acceptance pending and every motion control blocked, and
 reported console warning/error `[]`. No physical adapter or camera source was used.
+
+## Final pre-merge hardening evidence boundary
+
+The earlier counts above are historical baselines. Results for the three-purpose staged
+acceptance change are recorded only after the final worktree commands, focused safety
+matrix, browser Fake workflow, isolation checks, and both CI triggers complete. Until
+then they are pending, not inherited from the previous green baseline.
+
+The final local software worktree passes 629 backend tests (one existing Starlette/httpx
+deprecation warning), 230 frontend tests across 19 files, and the exact 13-file CI
+hardware/camera/commissioning/Kinematics isolation selection with 140 tests. Ruff,
+format check, strict mypy, ESLint, TypeScript, the 1,646-module Vite build, deterministic
+schemas, lock/compatibility, and Python/npm vulnerability gates pass. The Fake browser
+completed all 12 V2 joint directions and Joint acceptance with console warning/error
+`[]`, while Kinematics, physical Stop, and production capabilities remained blocked.
+The final re-audit closes P1=0/P2=0 after 38 focused tests and records one safe P3
+`DeviceDiagnosticsService` concentration/decomposition debt. Final-head push/pull-request
+CI remains a separate delivery-time gate.
+
+Regardless of later software results, Fake commissioning evidence is not physical field
+acceptance. Feetech goal-write/Stop behavior, the physical E-stop, physical joint timing,
+Real V1/V2 Kinematics, backlash, flex, TCP measurement, camera latency, and Real Follow
+gains remain field-verification required.

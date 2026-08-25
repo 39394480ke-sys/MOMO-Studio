@@ -108,13 +108,14 @@ Desktop/mobile browser acceptance and final independent audit pass P1=0/P2=0. Th
 
 Stage 8 software implementation and Dry Run release-candidate verification are complete
 for `0.1.0-rc1` with `FIELD_ACCEPTANCE_REQUIRED`; its dedicated commit is pushed and the
-current release candidate remains in Draft PR #1. The Real boundary now separates
-purpose-bound commissioning read-only access from full motion authorization. It includes
-capability-narrowed exact-ID diagnostics, first Calibration Revision 1 plus forward-only
-recalibration, fingerprint-bound Field Acceptance Evidence, short-lived non-upgradeable
-Operator Sessions, and a Fake-Bus-verified Real trajectory executor with truthful Stop
-uncertainty. The default composition still supplies no Real bus factory and cannot open
-hardware.
+current release candidate remains in Draft PR #1. Final pre-merge hardening separates
+three non-upgradeable purposes: `COMMISSIONING_READ_ONLY`, the restricted
+`COMMISSIONING_MOTION_TEST`, and production `REAL_MOTION`. It adds stable local
+`robot_unit_id` binding, a backend-enforced single-joint commissioning envelope and
+deadman, staged capability evidence, and a local Kinematics verification overlay. A
+legacy global `PASSED` value cannot grant authority. The default composition still
+supplies no Real bus factory or physical Kinematics snapshot provider, does not promote
+persisted Kinematics JSON after restart, and cannot open hardware.
 
 The release boundary also includes exact-Origin local/LAN authentication, bounded
 HttpOnly browser sessions, ongoing WebSocket/Vision stream reauthorization, structured
@@ -144,6 +145,24 @@ frontend tests across 18 files, 88 focused commissioning tests, 102 safe-gate
 hardware/camera isolation tests, clean Python/npm audits, deterministic schemas, and an
 isolated READ_ONLY browser flow through Calibration Revision 1. Exact current evidence is
 in the [commissioning fix report](docs/stage-reports/commissioning-authorization-fix.md).
+
+The final hardening work resolves the second commissioning deadlock without declaring a
+robot accepted before it can be tested. Field progress is now derived from independent
+pre-motion, Joint, Kinematics, Cartesian, Playback, and Vision evidence for the exact
+robot unit. An HttpOnly same-origin operator cookie carries authority; the global
+frontend session context retains only the backend summary, capability matrix, expiry,
+and blocked reasons. Control, Library, Studio, and Vision consume that one backend-derived
+view and remain blocked whenever required physical evidence is absent.
+
+Automated Fake/Bomb coverage can validate the software workflow but is not physical
+acceptance. Feetech goal writes, software/physical Stop behavior, the physical E-stop,
+physical V1/V2 Kinematics, backlash, flex, timing, and live-camera behavior remain
+`FIELD VERIFICATION REQUIRED`. See the
+[commissioning test contract](docs/commissioning-motion-test.md),
+[staged acceptance model](docs/field-acceptance-model.md),
+[Kinematics verification flow](docs/kinematics-field-verification.md), and
+[final hardening report](docs/stage-reports/final-pre-merge-hardening.md). Final command,
+browser, audit, and CI results belong in that report only after they are actually run.
 
 ## Develop locally
 
@@ -187,7 +206,8 @@ Backend commands use `backend/.venv`; frontend commands run through npm in `fron
   and tests.
 - `kinematics_models/` — mesh-free, fingerprinted V1/V2 provisional Dry Run serial chains.
 - `config/default.yaml` — safe repository defaults: loopback, Dry Run, hardware Disabled,
-  real motion false, Synthetic camera, and field acceptance Pending.
+  commissioning-motion and production-motion false, empty physical-unit identity,
+  Synthetic camera, and field acceptance Pending.
 - `robot_profiles/` — fingerprinted product-contract examples, never device-ready profiles.
 - `calibration/examples/` — synthetic template calibrations, never real-device calibration.
 - `data/examples/` — reviewed schema examples; operational Pose/Motion/Draft/runtime and
@@ -216,7 +236,8 @@ Stages 3–8 are complete and GREEN. Stage 8 commit
 [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) is open. Stage 8 owns the
 separately gated Real hardware/release boundary. Every motion source
 must reuse the Motion Safety Gateway rather than introducing a route-to-driver shortcut.
-Real hardware, Real Cartesian/Playback/Follow, and any physical Stop claim remain
-field-acceptance and adapter-verification gated.
+Real hardware, Real Joint/Cartesian/Playback/Follow, and any physical Stop claim remain
+capability-evidence, adapter-verification, and exact-unit field-acceptance gated. The
+field procedure follows Phases 0–10; it never creates a global pass before test motion.
 
 No open-source license has been selected. See `THIRD_PARTY_NOTICES.md` for provenance tracking; license selection remains a project decision.

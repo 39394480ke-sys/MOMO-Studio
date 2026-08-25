@@ -138,18 +138,21 @@ audit closes P1=0/P2=0. Stage 7 is complete in pushed commit
 
 The current worktree implements:
 
-- separate commissioning read-only and Real Motion authorization, with an immutable
-  purpose/scope Operator Session, a capability-narrowed explicit-ID/no-scan
-  `ReadOnlyServoBus`, deterministic Fake/Write-Bomb buses, and a lazy
+- separate read-only commissioning, restricted commissioning motion, and Real Motion
+  authorization, with immutable purpose/scope Operator Sessions, capability-narrowed
+  `ReadOnlyServoBus` and `CommissioningMotionServoBus` ports, backend hard envelope/
+  deadman, deterministic Fake/Bomb buses, and a lazy
   optional Feetech shell that remains `PENDING_ADAPTER_VERIFICATION` and disables goal
   writes until its package/API/license/cancellation/physical semantics are reviewed;
 - a pure multi-factor matrix with separate commissioning diagnostics/Calibration capture
   and motion capability readiness, explicit-connect/read-only diagnostics, and backend
   expiry cleanup without automatic connect, Home, torque, scan, or movement;
 - a selected-joint current-angle Calibration workflow supporting no Calibration to
-  Revision 1 and Revision N to N+1, plus fingerprint-bound local Field Acceptance
-  Evidence invalidation; examples cannot be promoted to Real and Calibration alone never
-  grants motion;
+  Revision 1 and Revision N to N+1, stable local `robot_unit_id`, staged capability
+  evidence, and a multi-point Kinematics verification overlay; examples and legacy
+  global PASSED records cannot be promoted to Real; release bootstrap also treats
+  persisted Kinematics records as audit-only pending a reviewed physical snapshot
+  adapter and fresh post-restart verification;
 - an exact-PreparedTrajectory Real executor exercised only through Fake Bus contracts,
   including raw mapping/bounds, monotonic deadlines, readback/divergence, partial-write,
   cancellation, session expiry, and truthful Stop uncertainty;
@@ -183,12 +186,27 @@ hardware/camera isolation selection, strict mypy across 214 files, deterministic
 clean Python/npm vulnerability audits, and an isolated READ_ONLY browser flow through
 Calibration Revision 1 with every motion control blocked and console warning/error `[]`.
 
+Final pre-merge hardening resolves the second commissioning deadlock: the field checklist
+can collect bounded single-joint evidence without pretending final acceptance already
+passed. Commissioning now progresses through the Phase 0–10 field procedure, all product
+pages share one backend-derived HttpOnly-session capability view, and later capability
+readiness is derived independently. Final local evidence now passes 629 backend tests,
+230 frontend tests across 19 files, the 140-test exact CI isolation selection, all
+requested static/build/schema/dependency gates, and the Fake 12-direction browser flow
+with console warning/error `[]`. The final re-audit closes P1=0/P2=0 and records one P3
+service-concentration debt. Final-head push/pull-request CI remains pending and must not
+be inferred from historical runs.
+
 ## Evidence still required
 
 - human review of the unmerged Draft PR without inferring physical acceptance;
 - physically verified V1/V2 geometry, frames, joint limits, Homes, directions, Servo
   IDs, scales, raw bounds, modes, workspace, FK references, IK tolerances, and dynamics;
 - reviewed production Calibration lifecycle and independent device/field acceptance;
+- physical positive/negative motion and Stop/E-stop evidence for every enabled joint on
+  each exact `robot_unit_id`;
+- at least three measured Kinematics points per accepted unit/model, plus Cartesian,
+  Playback, and Vision capability evidence in Phase order;
 - exact dependency/license provenance for every optional hardware, vision, model, mesh,
   or binary artifact;
 - deployment-topology LAN/TLS/firewall evidence and independent backup disaster-recovery

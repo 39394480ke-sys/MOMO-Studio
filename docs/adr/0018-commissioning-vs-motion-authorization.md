@@ -1,6 +1,18 @@
 # ADR 0018: Separate commissioning from motion authorization
 
-Status: Accepted for `0.1.0-rc1`
+Status: Accepted for `0.1.0-rc1`; partially superseded by
+[ADR 0019](0019-staged-field-acceptance.md).
+
+Historical scope note: this ADR remains authoritative for the read-only commissioning
+separation, first-Calibration fix, narrowed `ReadOnlyServoBus`, and immutable/no-upgrade
+session rule. Its two-purpose diagram and single global Field Acceptance model describe
+the earlier fix and are replaced for current operation by the third
+`COMMISSIONING_MOTION_TEST` purpose, stable `robot_unit_id`, staged capability evidence,
+and Kinematics evidence overlay in ADR 0019. The old prose is retained as design history;
+it must not be read as a current global-PASSED authorization path. In particular, the
+writable `field_acceptance_status` Settings/default-config surface mentioned below has
+since been removed; release context starts the remaining backward/internal scalar as
+pending.
 
 ## Context
 

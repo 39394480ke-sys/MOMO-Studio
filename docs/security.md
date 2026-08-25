@@ -84,6 +84,16 @@ cookie while validating the newly supplied long-term Bearer credential; this per
 safe recovery after a backend restart. Other routes reject ambiguous multiple
 credentials.
 
+The Real-hardware Operator Session is a distinct, more narrowly scoped grant. Creating
+one of the three immutable purposes sets `momo_operator_session` as an HttpOnly,
+SameSite=Strict cookie scoped to `/api/v1` and marked Secure when the request uses HTTPS.
+The response contains only token-free session evidence. Browser code, the global
+`RealSessionContext`, LocalStorage, SessionStorage, URLs, logs, and audit events never
+receive the raw token. A bounded legacy header remains only for non-browser/local-tooling
+compatibility; supplying conflicting cookie/header credentials fails closed. Refresh
+reads the existing backend summary, never auto-issues authority, and backend restart
+invalidates all in-memory Operator Sessions.
+
 The application factory must install `StrictOriginMiddleware`,
 `BodySizeLimitMiddleware`, and `StructuredRequestAuditMiddleware`, store the
 same `SecurityService` in `app.state.security_service`, and apply the relevant

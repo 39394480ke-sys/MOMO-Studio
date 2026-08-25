@@ -15,6 +15,13 @@ default. A live policy value alone neither selects nor opens a camera.
 robot in a `RobotManager`; it does not expose a global robot value, `arm_a`, Fleet, or
 coordination semantics.
 
+`RobotUnitId` (`robot_unit_id`) identifies one physical specimen, for example
+`MOMO-V2-UNIT-001`. It comes only from ignored local configuration and is required for
+Real commissioning. It is never derived from a serial port, protocol, Servo IDs,
+hostname, or tracked example. It binds Device, Calibration, Operator Session,
+commissioning tests, Field Acceptance, Kinematics verification, production evidence,
+and audit records.
+
 ## Robot Profile
 
 `RobotProfile` is immutable, schema-versioned input to validation and runtime composition. It contains:
@@ -45,6 +52,8 @@ Profile-dependent entity validation accepts an explicitly supplied Profile or Pr
 Display name, description, template/verification/provenance fields, timestamps, schema version, URDF/TCP metadata, and the deprecated placeholder mapping are excluded. Rail capability is derived from the included variant contract rather than hashed twice. Changing display copy preserves compatibility; changing a mapping, range, Home, direction, mode, identity, or joint order produces a different fingerprint.
 
 The fingerprint is stored by Calibration and Dry Run runtime documents. It identifies an exact motion/safety Profile contract; it is not proof that the data was physically verified.
+`robot_unit_id` is deliberately excluded: the Profile identifies a variant contract,
+not one physical unit.
 
 ## Kinematics model and fingerprint
 
@@ -75,6 +84,15 @@ Dry Run FK/IK and UI behavior but is an explicit blocker for Real Cartesian moti
 Cartesian playback, and Real vision follow. A fingerprint proves exact software-model
 identity, not physical correctness.
 
+`KinematicsVerificationEvidence` is a separate ignored local overlay. It binds the exact
+unit, Profile, Calibration, Device, Kinematics fingerprint/model schema, checklist
+version, operator, software commit, frozen thresholds, and at least three
+predicted/measured TCP points with server-owned joint-state capture provenance and
+position/orientation residuals. A live current passing overlay derives effective Real
+verification without modifying the tracked YAML. Any binding/checklist/schema change
+makes it stale. In `0.1.0-rc1`, persisted files are audit-only after restart and are not
+loaded back into authorization context.
+
 ## Kinematics boundary and results
 
 Product/domain joint values stay in `deg` and `mm`. `KinematicsJointState` carries only
@@ -99,7 +117,11 @@ a Base delta.
 
 ## Calibration
 
-`CalibrationDocument` is immutable and contains `schema_version`, UUID `id`, `robot_variant`, the exact `profile_fingerprint`, `template`, timezone-aware `generated_at`, notes, and a non-empty joint list. Joint and Servo IDs must be unique.
+`CalibrationDocument` is immutable and contains `schema_version`, UUID `id`,
+`robot_unit_id` for physical Real documents, `robot_variant`, the exact
+`profile_fingerprint`, `template`, timezone-aware `generated_at`, notes, and a non-empty
+joint list. Joint and Servo IDs must be unique. Tracked templates may omit unit identity;
+a Real Calibration may not.
 
 Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE_TURN` mode, direction `-1` or `1`, optional integer Home raw, optional integer phase, and optional ordered integer raw bounds. Home must be inside provided raw bounds. A joint is complete when it has Home raw and, for multi-turn operation, phase.
 
@@ -166,34 +188,62 @@ No Stage 3 Dry Run executor can write raw values.
 ## Real-hardware authorization, device, and Stop
 
 `RealHardwareContext` is immutable evidence, not a device handle. It contains control/
-hardware policy, independent opt-in flags, field status, optional Profile/Calibration/
-Kinematics, expected Kinematics fingerprint, dependency identity/state, explicit device,
-and any device-safety uncertainty. `ExplicitServoDevice` has exactly one secret-repr
-serial path, protocol, and ordered unique Servo-ID allowlist; it has no scan range.
+hardware policy, independent commissioning-motion/production opt-in flags, local
+`robot_unit_id`, optional Profile/Calibration/Kinematics and verification evidence,
+staged acceptance bundle, dependency identity/state, explicit Device, and any
+device-safety uncertainty. `ExplicitServoDevice` binds the same `robot_unit_id` plus one
+secret-repr serial path, protocol, and ordered unique Servo-ID allowlist; it has no scan
+range. Its fingerprint is canonical SHA-256 over `robot_unit_id`, explicit serial port,
+protocol, and the ordered Servo-ID allowlist. Thus two specimens with identical IDs and
+protocol do not share authorization, while none of those transport fields is used to
+infer the unit ID.
 
 `RealHardwareAuthorization` evaluates a `RealHardwareGateInput` containing that context,
-the evaluation time, and optional `OperatorSessionEvidence`. The report has typed
-blockers, redacted confirmation facts, session status, two commissioning booleans
-(`commissioning_diagnostics_ready`, `calibration_capture_ready`), and four distinct
-motion booleans (Joint, Cartesian, Playback, Vision Follow). Commissioning does not reuse
-the Joint gate.
+the evaluation time, and optional token-free `OperatorSessionEvidence`. The report has
+typed blockers, redacted confirmation facts, session status, separate read-only and
+commissioning-motion readiness, and four production booleans (Joint, Cartesian,
+Playback, Vision Follow). Each includes required evidence and blocked reasons.
 
-`OperatorSessionPurpose` has immutable `COMMISSIONING_READ_ONLY` and `REAL_MOTION`
-values. `OperatorSessionScope` narrows them to diagnostics read, Calibration capture, or
-the individual motion capabilities. Token-free evidence always records session UUID,
-purpose/scopes, robot/variant, Profile and device fingerprints, exact Servo IDs,
-issued/expiry times, and confirmation. Commissioning may omit Calibration/Kinematics
-fingerprints; motion requires Calibration and current acceptance evidence, and geometry
-scopes require Kinematics. The raw token is returned once and only a digest/evidence
-remain in memory. Completing Calibration or acceptance cannot mutate or upgrade an old
-session. Expiry, restart, explicit revoke, connection failure, disconnect, or evidence
-drift invalidates it.
+`OperatorSessionPurpose` has immutable `COMMISSIONING_READ_ONLY`,
+`COMMISSIONING_MOTION_TEST`, and `REAL_MOTION` values. `OperatorSessionScope` narrows
+them respectively to diagnostics/Calibration capture, one commissioning single-joint
+test, or individual production capabilities. Evidence records session UUID, purpose/
+scopes, `robot_unit_id`, robot/variant, Profile/Calibration/Device and applicable
+Kinematics/acceptance fingerprints, exact Servo IDs, envelope snapshot for commissioning
+motion, issued/expiry times, and confirmation. No purpose can be mutated or upgraded.
+Expiry, restart, explicit revoke, connection failure, disconnect, or evidence drift
+invalidates it. Browser transport uses an HttpOnly cookie; raw authority is never part of
+the frontend session model.
 
-`FieldAcceptanceEvidence` is device-local and ignored. It stores schema version, status,
-variant, Profile/Calibration/device fingerprints, optional Kinematics fingerprint,
-checklist version, acceptance time, and optional operator identity. Motion authorization
-requires the evidence to match the current context exactly; configuration status alone
-is not evidence and a mismatch is reported stale/fail-closed.
+`CommissioningSafetyEnvelope` is an immutable backend cap snapshot. It limits one active
+joint, deltas by joint type, speeds, accelerations, command/session duration, deadman
+timeout, and command count. Local configuration may only narrow compiled maxima. One
+ARM action and one live lease create an immutable
+`PreparedCommissioningTestCommand`; fresh logical/raw readback and mapping determine its
+target. `CommissioningTestEvidence` records pass or failure for the exact unit/joint/
+fingerprints, before/requested/target/after values, direction, divergence, Stop behavior,
+operator, commit, and bounded failure reason. Passing evidence embeds the complete
+prepared command/envelope so the acceptance resolver can compare it with the exact
+current safety envelope.
+
+`FieldAcceptanceBundle` is device-local and ignored. It contains independent immutable
+`FieldAcceptanceEvidence` for `PRE_MOTION_CHECKS`, `JOINT_MOTION`, `CARTESIAN`,
+`PLAYBACK`, and `VISION_FOLLOW`. Records require `robot_unit_id`, variant, Profile/
+Calibration/Device fingerprints, applicable Kinematics fingerprint, checklist version,
+either a typed pre-motion diagnostic snapshot or supporting test-evidence IDs,
+acceptance time, required operator, optional reviewer, and software commit. Pre-motion
+snapshots bind session/time and exact joint/Servo ping, mode, raw/logical value, bounds,
+and torque-off state. Full completion is a derived summary only. Schema-v1/global
+evidence and records missing unit/capability/operator data are retained as stale audit
+data and cannot authorize. The writable `field_acceptance_status` setting has been
+removed; the remaining backward/internal scalar always starts `PENDING`.
+
+Joint acceptance requires positive, negative, limit-safe, and fresh logical/raw evidence
+for every explicit `enabled_joint`; V1 therefore needs `j11`–`j15` and V2 needs
+`j10`–`j15`. Cartesian requires Joint + valid Kinematics + Cartesian evidence.
+Joint-only Playback requires Joint + Playback; Cartesian Playback also requires valid
+Kinematics + Cartesian. Vision Follow requires Joint + Vision Follow and Kinematics when
+its controller depends on geometry. Passing one capability never implies another.
 
 `ServoWriteResult` partitions every requested ID into written/failed sets and cannot
 claim completeness with an unknown safety state. `RealStopOutcome` distinguishes
