@@ -5,7 +5,7 @@ source_revision: ff8bbda0c2222cb57951c7913f7f12f5777b98fa
 verification_status: PROVISIONAL_DRY_RUN
 base_frame: base
 tcp_frame: Link_7
-kinematics_fingerprint: 84fdb19f6f7045856e68be8b54ae6192b26c27106756bef604e69817903eca13
+kinematics_fingerprint: 21a7429b3617f4bebc9e0af9bd0c6c4005c4273828527f8dfca3bea5d0454783
 display_name: MOMO V2 provisional mesh-free chain
 description: Legacy-derived geometry with provisional Dry Run limits; not verified for real motion.
 joints:
@@ -14,8 +14,8 @@ joints:
     axis: [0.0, 0.0, 1.0]
     origin_translation_m: [0.025, 0.0, 0.0]
     origin_orientation_quaternion_xyzw: [0.5, 0.5, 0.5, 0.5]
-    minimum_si: 0.0
-    maximum_si: 0.5
+    minimum_si: -0.05
+    maximum_si: 0.05
   - joint_id: j11
     joint_type: REVOLUTE
     axis: [0.0, 0.0, -1.0]

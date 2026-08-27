@@ -114,6 +114,7 @@ function capabilityDetails(
     commissioning_motion_test: authorized === 'MOTION_TEST'
       ? { ready: true, authorized: true, blocked_reasons: [], required_evidence: [] }
       : blocked('COMMISSIONING_MOTION_SESSION_REQUIRED', ['PER_JOINT_DIRECTION_EVIDENCE']),
+    raw_direction_test: blocked('RAW_DIRECTION_TEST_NOT_ENABLED', ['ZERO_RAW_SNAPSHOT']),
     real_joint_motion: authorized === 'REAL_JOINT'
       ? { ready: true, authorized: true, blocked_reasons: [], required_evidence: [] }
       : blocked('JOINT_ACCEPTANCE_PENDING', ['PER_JOINT_DIRECTION_EVIDENCE']),
@@ -133,6 +134,11 @@ const authorizationOptions: DeviceAuthorizationOption[] = [
     purpose: 'COMMISSIONING_MOTION_TEST',
     authorizable: true,
     confirmation: confirmation('COMMISSIONING_MOTION_TEST'),
+  },
+  {
+    purpose: 'RAW_DIRECTION_TEST',
+    authorizable: false,
+    confirmation: confirmation('RAW_DIRECTION_TEST'),
   },
   {
     purpose: 'REAL_MOTION',
@@ -158,12 +164,14 @@ function readiness(
     session_authorizable: session === null,
     commissioning_session_authorizable: session === null,
     commissioning_motion_session_authorizable: session === null,
+    raw_direction_session_authorizable: false,
     motion_session_authorizable: false,
     blocking_reasons: ['REAL_FIELD_ACCEPTANCE_PENDING'],
     capabilities: {
       commissioning_diagnostics_ready: true,
       calibration_capture_ready: true,
       commissioning_motion_test_ready: true,
+      raw_direction_test_ready: false,
       real_joint_motion_ready: false,
       real_cartesian_motion_ready: false,
       real_playback_ready: false,
@@ -355,6 +363,10 @@ function renderPanel(options: {
   );
 }
 
+function openAdvancedDiagnostics() {
+  fireEvent.click(screen.getByText('高级诊断与后续验收阶段'));
+}
+
 beforeEach(() => {
   vi.mocked(getFieldAcceptanceProgress).mockReset();
   vi.mocked(getFieldAcceptanceProgress).mockResolvedValue(progressFixture);
@@ -400,6 +412,7 @@ afterEach(() => {
 describe('RealHardwarePanel', () => {
   it('renders backend capability blockers, physical identity, and staged progress', async () => {
     renderPanel();
+    openAdvancedDiagnostics();
 
     expect((await screen.findAllByText('MOMO-V2-UNIT-001')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('KINEMATICS_FIELD_VERIFICATION_PENDING').length)
@@ -448,6 +461,7 @@ describe('RealHardwarePanel', () => {
     vi.mocked(runDeviceDiagnostics).mockResolvedValue(diagnostics);
     vi.mocked(disconnectRealDevice).mockResolvedValue(diagnostics);
     renderPanel({ session: readOnlySession, connected: true });
+    openAdvancedDiagnostics();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }));
     await waitFor(() => expect(runDeviceDiagnostics).toHaveBeenCalledWith());
@@ -455,6 +469,20 @@ describe('RealHardwarePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
     await waitFor(() => expect(disconnectRealDevice).toHaveBeenCalledWith());
     expect(connectRealDevice).not.toHaveBeenCalled();
+  });
+
+  it('keeps a protected device error visible after readiness refresh succeeds', async () => {
+    vi.mocked(runDeviceDiagnostics).mockRejectedValue(
+      new Error('Backend returned an invalid device diagnostic error'),
+    );
+    renderPanel({ session: readOnlySession, connected: true });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Backend returned an invalid device diagnostic error',
+    );
+    expect(getFieldAcceptanceStatus).toHaveBeenCalled();
   });
 
   it('records pre-motion checks only through the connected read-only session', async () => {
@@ -521,6 +549,7 @@ describe('RealHardwarePanel', () => {
       }],
     });
     renderPanel({ session: realJointSession, connected: true });
+    openAdvancedDiagnostics();
     await waitFor(() => expect(getKinematicsVerificationStatus).toHaveBeenCalledTimes(1));
 
     const start = await screen.findByRole('button', { name: 'Start measured-TCP draft' });

@@ -11,6 +11,7 @@ import pytest
 
 from momo.adapters.hardware.fake_servo_bus import FakeServoBusFactory
 from momo.adapters.hardware.feetech_servo_bus import (
+    REVIEWED_READ_ONLY_BRIDGE_MODULE,
     FeetechAdapterPendingError,
     FeetechServoBus,
     FeetechServoBusFactory,
@@ -413,5 +414,40 @@ def test_unverified_feetech_dependency_stays_pending_without_import() -> None:
         with pytest.raises(FeetechAdapterPendingError):
             factory.create(await authorized_grant())
         assert calls == []
+
+    asyncio.run(scenario())
+
+
+def test_reviewed_read_only_factory_is_available_only_for_exact_internal_bridge() -> None:
+    async def scenario() -> None:
+        grant = (await authorized_grant()).model_copy(
+            update={"adapter_id": "feetech-servo-bus-shell"}
+        )
+        bridge = RecordingBridge()
+        creates: list[str] = []
+        module = verified_module(bridge, creates)
+        imports: list[str] = []
+
+        def importer(name: str) -> ModuleType:
+            imports.append(name)
+            return module
+
+        factory = FeetechServoBusFactory(
+            verified_bridge_module=REVIEWED_READ_ONLY_BRIDGE_MODULE,
+            importer=importer,
+            package_available=lambda name: name == "scservo_sdk",
+        )
+        assert factory.dependency.state is HardwareDependencyState.AVAILABLE
+        assert factory.dependency.package_name == "ftservo-python-sdk==2.0.0"
+        bus = factory.create(grant)
+        assert imports == [REVIEWED_READ_ONLY_BRIDGE_MODULE]
+        assert creates == []
+
+        context = real_context()
+        assert context.device is not None
+        await bus.open(context.device.serial_port, context.device.protocol)
+        assert creates == ["create"]
+        assert bridge.events == [("open", (context.device.serial_port, context.device.protocol))]
+        await bus.close()
 
     asyncio.run(scenario())

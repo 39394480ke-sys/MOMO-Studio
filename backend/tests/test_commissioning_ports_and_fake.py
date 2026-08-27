@@ -294,6 +294,22 @@ def test_commissioning_evidence_repository_atomic_uuid_roundtrip(tmp_path: Path)
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("command_limit", [24, 120])
+def test_commissioning_evidence_accepts_legacy_and_expanded_command_budgets(
+    command_limit: int,
+) -> None:
+    clock = FakeClock()
+    evidence = _evidence(clock, uuid4())
+    payload = evidence.model_dump(mode="python", round_trip=True)
+    payload["prepared_command"]["envelope"]["max_commands_per_session"] = command_limit
+
+    restored = CommissioningTestEvidence.model_validate(payload)
+
+    assert restored.prepared_command is not None
+    assert restored.prepared_command.envelope.max_commands_per_session == command_limit
+    assert restored.model_dump(mode="python", round_trip=True) == payload
+
+
 def test_commissioning_route_audit_keeps_evidence_request_id_and_excludes_token() -> None:
     class StubService:
         async def run_relative_test(self, *_args: object, **_kwargs: object):  # type: ignore[no-untyped-def]

@@ -904,12 +904,14 @@ export interface DeviceConfirmationEvidence {
 export type OperatorSessionPurpose =
   | 'COMMISSIONING_READ_ONLY'
   | 'COMMISSIONING_MOTION_TEST'
+  | 'RAW_DIRECTION_TEST'
   | 'REAL_MOTION';
 
 export type OperatorSessionScope =
   | 'DIAGNOSTICS_READ'
   | 'CALIBRATION_CAPTURE'
   | 'COMMISSIONING_SINGLE_JOINT_TEST'
+  | 'RAW_DIRECTION_TEST'
   | 'REAL_JOINT_MOTION'
   | 'REAL_CARTESIAN_MOTION'
   | 'REAL_PLAYBACK'
@@ -927,6 +929,7 @@ export interface DeviceCapabilityReadiness {
   commissioning_diagnostics_ready: boolean;
   calibration_capture_ready: boolean;
   commissioning_motion_test_ready: boolean;
+  raw_direction_test_ready: boolean;
   real_joint_motion_ready: boolean;
   real_cartesian_motion_ready: boolean;
   real_playback_ready: boolean;
@@ -936,6 +939,7 @@ export interface DeviceCapabilityReadiness {
 export type DeviceCapabilityKey =
   | 'commissioning_read_only'
   | 'commissioning_motion_test'
+  | 'raw_direction_test'
   | 'real_joint_motion'
   | 'real_cartesian_motion'
   | 'real_playback'
@@ -962,6 +966,7 @@ export interface DeviceReadiness {
   session_authorizable: boolean;
   commissioning_session_authorizable: boolean;
   commissioning_motion_session_authorizable: boolean;
+  raw_direction_session_authorizable: boolean;
   motion_session_authorizable: boolean;
   blocking_reasons: string[];
   capabilities: DeviceCapabilityReadiness;
@@ -1011,6 +1016,105 @@ export interface CommissioningRelativeTestRequest {
   requested_acceleration: number;
   command_duration_s: number;
   request_id: string;
+}
+
+export interface CommissioningDirectControlResponse {
+  running: boolean;
+  mode: 'STEP' | 'CONTINUOUS' | 'IDLE';
+  joint_id: string | null;
+  direction: number | null;
+  requested_speed: number | null;
+  logical_position: number | null;
+  raw_position: number | null;
+  target_value: number | null;
+  message: string;
+}
+
+export interface CommissioningDirectJointStateResponse {
+  positions: Record<string, number>;
+  units: Record<string, DomainUnit>;
+  raw_positions: Record<string, number>;
+  captured_at: string;
+  moving: boolean;
+  message: string;
+}
+
+export interface CommissioningDirectJointMoveResponse {
+  positions: Record<string, number>;
+  units: Record<string, DomainUnit>;
+  raw_positions: Record<string, number>;
+  duration_s: number;
+  frame_count: number;
+  completed: boolean;
+  message: string;
+}
+
+export type RawDirectionTestState =
+  | 'IDLE'
+  | 'ZERO_CAPTURED'
+  | 'ARMED'
+  | 'MOVING'
+  | 'STOPPING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'EXPIRED';
+
+export type RawDirection = 'RAW_PLUS' | 'RAW_MINUS';
+
+export interface RawDirectionZeroSnapshot {
+  session_id: string;
+  robot_unit_id: string;
+  captured_at: string;
+  raw_by_joint: Record<string, number>;
+}
+
+export interface RawDirectionObservation {
+  command_id: string;
+  joint_id: string;
+  servo_id: number;
+  direction: RawDirection;
+  zero_raw: number;
+  start_raw: number;
+  target_raw: number;
+  final_raw: number;
+  completed_at: string;
+  software_only_adapter: boolean;
+}
+
+export interface RawDirectionJointDraft {
+  joint_id: string;
+  servo_id: number;
+  home_present_raw: number;
+  profile_direction_candidate: -1 | 1;
+  matches_urdf: boolean | null;
+  resolved_calibration_direction: -1 | 1 | null;
+  phase_candidate: number;
+  raw_bounds_candidate: [number, number];
+}
+
+export interface RawDirectionCalibrationDraft {
+  robot_unit_id: string;
+  profile_fingerprint: string;
+  source: string;
+  source_revision: string;
+  complete_for_review: boolean;
+  confirmed_for_review: boolean;
+  confirmed_at: string | null;
+  joints: RawDirectionJointDraft[];
+}
+
+export interface RawDirectionStatus {
+  state: RawDirectionTestState;
+  session_id: string | null;
+  active_joint_id: string | null;
+  command_count: number;
+  session_expires_at: string | null;
+  deadman_expires_at: string | null;
+  zero_snapshot: RawDirectionZeroSnapshot | null;
+  last_observation: RawDirectionObservation | null;
+  observations: RawDirectionObservation[];
+  calibration_draft: RawDirectionCalibrationDraft | null;
+  failure_reason: string | null;
 }
 
 export interface CommissioningTestEvidence {

@@ -148,7 +148,7 @@ def test_ik_fk_round_trip_is_deterministic_with_seed(
         joint_id: value
         for joint_id, value in zip(
             profile.enabled_joints,
-            ((100.0,) if variant is RobotVariant.V2 else ()) + (10.0, -15.0, 20.0, -10.0, 5.0),
+            ((25.0,) if variant is RobotVariant.V2 else ()) + (10.0, -15.0, 20.0, -10.0, 5.0),
             strict=True,
         )
     }
@@ -180,7 +180,7 @@ def test_full_pose_ik_converges_from_offset_or_default_seed(
     target_values = {joint_id: 0.0 for joint_id in profile.enabled_joints}
     target_values.update({"j11": 10.0, "j12": -15.0, "j13": 20.0, "j14": -10.0, "j15": 5.0})
     if variant is RobotVariant.V2:
-        target_values["j10"] = 100.0
+        target_values["j10"] = 25.0
     target_joints = to_kinematics_joint_state(JointState(positions=target_values), profile)
     offset_seed = to_kinematics_joint_state(
         JointState(positions={joint_id: 0.0 for joint_id in profile.enabled_joints}),
@@ -204,7 +204,7 @@ def test_full_pose_ik_converges_from_offset_or_default_seed(
     assert result.orientation_error_rad <= 0.02
     if variant is RobotVariant.V2:
         assert result.solution is not None
-        assert result.solution.positions_si["j10"] == pytest.approx(0.1, abs=1e-6)
+        assert result.solution.positions_si["j10"] == pytest.approx(0.025, abs=1e-5)
 
 
 @pytest.mark.parametrize("variant", [RobotVariant.V1, RobotVariant.V2])
@@ -217,8 +217,8 @@ def test_position_only_ik_numerically_converges_from_offset_seed(
     target_values.update({"j11": 20.0, "j12": -25.0, "j13": 15.0, "j14": -5.0, "j15": 10.0})
     seed_values = {joint_id: 0.0 for joint_id in profile.enabled_joints}
     if variant is RobotVariant.V2:
-        target_values["j10"] = 140.0
-        seed_values["j10"] = 20.0
+        target_values["j10"] = 40.0
+        seed_values["j10"] = 5.0
     target_joints = to_kinematics_joint_state(JointState(positions=target_values), profile)
     offset_seed = to_kinematics_joint_state(JointState(positions=seed_values), profile)
     adapter = SerialChainKinematics()
@@ -335,7 +335,7 @@ def test_mm_m_and_degree_radian_boundaries_are_explicit_and_reversible() -> None
     profile = canonical_robot_profile(RobotVariant.V2)
     state = JointState(
         positions={
-            "j10": 250.0,
+            "j10": 25.0,
             "j11": 180.0,
             "j12": 0.0,
             "j13": 0.0,
@@ -344,7 +344,7 @@ def test_mm_m_and_degree_radian_boundaries_are_explicit_and_reversible() -> None
         }
     )
     si = to_kinematics_joint_state(state, profile)
-    assert si.positions_si["j10"] == pytest.approx(0.25)
+    assert si.positions_si["j10"] == pytest.approx(0.025)
     assert si.positions_si["j11"] == pytest.approx(3.141592653589793)
     assert from_kinematics_joint_state(si, profile).positions == pytest.approx(state.positions)
     with pytest.raises(TypeError):

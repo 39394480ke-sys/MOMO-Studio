@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     control_mode: ControlMode = ControlMode.DRY_RUN
     real_motion_enabled: bool = False
     commissioning_motion_test_enabled: bool = False
+    raw_direction_test_enabled: bool = False
     robot_unit_id: Annotated[
         str,
         StringConstraints(
@@ -104,6 +105,9 @@ class Settings(BaseSettings):
     hardware_access_policy: HardwareAccessPolicy = HardwareAccessPolicy.DISABLED
     hardware_startup_enabled: bool = False
     hardware_local_config_enabled: bool = False
+    feetech_read_only_adapter_enabled: bool = False
+    feetech_raw_direction_adapter_enabled: bool = False
+    feetech_commissioning_motion_adapter_enabled: bool = False
     servo_ids: tuple[int, ...] = ()
     servo_protocol: Annotated[
         str,
@@ -407,6 +411,25 @@ def load_settings(
             )
         if not settings.robot_unit_id:
             raise ValueError("Real hardware local authorization requires robot_unit_id")
+    if settings.feetech_read_only_adapter_enabled:
+        if local_values.get("feetech_read_only_adapter_enabled") is not True:
+            raise ValueError("Feetech read-only adapter must be explicitly enabled by local config")
+        if not settings.hardware_local_config_enabled:
+            raise ValueError("Feetech read-only adapter requires hardware local authorization")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Feetech read-only adapter requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.READ_ONLY:
+            raise ValueError("Feetech read-only adapter requires READ_ONLY hardware policy")
+        if settings.hardware_startup_enabled is not True:
+            raise ValueError("Feetech read-only adapter requires hardware startup authorization")
+        if (
+            settings.real_motion_enabled
+            or settings.commissioning_motion_test_enabled
+            or settings.raw_direction_test_enabled
+        ):
+            raise ValueError("Feetech read-only adapter cannot enable any real motion")
+        if settings.servo_protocol != "STS3215":
+            raise ValueError("Feetech read-only adapter supports only STS3215")
     if settings.commissioning_motion_test_enabled:
         if local_values.get("commissioning_motion_test_enabled") is not True:
             raise ValueError(
@@ -424,6 +447,69 @@ def load_settings(
                 "Commissioning motion testing requires an explicit software_commit "
                 "from local config"
             )
+    if settings.raw_direction_test_enabled:
+        if local_values.get("raw_direction_test_enabled") is not True:
+            raise ValueError("Raw direction testing must be explicitly enabled by local config")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Raw direction testing requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raise ValueError("Raw direction testing requires FULL hardware policy")
+        if (
+            local_values.get("software_commit") != settings.software_commit
+            or settings.software_commit == "unknown"
+        ):
+            raise ValueError(
+                "Raw direction testing requires an explicit software_commit from local config"
+            )
+    if settings.feetech_raw_direction_adapter_enabled:
+        if local_values.get("feetech_raw_direction_adapter_enabled") is not True:
+            raise ValueError(
+                "Feetech Raw direction adapter must be explicitly enabled by local config"
+            )
+        if not settings.hardware_local_config_enabled:
+            raise ValueError("Feetech Raw direction adapter requires local hardware authorization")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Feetech Raw direction adapter requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raise ValueError("Feetech Raw direction adapter requires FULL hardware policy")
+        if not settings.hardware_startup_enabled or not settings.raw_direction_test_enabled:
+            raise ValueError(
+                "Feetech Raw direction adapter requires startup and Raw test authorization"
+            )
+        if settings.real_motion_enabled or settings.commissioning_motion_test_enabled:
+            raise ValueError(
+                "Feetech Raw direction adapter cannot enable production or commissioning motion"
+            )
+        if settings.feetech_read_only_adapter_enabled:
+            raise ValueError("Only one Feetech adapter mode may be enabled at a time")
+        if settings.servo_protocol != "STS3215":
+            raise ValueError("Feetech Raw direction adapter supports only STS3215")
+    if settings.feetech_commissioning_motion_adapter_enabled:
+        if local_values.get("feetech_commissioning_motion_adapter_enabled") is not True:
+            raise ValueError(
+                "Feetech commissioning adapter must be explicitly enabled by local config"
+            )
+        if not settings.hardware_local_config_enabled:
+            raise ValueError("Feetech commissioning adapter requires local hardware authorization")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Feetech commissioning adapter requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raise ValueError("Feetech commissioning adapter requires FULL hardware policy")
+        if not settings.hardware_startup_enabled or not settings.commissioning_motion_test_enabled:
+            raise ValueError(
+                "Feetech commissioning adapter requires startup and commissioning authorization"
+            )
+        if settings.real_motion_enabled or settings.raw_direction_test_enabled:
+            raise ValueError(
+                "Feetech commissioning adapter cannot enable production or Raw-direction motion"
+            )
+        if (
+            settings.feetech_read_only_adapter_enabled
+            or settings.feetech_raw_direction_adapter_enabled
+        ):
+            raise ValueError("Only one Feetech adapter mode may be enabled at a time")
+        if settings.servo_protocol != "STS3215":
+            raise ValueError("Feetech commissioning adapter supports only STS3215")
     if settings.lan_enabled and local_values.get("lan_enabled") is not True:
         raise ValueError("LAN mode must be explicitly enabled by the supplied local config")
     return settings

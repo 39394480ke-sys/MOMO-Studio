@@ -7,6 +7,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from momo.adapters.hardware.feetech_servo_bus import (
+    REVIEWED_READ_ONLY_BRIDGE_MODULE,
+    FeetechServoBusFactory,
+)
+from momo.adapters.hardware.ftservo_commissioning_motion_bus import (
+    FtServoCommissioningMotionBus,
+)
+from momo.adapters.hardware.ftservo_raw_direction_bus import FtServoRawDirectionBus
 from momo.adapters.storage.file_backup_restore_journal import FileBackupRestoreJournal
 from momo.adapters.storage.file_calibration_workflow_repository import (
     FileCalibrationWorkflowRepository,
@@ -37,6 +45,7 @@ from momo.application.services.kinematics_verification_service import (
     KinematicsVerificationService,
 )
 from momo.application.services.operator_session_service import OperatorSessionService
+from momo.application.services.raw_direction_test_service import RawDirectionTestService
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
 from momo.application.services.robot_service import PRIMARY_ROBOT_ID, RobotApplicationService
 from momo.application.services.security_service import SecurityService
@@ -63,6 +72,7 @@ class ReleaseServices:
     real_calibrations: FileCalibrationWorkflowRepository
     calibration: CalibrationWorkflowCoordinator
     commissioning: CommissioningMotionTestService | None
+    raw_direction: RawDirectionTestService | None
     commissioning_evidence: FileCommissioningTestEvidenceRepository
     kinematics_verification: KinematicsVerificationService
     kinematics_verification_evidence: FileKinematicsVerificationEvidenceRepository
@@ -152,6 +162,8 @@ def _real_hardware_context(
         "hardware_access_policy": settings.hardware_access_policy,
         "real_motion_enabled": settings.real_motion_enabled,
         "commissioning_motion_test_enabled": settings.commissioning_motion_test_enabled,
+        "raw_direction_test_enabled": settings.raw_direction_test_enabled,
+        "raw_direction_adapter_ready": settings.feetech_raw_direction_adapter_enabled,
         "startup_hardware_enabled": settings.hardware_startup_enabled,
         "explicit_local_config": settings.hardware_local_config_enabled,
         "robot_unit_id": settings.robot_unit_id,
@@ -260,6 +272,17 @@ def build_release_services(
         authorization,
         ttl_s=float(settings.operator_session_ttl_s),
     )
+    bus_factory = (
+        FeetechServoBusFactory(
+            verified_bridge_module=REVIEWED_READ_ONLY_BRIDGE_MODULE,
+        )
+        if (
+            settings.feetech_read_only_adapter_enabled
+            or settings.feetech_raw_direction_adapter_enabled
+            or settings.feetech_commissioning_motion_adapter_enabled
+        )
+        else None
+    )
     device = DeviceDiagnosticsService(
         context=_real_hardware_context(
             settings,
@@ -271,7 +294,7 @@ def build_release_services(
         ),
         authorization=authorization,
         sessions=sessions,
-        bus_factory=None,
+        bus_factory=bus_factory,
         clock=clock,
     )
     calibration = CalibrationWorkflowCoordinator(
@@ -291,6 +314,47 @@ def build_release_services(
         repository=kinematics_verification_evidence,
         clock=clock,
     )
+    commissioning = None
+    if settings.feetech_commissioning_motion_adapter_enabled:
+        context = device.context
+        explicit_device = context.device
+        if explicit_device is None:
+            raise ValueError("Commissioning motion adapter requires one explicit configured device")
+        commissioning = CommissioningMotionTestService(
+            context=lambda: device.context,
+            sessions=sessions,
+            bus=FtServoCommissioningMotionBus(
+                device=explicit_device.serial_port,
+                protocol=explicit_device.protocol,
+                allowed_servo_ids=explicit_device.servo_ids,
+            ),
+            allowed_servo_ids=explicit_device.servo_ids,
+            repository=commissioning_evidence,
+            clock=clock,
+            software_commit=settings.software_commit,
+            # Loaded field steps consistently settle 13-28 counts short while
+            # preserving the requested direction.  Keep this below the smallest
+            # full 1-degree step and inside the service's reviewed hard ceiling.
+            divergence_tolerance_raw=32,
+        )
+
+    raw_direction = None
+    if settings.feetech_raw_direction_adapter_enabled:
+        context = device.context
+        explicit_device = context.device
+        if explicit_device is None:
+            raise ValueError("Raw direction adapter requires one explicit configured device")
+        raw_direction = RawDirectionTestService(
+            context=lambda: device.context,
+            sessions=sessions,
+            bus=FtServoRawDirectionBus(
+                device=explicit_device.serial_port,
+                protocol=explicit_device.protocol,
+                allowed_servo_ids=explicit_device.servo_ids,
+            ),
+            allowed_servo_ids=explicit_device.servo_ids,
+            clock=clock,
+        )
 
     async def import_calibrations(
         values: tuple[CalibrationDocument, ...],
@@ -334,7 +398,8 @@ def build_release_services(
         field_acceptance_evidence=field_acceptance_evidence,
         real_calibrations=real_calibrations,
         calibration=calibration,
-        commissioning=None,
+        commissioning=commissioning,
+        raw_direction=raw_direction,
         commissioning_evidence=commissioning_evidence,
         kinematics_verification=kinematics_verification,
         kinematics_verification_evidence=kinematics_verification_evidence,

@@ -3,6 +3,9 @@ import type {
   AbandonMotionDraftSaveIntentRequest,
   BootstrapResponse,
   CalibrationStatus,
+  CommissioningDirectControlResponse,
+  CommissioningDirectJointMoveResponse,
+  CommissioningDirectJointStateResponse,
   CommissioningMotionStatus,
   CommissioningMotionTestState,
   CommissioningRelativeTestRequest,
@@ -32,6 +35,7 @@ import type {
   JogSessionResponse,
   JogSessionStartRequest,
   JointJogStepRequest,
+  JointStatePayload,
   KinematicsVerificationDraft,
   KinematicsVerificationEvidence,
   KinematicsVerificationJointState,
@@ -99,6 +103,10 @@ import type {
   OperatorSessionPurpose,
   OperatorSessionScope,
   RealStopOutcome,
+  RawDirection,
+  RawDirectionObservation,
+  RawDirectionStatus,
+  RawDirectionTestState,
   SecuritySessionResponse,
   SecuritySurface,
   CalibrationJointPreview,
@@ -662,6 +670,12 @@ export async function getBootstrapData(signal?: AbortSignal): Promise<BootstrapR
 
 export function getForwardKinematics(signal?: AbortSignal): Promise<ForwardKinematicsResponse> {
   return requestJson<ForwardKinematicsResponse>('/robot/fk', { signal });
+}
+
+export function getForwardKinematicsForState(
+  jointState: JointStatePayload,
+): Promise<ForwardKinematicsResponse> {
+  return postJson('/kinematics/fk', { joint_state: jointState });
 }
 
 export function solveInverseKinematics(
@@ -1292,6 +1306,7 @@ function nullableUuid(value: unknown, field: string): string | null {
 const OPERATOR_SESSION_PURPOSES = new Set<OperatorSessionPurpose>([
   'COMMISSIONING_READ_ONLY',
   'COMMISSIONING_MOTION_TEST',
+  'RAW_DIRECTION_TEST',
   'REAL_MOTION',
 ]);
 
@@ -1299,6 +1314,7 @@ const OPERATOR_SESSION_SCOPES = new Set<OperatorSessionScope>([
   'DIAGNOSTICS_READ',
   'CALIBRATION_CAPTURE',
   'COMMISSIONING_SINGLE_JOINT_TEST',
+  'RAW_DIRECTION_TEST',
   'REAL_JOINT_MOTION',
   'REAL_CARTESIAN_MOTION',
   'REAL_PLAYBACK',
@@ -1338,6 +1354,7 @@ function validateOperatorSessionScopes(
   const commissioningMotion = new Set<OperatorSessionScope>([
     'COMMISSIONING_SINGLE_JOINT_TEST',
   ]);
+  const rawDirection = new Set<OperatorSessionScope>(['RAW_DIRECTION_TEST']);
   const realMotion = new Set<OperatorSessionScope>([
     'REAL_JOINT_MOTION',
     'REAL_CARTESIAN_MOTION',
@@ -1351,7 +1368,9 @@ function validateOperatorSessionScopes(
     ? exact(commissioning)
     : purpose === 'COMMISSIONING_MOTION_TEST'
       ? exact(commissioningMotion)
-      : actual.size > 0 && [...actual].every((scope) => realMotion.has(scope));
+      : purpose === 'RAW_DIRECTION_TEST'
+        ? exact(rawDirection)
+        : actual.size > 0 && [...actual].every((scope) => realMotion.has(scope));
   if (!valid) {
     throw new TypeError('Backend returned scopes incoherent with Operator Session purpose');
   }
@@ -1397,6 +1416,7 @@ function deviceConfirmation(value: unknown): DeviceConfirmationEvidence {
 const DEVICE_CAPABILITY_KEYS: readonly DeviceCapabilityKey[] = [
   'commissioning_read_only',
   'commissioning_motion_test',
+  'raw_direction_test',
   'real_joint_motion',
   'real_cartesian_motion',
   'real_playback',
@@ -1452,7 +1472,7 @@ function deviceCapabilityDetails(value: unknown): DeviceCapabilityDetails {
 }
 
 function deviceAuthorizationOptions(value: unknown): DeviceAuthorizationOption[] {
-  const options = boundedArray(value, 'Operator Session authorization options', 3)
+  const options = boundedArray(value, 'Operator Session authorization options', 4)
     .map((item) => {
       if (!isRecord(item) || typeof item.authorizable !== 'boolean') {
         throw new TypeError('Backend returned an invalid Operator Session authorization option');
@@ -1479,6 +1499,7 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
     typeof value.calibration_configured !== 'boolean' ||
     typeof value.commissioning_session_authorizable !== 'boolean' ||
     typeof value.commissioning_motion_session_authorizable !== 'boolean' ||
+    typeof value.raw_direction_session_authorizable !== 'boolean' ||
     typeof value.motion_session_authorizable !== 'boolean' ||
     !isRecord(value.capabilities)) {
     throw new TypeError('Backend returned invalid Real readiness');
@@ -1515,9 +1536,10 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
   }
   const commissioningMotionSessionAuthorizable =
     value.commissioning_motion_session_authorizable;
+  const rawDirectionSessionAuthorizable = value.raw_direction_session_authorizable;
   if (value.session_authorizable !== (
     value.commissioning_session_authorizable || commissioningMotionSessionAuthorizable ||
-    value.motion_session_authorizable
+    rawDirectionSessionAuthorizable || value.motion_session_authorizable
   )) {
     throw new TypeError('Backend returned incoherent purpose-specific session readiness');
   }
@@ -1528,6 +1550,7 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
     commissioning_diagnostics_ready: value.capabilities.commissioning_diagnostics_ready,
     calibration_capture_ready: value.capabilities.calibration_capture_ready,
     commissioning_motion_test_ready: value.capabilities.commissioning_motion_test_ready,
+    raw_direction_test_ready: value.capabilities.raw_direction_test_ready,
     real_joint_motion_ready: value.capabilities.real_joint_motion_ready,
     real_cartesian_motion_ready: value.capabilities.real_cartesian_motion_ready,
     real_playback_ready: value.capabilities.real_playback_ready,
@@ -1562,7 +1585,9 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
       ? value.commissioning_session_authorizable
       : option.purpose === 'COMMISSIONING_MOTION_TEST'
         ? commissioningMotionSessionAuthorizable
-        : value.motion_session_authorizable;
+        : option.purpose === 'RAW_DIRECTION_TEST'
+          ? rawDirectionSessionAuthorizable
+          : value.motion_session_authorizable;
     if (option.authorizable !== expected) {
       throw new TypeError('Backend returned incoherent Operator Session authorization option');
     }
@@ -1573,6 +1598,7 @@ export function normalizeDeviceReadiness(value: unknown): DeviceReadiness {
     session_authorizable: value.session_authorizable,
     commissioning_session_authorizable: value.commissioning_session_authorizable,
     commissioning_motion_session_authorizable: commissioningMotionSessionAuthorizable,
+    raw_direction_session_authorizable: rawDirectionSessionAuthorizable,
     motion_session_authorizable: value.motion_session_authorizable,
     blocking_reasons: blockingReasons,
     capabilities: normalizedCapabilities,
@@ -1683,7 +1709,11 @@ export function normalizeDeviceDiagnostics(value: unknown): DeviceDiagnostics {
     field_acceptance: fieldAcceptance,
     readiness,
     records: boundedArray(value.records, 'Servo diagnostics', 32).map(servoDiagnostic),
-    last_error: nullableString(value.last_error, 'device diagnostic error'),
+    // The backend uses an empty string as the no-error sentinel in its
+    // DeviceDiagnosticsResponse. Normalize that wire value to the UI contract.
+    last_error: value.last_error === ''
+      ? null
+      : nullableString(value.last_error, 'device diagnostic error'),
   };
 }
 
@@ -2392,6 +2422,94 @@ export function normalizeCommissioningMotionStatus(value: unknown): Commissionin
   };
 }
 
+export function normalizeCommissioningDirectControl(
+  value: unknown,
+): CommissioningDirectControlResponse {
+  if (!isRecord(value) || typeof value.running !== 'boolean') {
+    throw new TypeError('Backend returned invalid direct-control status');
+  }
+  const mode = stringValue(value.mode);
+  const message = stringValue(value.message);
+  const jointId = nullableString(value.joint_id, 'Direct-control joint');
+  const direction = value.direction;
+  if (
+    !mode || !['STEP', 'CONTINUOUS', 'IDLE'].includes(mode) || !message ||
+    !(direction === null || direction === -1 || direction === 1)
+  ) {
+    throw new TypeError('Backend returned incomplete direct-control status');
+  }
+  const nullableFinite = (item: unknown, field: string): number | null =>
+    item === null ? null : signedFiniteNumber(item, field);
+  return {
+    running: value.running,
+    mode: mode as CommissioningDirectControlResponse['mode'],
+    joint_id: jointId,
+    direction: direction as -1 | 1 | null,
+    requested_speed: nullableFinite(value.requested_speed, 'Direct-control speed'),
+    logical_position: nullableFinite(value.logical_position, 'Direct-control position'),
+    raw_position: value.raw_position === null
+      ? null
+      : integerValue(value.raw_position, 'Direct-control raw position', Number.MIN_SAFE_INTEGER),
+    target_value: nullableFinite(value.target_value, 'Direct-control target'),
+    message,
+  };
+}
+
+function normalizeDirectJointMaps(value: Record<string, unknown>, prefix: string) {
+  if (!isRecord(value.positions) || !isRecord(value.units) || !isRecord(value.raw_positions)) {
+    throw new TypeError(`Backend returned invalid ${prefix} joint maps`);
+  }
+  const positions: Record<string, number> = {};
+  const units: Record<string, 'mm' | 'deg'> = {};
+  const rawPositions: Record<string, number> = {};
+  for (const [jointId, rawValue] of Object.entries(value.positions)) {
+    positions[jointId] = signedFiniteNumber(rawValue, `${prefix} ${jointId} position`);
+    const unit = value.units[jointId];
+    if (unit !== 'mm' && unit !== 'deg') throw new TypeError(`${prefix} ${jointId} unit is invalid`);
+    units[jointId] = unit;
+    rawPositions[jointId] = integerValue(
+      value.raw_positions[jointId],
+      `${prefix} ${jointId} raw position`,
+      Number.MIN_SAFE_INTEGER,
+    );
+  }
+  return { positions, units, raw_positions: rawPositions };
+}
+
+export function normalizeCommissioningDirectJointState(
+  value: unknown,
+): CommissioningDirectJointStateResponse {
+  if (!isRecord(value) || typeof value.moving !== 'boolean') {
+    throw new TypeError('Backend returned invalid direct joint state');
+  }
+  const capturedAt = stringValue(value.captured_at);
+  const message = stringValue(value.message);
+  if (!capturedAt || !message) throw new TypeError('Backend returned incomplete direct joint state');
+  return {
+    ...normalizeDirectJointMaps(value, 'direct state'),
+    captured_at: capturedAt,
+    moving: value.moving,
+    message,
+  };
+}
+
+export function normalizeCommissioningDirectJointMove(
+  value: unknown,
+): CommissioningDirectJointMoveResponse {
+  if (!isRecord(value) || typeof value.completed !== 'boolean') {
+    throw new TypeError('Backend returned invalid direct joint move');
+  }
+  const message = stringValue(value.message);
+  if (!message) throw new TypeError('Backend returned incomplete direct joint move');
+  return {
+    ...normalizeDirectJointMaps(value, 'direct move'),
+    duration_s: finiteNumber(value.duration_s, 'Direct move duration', 0.1),
+    frame_count: integerValue(value.frame_count, 'Direct move frame count', 1),
+    completed: value.completed,
+    message,
+  };
+}
+
 export function normalizeCommissioningTestEvidence(value: unknown): CommissioningTestEvidence {
   if (!isRecord(value) || value.schema_version !== 1 || value.revision !== 1 ||
     (value.robot_variant !== 'V1' && value.robot_variant !== 'V2') ||
@@ -2523,6 +2641,283 @@ export async function stopCommissioningMotionTest(
   return normalizeCommissioningMotionStatus(await postJson<unknown>(
     '/device/commissioning/tests/stop',
     { reason: normalizedReason },
+  ));
+}
+
+export async function directCommissioningStep(
+  jointId: string,
+  signedDelta: number,
+  requestedSpeed: number,
+): Promise<CommissioningDirectControlResponse> {
+  return normalizeCommissioningDirectControl(await postJson<unknown>(
+    `/device/commissioning/joints/${encodeURIComponent(jointId)}/direct/step`,
+    { signed_delta: signedDelta, requested_speed: requestedSpeed },
+  ));
+}
+
+export async function startCommissioningDirectJog(
+  jointId: string,
+  direction: -1 | 1,
+  requestedSpeed: number,
+): Promise<CommissioningDirectControlResponse> {
+  return normalizeCommissioningDirectControl(await postJson<unknown>(
+    `/device/commissioning/joints/${encodeURIComponent(jointId)}/direct/jog/start`,
+    { direction, requested_speed: requestedSpeed },
+  ));
+}
+
+export async function heartbeatCommissioningDirectJog(): Promise<CommissioningDirectControlResponse> {
+  return normalizeCommissioningDirectControl(await postJson<unknown>(
+    '/device/commissioning/direct/jog/heartbeat',
+  ));
+}
+
+export async function stopCommissioningDirectJog(
+  keepalive = false,
+): Promise<CommissioningDirectControlResponse> {
+  return normalizeCommissioningDirectControl(await postJson<unknown>(
+    '/device/commissioning/direct/jog/stop',
+    undefined,
+    { keepalive },
+  ));
+}
+
+export async function getCommissioningDirectJointState(): Promise<CommissioningDirectJointStateResponse> {
+  return normalizeCommissioningDirectJointState(await requestJson<unknown>(
+    '/device/commissioning/direct/joints/state',
+  ));
+}
+
+export async function moveCommissioningDirectJoints(
+  positions: Record<string, number>,
+  durationS: number,
+): Promise<CommissioningDirectJointMoveResponse> {
+  return normalizeCommissioningDirectJointMove(await postJson<unknown>(
+    '/device/commissioning/direct/joints/move',
+    { positions, duration_s: durationS },
+  ));
+}
+
+const RAW_DIRECTION_STATES = new Set<RawDirectionTestState>([
+  'IDLE',
+  'ZERO_CAPTURED',
+  'ARMED',
+  'MOVING',
+  'STOPPING',
+  'COMPLETED',
+  'FAILED',
+  'EXPIRED',
+]);
+
+function rawDirection(value: unknown): RawDirection {
+  if (value !== 'RAW_PLUS' && value !== 'RAW_MINUS') {
+    throw new TypeError('Backend returned an invalid Raw direction');
+  }
+  return value;
+}
+
+export function normalizeRawDirectionStatus(value: unknown): RawDirectionStatus {
+  if (!isRecord(value)) throw new TypeError('Backend returned invalid Raw direction status');
+  const state = stringValue(value.state);
+  if (!state || !RAW_DIRECTION_STATES.has(state as RawDirectionTestState)) {
+    throw new TypeError('Backend returned invalid Raw direction state');
+  }
+  let zeroSnapshot: RawDirectionStatus['zero_snapshot'] = null;
+  if (value.zero_snapshot !== null) {
+    if (!isRecord(value.zero_snapshot) || !isRecord(value.zero_snapshot.raw_by_joint)) {
+      throw new TypeError('Backend returned invalid Raw zero snapshot');
+    }
+    const rawEntries = Object.entries(value.zero_snapshot.raw_by_joint);
+    if (rawEntries.length === 0 || rawEntries.length > 32) {
+      throw new TypeError('Backend returned an invalid Raw zero joint set');
+    }
+    zeroSnapshot = {
+      session_id: nullableUuid(value.zero_snapshot.session_id, 'Raw zero session ID') ?? (() => {
+        throw new TypeError('Backend omitted Raw zero session ID');
+      })(),
+      robot_unit_id: stringValue(value.zero_snapshot.robot_unit_id) ?? (() => {
+        throw new TypeError('Backend omitted Raw zero robot unit');
+      })(),
+      captured_at: stringValue(value.zero_snapshot.captured_at) ?? (() => {
+        throw new TypeError('Backend omitted Raw zero capture time');
+      })(),
+      raw_by_joint: Object.fromEntries(rawEntries.map(([jointId, raw]) => {
+        if (!jointId || jointId.length > 32) throw new TypeError('Backend returned invalid Raw joint');
+        return [jointId, integerValue(raw, `Raw zero ${jointId}`, -32767)];
+      })),
+    };
+  }
+  let observation: RawDirectionStatus['last_observation'] = null;
+  const normalizeObservation = (rawObservation: unknown): RawDirectionObservation => {
+    if (!isRecord(rawObservation)) {
+      throw new TypeError('Backend returned invalid Raw direction observation');
+    }
+    const commandId = nullableUuid(rawObservation.command_id, 'Raw command ID');
+    const jointId = stringValue(rawObservation.joint_id);
+    const completedAt = stringValue(rawObservation.completed_at);
+    if (!commandId || !jointId || !completedAt ||
+      typeof rawObservation.software_only_adapter !== 'boolean') {
+      throw new TypeError('Backend returned incomplete Raw direction observation');
+    }
+    return {
+      command_id: commandId,
+      joint_id: jointId,
+      servo_id: integerValue(rawObservation.servo_id, 'Raw Servo ID'),
+      direction: rawDirection(rawObservation.direction),
+      zero_raw: integerValue(rawObservation.zero_raw, 'Raw zero', -32767),
+      start_raw: integerValue(rawObservation.start_raw, 'Raw start', -32767),
+      target_raw: integerValue(rawObservation.target_raw, 'Raw target', -32767),
+      final_raw: integerValue(rawObservation.final_raw, 'Raw final', -32767),
+      completed_at: completedAt,
+      software_only_adapter: rawObservation.software_only_adapter,
+    };
+  };
+  if (value.last_observation !== null) {
+    observation = normalizeObservation(value.last_observation);
+  }
+  const observations = boundedArray(value.observations, 'Raw direction observations', 64)
+    .map(normalizeObservation);
+  let calibrationDraft: RawDirectionStatus['calibration_draft'] = null;
+  if (value.calibration_draft !== null) {
+    if (!isRecord(value.calibration_draft)) {
+      throw new TypeError('Backend returned invalid Raw calibration draft');
+    }
+    const robotUnitId = stringValue(value.calibration_draft.robot_unit_id);
+    const source = stringValue(value.calibration_draft.source);
+    const sourceRevision = stringValue(value.calibration_draft.source_revision);
+    if (!robotUnitId || !source || !sourceRevision ||
+      typeof value.calibration_draft.complete_for_review !== 'boolean' ||
+      typeof value.calibration_draft.confirmed_for_review !== 'boolean') {
+      throw new TypeError('Backend returned incomplete Raw calibration draft');
+    }
+    const confirmedAt = nullableString(
+      value.calibration_draft.confirmed_at,
+      'Raw draft confirmation time',
+    );
+    if (value.calibration_draft.confirmed_for_review !== (confirmedAt !== null) ||
+      (value.calibration_draft.confirmed_for_review &&
+        !value.calibration_draft.complete_for_review)) {
+      throw new TypeError('Backend returned incoherent Raw calibration draft confirmation');
+    }
+    const joints = boundedArray(value.calibration_draft.joints, 'Raw calibration joints', 32)
+      .map((joint) => {
+        if (!isRecord(joint) || typeof joint.matches_urdf !== 'boolean' &&
+          joint.matches_urdf !== null) {
+          throw new TypeError('Backend returned invalid Raw calibration joint');
+        }
+        const jointId = stringValue(joint.joint_id);
+        const profileDirection = integerValue(
+          joint.profile_direction_candidate,
+          'Raw candidate sign',
+          -1,
+        );
+        const resolvedDirection = joint.resolved_calibration_direction === null
+          ? null
+          : integerValue(joint.resolved_calibration_direction, 'Raw resolved sign', -1);
+        const bounds = boundedArray(joint.raw_bounds_candidate, 'Raw bounds', 2);
+        if (!jointId || ![-1, 1].includes(profileDirection) ||
+          !(resolvedDirection === null || [-1, 1].includes(resolvedDirection)) ||
+          bounds.length !== 2) {
+          throw new TypeError('Backend returned incoherent Raw calibration joint');
+        }
+        return {
+          joint_id: jointId,
+          servo_id: integerValue(joint.servo_id, 'Raw draft Servo ID'),
+          home_present_raw: integerValue(joint.home_present_raw, 'Raw draft zero', -32767),
+          profile_direction_candidate: profileDirection as -1 | 1,
+          matches_urdf: joint.matches_urdf,
+          resolved_calibration_direction: resolvedDirection as -1 | 1 | null,
+          phase_candidate: integerValue(joint.phase_candidate, 'Raw phase candidate'),
+          raw_bounds_candidate: [
+            integerValue(bounds[0], 'Raw lower bound', -32767),
+            integerValue(bounds[1], 'Raw upper bound', -32767),
+          ] as [number, number],
+        };
+      });
+    calibrationDraft = {
+      robot_unit_id: robotUnitId,
+      profile_fingerprint: fingerprint(
+        value.calibration_draft.profile_fingerprint,
+        'Raw draft Profile fingerprint',
+      ),
+      source,
+      source_revision: sourceRevision,
+      complete_for_review: value.calibration_draft.complete_for_review,
+      confirmed_for_review: value.calibration_draft.confirmed_for_review,
+      confirmed_at: confirmedAt,
+      joints,
+    };
+  }
+  return {
+    state: state as RawDirectionTestState,
+    session_id: nullableUuid(value.session_id, 'Raw direction session ID'),
+    active_joint_id: nullableString(value.active_joint_id, 'Raw direction active joint'),
+    command_count: integerValue(value.command_count, 'Raw direction command count'),
+    session_expires_at: nullableString(value.session_expires_at, 'Raw direction session expiry'),
+    deadman_expires_at: nullableString(value.deadman_expires_at, 'Raw direction deadman expiry'),
+    zero_snapshot: zeroSnapshot,
+    last_observation: observation,
+    observations,
+    calibration_draft: calibrationDraft,
+    failure_reason: nullableString(value.failure_reason, 'Raw direction failure reason'),
+  };
+}
+
+export async function getRawDirectionStatus(signal?: AbortSignal): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await requestJson<unknown>(
+    '/device/commissioning/raw-direction/status',
+    { signal },
+  ));
+}
+
+export async function startRawDirectionSession(): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await postJson<unknown>(
+    '/device/commissioning/raw-direction/session',
+  ));
+}
+
+export async function armRawDirectionJoint(jointId: string): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await postJson<unknown>(
+    `/device/commissioning/raw-direction/joints/${encodeURIComponent(jointId)}/arm`,
+  ));
+}
+
+export async function stepRawDirectionJoint(
+  jointId: string,
+  direction: RawDirection,
+): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await postJson<unknown>(
+    `/device/commissioning/raw-direction/joints/${encodeURIComponent(jointId)}/step`,
+    { direction },
+  ));
+}
+
+export async function heartbeatRawDirectionTest(): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await postJson<unknown>(
+    '/device/commissioning/raw-direction/heartbeat',
+  ));
+}
+
+export async function recordRawDirectionAlignment(
+  jointId: string,
+  matchesUrdf: boolean,
+): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await postJson<unknown>(
+    `/device/commissioning/raw-direction/joints/${encodeURIComponent(jointId)}/alignment`,
+    { matches_urdf: matchesUrdf },
+  ));
+}
+
+export async function confirmRawDirectionDraft(): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await postJson<unknown>(
+    '/device/commissioning/raw-direction/draft/confirm',
+    { confirmation_text: 'I CONFIRM RAW ZERO AND DIRECTIONS FOR CALIBRATION DRAFT' },
+  ));
+}
+
+export async function stopRawDirectionTest(): Promise<RawDirectionStatus> {
+  return normalizeRawDirectionStatus(await postJson<unknown>(
+    '/device/commissioning/raw-direction/stop',
   ));
 }
 

@@ -60,6 +60,9 @@ Historical Stage reports are evidence records, not the current product guide.
 
 ## Commissioning
 
+- [Raw ± direction bootstrap](raw-direction-bootstrap.md) — one-session current-unit Raw
+  zero capture, fixed-count dual-sign checks, draft generation, and hardware-disabled
+  verification boundary.
 - [Commissioning Motion Test](commissioning-motion-test.md) — entry gates, backend hard
   envelope, deadman, permitted command, Evidence, API, and Stop limitations.
 - [Staged Field Acceptance model](field-acceptance-model.md) — capability evidence,

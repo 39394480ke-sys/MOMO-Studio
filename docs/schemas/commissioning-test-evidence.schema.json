@@ -33,8 +33,8 @@
           "type": "number"
         },
         "max_commands_per_session": {
-          "default": 24,
-          "maximum": 24,
+          "default": 120,
+          "maximum": 120,
           "minimum": 2,
           "title": "Max Commands Per Session",
           "type": "integer"
@@ -47,16 +47,16 @@
           "type": "number"
         },
         "max_prismatic_delta_mm": {
-          "default": 1.0,
+          "default": 3.0,
           "exclusiveMinimum": 0.0,
-          "maximum": 1.0,
+          "maximum": 3.0,
           "title": "Max Prismatic Delta Mm",
           "type": "number"
         },
         "max_prismatic_speed_mm_s": {
-          "default": 1.0,
+          "default": 50.0,
           "exclusiveMinimum": 0.0,
-          "maximum": 1.0,
+          "maximum": 50.0,
           "title": "Max Prismatic Speed Mm S",
           "type": "number"
         },
@@ -68,16 +68,16 @@
           "type": "number"
         },
         "max_revolute_delta_deg": {
-          "default": 2.0,
+          "default": 3.0,
           "exclusiveMinimum": 0.0,
-          "maximum": 2.0,
+          "maximum": 3.0,
           "title": "Max Revolute Delta Deg",
           "type": "number"
         },
         "max_revolute_speed_deg_s": {
-          "default": 2.0,
+          "default": 50.0,
           "exclusiveMinimum": 0.0,
-          "maximum": 2.0,
+          "maximum": 50.0,
           "title": "Max Revolute Speed Deg S",
           "type": "number"
         },

@@ -125,6 +125,43 @@ def test_hardware_local_authorization_requires_exact_explicit_local_config(
         )
 
 
+def test_feetech_read_only_adapter_requires_complete_local_read_only_gate(
+    tmp_path: Path,
+) -> None:
+    default = tmp_path / "default.yaml"
+    default.write_text("control_mode: dry_run\n", encoding="utf-8")
+    local = tmp_path / "local.yaml"
+    local.write_text(
+        "control_mode: real\n"
+        "real_motion_enabled: false\n"
+        "commissioning_motion_test_enabled: false\n"
+        "hardware_access_policy: read_only\n"
+        "hardware_startup_enabled: true\n"
+        "hardware_local_config_enabled: true\n"
+        "feetech_read_only_adapter_enabled: true\n"
+        "robot_unit_id: MOMO-V2-UNIT-SYNTHETIC\n"
+        "serial_port: /dev/explicit-test-only\n"
+        "servo_ids: [10, 11, 12, 13, 14, 15]\n"
+        "servo_protocol: STS3215\n",
+        encoding="utf-8",
+    )
+    configured = load_settings(default_config_path=default, local_config_path=local)
+    assert configured.control_mode is ControlMode.REAL
+    assert configured.hardware_access_policy is HardwareAccessPolicy.READ_ONLY
+    assert configured.feetech_read_only_adapter_enabled is True
+    assert configured.real_motion_enabled is False
+
+    local.write_text(
+        local.read_text().replace(
+            "hardware_access_policy: read_only",
+            "hardware_access_policy: full",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="READ_ONLY"):
+        load_settings(default_config_path=default, local_config_path=local)
+
+
 def test_real_control_mode_is_only_one_readiness_input() -> None:
     settings = Settings(control_mode=ControlMode.REAL)
     assert settings.control_mode is ControlMode.REAL

@@ -52,6 +52,20 @@ communication loss, divergence, or an uncertain software Stop result.
 
 ## Phase 2 — Calibration
 
+Before creating Calibration, the optional Raw bootstrap may be used only when its
+separate physical adapter has been reviewed:
+
+- [ ] One `RAW_DIRECTION_TEST` authorization recorded E-stop ready, workspace clear, and
+  current physical pose matching URDF zero.
+- [ ] One fresh Raw-zero snapshot covered the exact enabled joints/Servo IDs; no Legacy
+  runtime position or device-local Calibration was reused as a current measurement.
+- [ ] Raw + and Raw − were each observed for every enabled joint within the fixed
+  8-count step, ±32-count zero envelope, 400 ms deadman, 300-second session, and
+  24-command cap.
+- [ ] Each physical direction was explicitly judged against the Legacy/Profile-to-URDF
+  candidate and the complete session-only draft received one final review confirmation.
+- [ ] The draft was not automatically persisted or treated as motion authority.
+
 - [ ] A fresh unit progressed from no Calibration to a complete Revision 1; missing
   values remained absent and no fabricated zero was used.
 - [ ] Each enabled joint was selected explicitly; capture read only that configured
@@ -96,7 +110,7 @@ read-only token and it does not grant production `REAL_MOTION`.
   Home, Cartesian, Playback, Library/Studio motion, Vision motion, loops, arbitrary IDs,
   raw registers, mode writes, and torque writes.
 - [ ] The active envelope does not exceed: one joint, 2 s command, 300 s session,
-  2 deg/1 mm delta, 2 deg/s or 1 mm/s, 4 deg/s² or 2 mm/s², and 24 commands.
+  3 deg/mm delta, 50 deg/mm per second, 4 deg/s² or 2 mm/s², and 24 evidence commands.
 - [ ] Target calculation used the latest fresh readback, Profile logical bounds,
   Calibration-derived raw bounds, exact mapping, immutable prepared command, and one
   explicitly authorized Servo ID.

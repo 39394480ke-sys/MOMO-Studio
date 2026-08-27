@@ -195,7 +195,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
       const blocker = hardwareAccessPolicy === 'READ_ONLY'
         ? 'Commissioning READ ONLY · 禁止运动'
         : 'Backend capability authorization is required';
-      const confirmation = (purpose: 'COMMISSIONING_READ_ONLY' | 'COMMISSIONING_MOTION_TEST' | 'REAL_MOTION') => ({
+      const confirmation = (purpose: 'COMMISSIONING_READ_ONLY' | 'COMMISSIONING_MOTION_TEST' | 'RAW_DIRECTION_TEST' | 'REAL_MOTION') => ({
         robot_id: 'primary',
         robot_unit_id: 'MOMO-V2-UNIT-001',
         variant,
@@ -208,10 +208,12 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         session_purpose: purpose,
         field_acceptance_evidence_id: null,
         physical_estop_required: true,
-        workspace_clear_required: purpose === 'COMMISSIONING_MOTION_TEST',
-        required_confirmation_text: purpose === 'COMMISSIONING_MOTION_TEST'
-          ? 'I CONFIRM THE WORKSPACE IS CLEAR'
-          : 'I CONFIRM THE PHYSICAL E-STOP IS READY',
+        workspace_clear_required: purpose === 'COMMISSIONING_MOTION_TEST' || purpose === 'RAW_DIRECTION_TEST',
+        required_confirmation_text: purpose === 'RAW_DIRECTION_TEST'
+          ? 'I CONFIRM CURRENT POSE MATCHES URDF ZERO AND RAW TEST CAN MOVE ONE JOINT'
+          : purpose === 'COMMISSIONING_MOTION_TEST'
+            ? 'I CONFIRM THE WORKSPACE IS CLEAR'
+            : 'I CONFIRM THE PHYSICAL E-STOP IS READY',
       });
       const detail = (scope: OperatorSessionScope, requiredEvidence: string[] = []) => {
         const authorized = scopeSet.has(scope);
@@ -234,12 +236,14 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         session_authorizable: readOnlyAuthorizable || motionAuthorizable,
         commissioning_session_authorizable: readOnlyAuthorizable,
         commissioning_motion_session_authorizable: false,
+        raw_direction_session_authorizable: false,
         motion_session_authorizable: motionAuthorizable,
         blocking_reasons: hasSession && allMotionAuthorized ? [] : [blocker],
         capabilities: {
           commissioning_diagnostics_ready: true,
           calibration_capture_ready: true,
           commissioning_motion_test_ready: false,
+          raw_direction_test_ready: false,
           real_joint_motion_ready: scopeSet.has('REAL_JOINT_MOTION'),
           real_cartesian_motion_ready: scopeSet.has('REAL_CARTESIAN_MOTION'),
           real_playback_ready: scopeSet.has('REAL_PLAYBACK'),
@@ -256,6 +260,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
             'COMMISSIONING_SINGLE_JOINT_TEST',
             ['PER_JOINT_COMMISSIONING_EVIDENCE'],
           ),
+          raw_direction_test: detail('RAW_DIRECTION_TEST'),
           real_joint_motion: detail('REAL_JOINT_MOTION'),
           real_cartesian_motion: detail('REAL_CARTESIAN_MOTION', ['KINEMATICS_FIELD_EVIDENCE']),
           real_playback: detail('REAL_PLAYBACK', ['PLAYBACK_FIELD_ACCEPTANCE']),
@@ -271,6 +276,11 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
             purpose: 'COMMISSIONING_MOTION_TEST',
             authorizable: false,
             confirmation: confirmation('COMMISSIONING_MOTION_TEST'),
+          },
+          {
+            purpose: 'RAW_DIRECTION_TEST',
+            authorizable: false,
+            confirmation: confirmation('RAW_DIRECTION_TEST'),
           },
           {
             purpose: 'REAL_MOTION',

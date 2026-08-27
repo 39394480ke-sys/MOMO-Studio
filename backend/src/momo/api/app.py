@@ -60,19 +60,23 @@ def create_app(
         await release.backup.recover_pending_restore()
         yield
         try:
-            if release.commissioning is not None:
-                await release.commissioning.shutdown()
+            if release.raw_direction is not None:
+                await release.raw_direction.shutdown()
         finally:
             try:
-                await release.calibration.shutdown()
+                if release.commissioning is not None:
+                    await release.commissioning.shutdown()
             finally:
                 try:
-                    await release.device.shutdown()
+                    await release.calibration.shutdown()
                 finally:
                     try:
-                        await services.vision.shutdown()
+                        await release.device.shutdown()
                     finally:
-                        await services.motion.shutdown()
+                        try:
+                            await services.vision.shutdown()
+                        finally:
+                            await services.motion.shutdown()
 
     app = FastAPI(
         title=f"{runtime_settings.product_name} API",
@@ -101,6 +105,7 @@ def create_app(
     app.state.calibration_workflow_coordinator = release.calibration
     app.state.real_calibration_repository = release.real_calibrations
     app.state.commissioning_motion_test_service = release.commissioning
+    app.state.raw_direction_test_service = release.raw_direction
     app.state.commissioning_evidence_repository = release.commissioning_evidence
     app.state.kinematics_verification_service = release.kinematics_verification
     app.state.kinematics_verification_repository = release.kinematics_verification_evidence

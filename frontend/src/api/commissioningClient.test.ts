@@ -12,9 +12,11 @@ import {
   getFieldAcceptanceStatus,
   getKinematicsVerificationStatus,
   normalizeCalibrationWorkflowStatus,
+  normalizeDeviceDiagnostics,
   normalizeDeviceReadiness,
   normalizeFieldAcceptanceProgress,
   normalizeFieldAcceptanceStatus,
+  normalizeRawDirectionStatus,
   revokeOperatorSession,
   runDeviceDiagnostics,
   startCalibrationSession,
@@ -58,6 +60,7 @@ function capabilityMatrix() {
   return {
     commissioning_read_only: blocked('COMMISSIONING_OPERATOR_SESSION_REQUIRED'),
     commissioning_motion_test: blocked('COMMISSIONING_MOTION_SESSION_REQUIRED'),
+    raw_direction_test: blocked('RAW_DIRECTION_SESSION_REQUIRED'),
     real_joint_motion: blocked('REAL_MOTION_SESSION_REQUIRED'),
     real_cartesian_motion: blocked('REAL_MOTION_SESSION_REQUIRED'),
     real_playback: blocked('REAL_MOTION_SESSION_REQUIRED'),
@@ -68,6 +71,7 @@ function capabilityMatrix() {
 function authorizationOptions(authorizable: {
   readOnly?: boolean;
   motionTest?: boolean;
+  rawDirection?: boolean;
   realMotion?: boolean;
 }) {
   return [
@@ -80,6 +84,17 @@ function authorizationOptions(authorizable: {
       purpose: 'COMMISSIONING_MOTION_TEST',
       authorizable: authorizable.motionTest ?? false,
       confirmation: { ...confirmation, session_purpose: 'COMMISSIONING_MOTION_TEST' },
+    },
+    {
+      purpose: 'RAW_DIRECTION_TEST',
+      authorizable: authorizable.rawDirection ?? false,
+      confirmation: {
+        ...confirmation,
+        session_purpose: 'RAW_DIRECTION_TEST',
+        workspace_clear_required: true,
+        required_confirmation_text:
+          'I CONFIRM CURRENT POSE MATCHES URDF ZERO AND RAW TEST CAN MOVE ONE JOINT',
+      },
     },
     {
       purpose: 'REAL_MOTION',
@@ -172,6 +187,50 @@ afterEach(() => {
 });
 
 describe('Commissioning API client boundary', () => {
+  it('accepts signed STS3215 Raw positions and direction candidates', () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const value = normalizeRawDirectionStatus({
+      state: 'ZERO_CAPTURED',
+      session_id: sessionId,
+      active_joint_id: null,
+      command_count: 0,
+      session_expires_at: '2026-08-27T01:05:00Z',
+      deadman_expires_at: null,
+      zero_snapshot: {
+        session_id: sessionId,
+        robot_unit_id: 'MOMO-V2-UNIT-001',
+        captured_at: '2026-08-27T01:00:00Z',
+        raw_by_joint: { j10: -12 },
+      },
+      last_observation: null,
+      observations: [],
+      calibration_draft: {
+        robot_unit_id: 'MOMO-V2-UNIT-001',
+        profile_fingerprint: profileFingerprint,
+        source: 'legacy-characterization',
+        source_revision: 'ff8bbda',
+        complete_for_review: false,
+        confirmed_for_review: false,
+        confirmed_at: null,
+        joints: [{
+          joint_id: 'j10',
+          servo_id: 10,
+          home_present_raw: -12,
+          profile_direction_candidate: -1,
+          matches_urdf: null,
+          resolved_calibration_direction: null,
+          phase_candidate: 28,
+          raw_bounds_candidate: [-30719, 30719],
+        }],
+      },
+      failure_reason: null,
+    });
+
+    expect(value.zero_snapshot?.raw_by_joint.j10).toBe(-12);
+    expect(value.calibration_draft?.joints[0].profile_direction_candidate).toBe(-1);
+    expect(value.calibration_draft?.joints[0].raw_bounds_candidate).toEqual([-30719, 30719]);
+  });
+
   it('accepts independent read-only capabilities without claiming motion readiness', () => {
     const value = normalizeDeviceReadiness({
       state: 'AWAITING_OPERATOR_SESSION',
@@ -179,12 +238,14 @@ describe('Commissioning API client boundary', () => {
       session_authorizable: true,
       commissioning_session_authorizable: true,
       commissioning_motion_session_authorizable: false,
+      raw_direction_session_authorizable: false,
       motion_session_authorizable: false,
       blocking_reasons: ['OPERATOR_SESSION_MISSING'],
       capabilities: {
         commissioning_diagnostics_ready: true,
         calibration_capture_ready: true,
         commissioning_motion_test_ready: false,
+        raw_direction_test_ready: false,
         real_joint_motion_ready: false,
         real_cartesian_motion_ready: false,
         real_playback_ready: false,
@@ -242,12 +303,14 @@ describe('Commissioning API client boundary', () => {
       session_authorizable: true,
       commissioning_session_authorizable: false,
       commissioning_motion_session_authorizable: true,
+      raw_direction_session_authorizable: false,
       motion_session_authorizable: false,
       blocking_reasons: ['COMMISSIONING_MOTION_SESSION_REQUIRED'],
       capabilities: {
         commissioning_diagnostics_ready: false,
         calibration_capture_ready: false,
         commissioning_motion_test_ready: false,
+        raw_direction_test_ready: false,
         real_joint_motion_ready: false,
         real_cartesian_motion_ready: false,
         real_playback_ready: false,
@@ -256,6 +319,7 @@ describe('Commissioning API client boundary', () => {
       capability_details: {
         commissioning_read_only: blocked('READ_ONLY_SESSION_REQUIRED'),
         commissioning_motion_test: blocked('COMMISSIONING_MOTION_SESSION_REQUIRED'),
+        raw_direction_test: blocked('RAW_DIRECTION_SESSION_REQUIRED'),
         real_joint_motion: blocked('JOINT_EVIDENCE_REQUIRED', ['JOINT_MOTION_ACCEPTANCE']),
         real_cartesian_motion: blocked('KINEMATICS_EVIDENCE_REQUIRED', [
           'JOINT_MOTION_ACCEPTANCE',
@@ -271,6 +335,15 @@ describe('Commissioning API client boundary', () => {
           purpose: 'COMMISSIONING_MOTION_TEST',
           authorizable: true,
           confirmation: commissioningMotionConfirmation,
+        },
+        {
+          purpose: 'RAW_DIRECTION_TEST',
+          authorizable: false,
+          confirmation: {
+            ...confirmation,
+            session_purpose: 'RAW_DIRECTION_TEST',
+            workspace_clear_required: true,
+          },
         },
         {
           purpose: 'REAL_MOTION',
@@ -293,6 +366,7 @@ describe('Commissioning API client boundary', () => {
     expect(value.authorization_options?.map((option) => option.purpose)).toEqual([
       'COMMISSIONING_READ_ONLY',
       'COMMISSIONING_MOTION_TEST',
+      'RAW_DIRECTION_TEST',
       'REAL_MOTION',
     ]);
     expect(value.confirmation).toMatchObject({
@@ -309,12 +383,14 @@ describe('Commissioning API client boundary', () => {
       session_authorizable: true,
       commissioning_session_authorizable: false,
       commissioning_motion_session_authorizable: false,
+      raw_direction_session_authorizable: false,
       motion_session_authorizable: true,
       blocking_reasons: ['OPERATOR_SESSION_MISSING'],
       capabilities: {
         commissioning_diagnostics_ready: false,
         calibration_capture_ready: false,
         commissioning_motion_test_ready: false,
+        raw_direction_test_ready: false,
         real_joint_motion_ready: false,
         real_cartesian_motion_ready: false,
         real_playback_ready: false,
@@ -472,6 +548,58 @@ describe('Commissioning API client boundary', () => {
       expect(init).toEqual(expect.objectContaining({ credentials: 'include' }));
       expect(new Headers(init?.headers).has('X-MOMO-Operator-Session')).toBe(false);
     }
+  });
+
+  it('normalizes the backend empty device-error sentinel to null', () => {
+    expect(normalizeDeviceDiagnostics({
+      connected: true,
+      captured_at: '2026-08-27T07:00:00Z',
+      dependency: {
+        adapter_id: 'feetech-servo-bus-shell',
+        state: 'AVAILABLE',
+        package_name: 'ftservo-python-sdk==2.0.0',
+        license_status: 'MIT',
+        notice: 'Reviewed read-only adapter',
+      },
+      hardware_policy: 'READ_ONLY',
+      masked_serial_port: '***3871',
+      masked_servo_ids: ['servo-1'],
+      protocol: 'STS3215',
+      profile: {
+        configured: true,
+        fingerprint: profileFingerprint,
+        verification_status: 'VERIFIED_FOR_DRY_RUN',
+        template: true,
+        ready_for_real: false,
+      },
+      calibration: {
+        configured: false,
+        fingerprint: null,
+        verification_status: 'BLOCKED',
+        template: null,
+        ready_for_real: false,
+      },
+      kinematics: {
+        configured: false,
+        fingerprint: null,
+        verification_status: null,
+        template: null,
+        ready_for_real: false,
+      },
+      field_acceptance: 'PENDING',
+      readiness: 'COMMISSIONING_READ_ONLY',
+      records: [{
+        joint_id: 'j10',
+        masked_servo_id: 'servo-1',
+        ping_responded: true,
+        operating_mode: 'MULTI_TURN',
+        present_raw: 2048,
+        logical_value: null,
+        raw_bounds: null,
+        torque_enabled: false,
+      }],
+      last_error: '',
+    }).last_error).toBeNull();
   });
 
   it('normalizes a fresh Calibration Draft with no fabricated base revision', () => {

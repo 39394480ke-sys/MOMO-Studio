@@ -3,6 +3,7 @@ version: 0.1.0-rc1
 control_mode: dry_run
 real_motion_enabled: false
 commissioning_motion_test_enabled: false
+raw_direction_test_enabled: false
 robot_unit_id: ""
 software_commit: unknown
 serial_port: ""
@@ -10,6 +11,9 @@ active_robot_variant: V2
 hardware_access: disabled
 hardware_startup_enabled: false
 hardware_local_config_enabled: false
+feetech_read_only_adapter_enabled: false
+feetech_raw_direction_adapter_enabled: false
+feetech_commissioning_motion_adapter_enabled: false
 servo_ids: []
 servo_protocol: ""
 field_acceptance_checklist_version: "1"
@@ -29,10 +33,10 @@ commissioning_safety_envelope:
   max_active_joints: 1
   max_command_duration_s: 2.0
   max_session_duration_s: 300.0
-  max_revolute_delta_deg: 2.0
-  max_prismatic_delta_mm: 1.0
-  max_revolute_speed_deg_s: 2.0
-  max_prismatic_speed_mm_s: 1.0
+  max_revolute_delta_deg: 3.0
+  max_prismatic_delta_mm: 3.0
+  max_revolute_speed_deg_s: 50.0
+  max_prismatic_speed_mm_s: 50.0
   max_revolute_acceleration_deg_s2: 4.0
   max_prismatic_acceleration_mm_s2: 2.0
   deadman_lease_ms: 400

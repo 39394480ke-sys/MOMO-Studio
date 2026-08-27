@@ -60,6 +60,7 @@ class RealHardwareCapabilityReadinessResponse(BaseModel):
     commissioning_diagnostics_ready: bool
     calibration_capture_ready: bool
     commissioning_motion_test_ready: bool
+    raw_direction_test_ready: bool
     real_joint_motion_ready: bool
     real_cartesian_motion_ready: bool
     real_playback_ready: bool
@@ -80,6 +81,7 @@ class RealHardwareCapabilityDetailsResponse(BaseModel):
 
     commissioning_read_only: CapabilityReadinessDetailResponse
     commissioning_motion_test: CapabilityReadinessDetailResponse
+    raw_direction_test: CapabilityReadinessDetailResponse
     real_joint_motion: CapabilityReadinessDetailResponse
     real_cartesian_motion: CapabilityReadinessDetailResponse
     real_playback: CapabilityReadinessDetailResponse
@@ -102,6 +104,7 @@ class RealHardwareReadinessResponse(BaseModel):
     session_authorizable: bool
     commissioning_session_authorizable: bool
     commissioning_motion_session_authorizable: bool
+    raw_direction_session_authorizable: bool
     motion_session_authorizable: bool
     blocking_reasons: list[str]
     capabilities: RealHardwareCapabilityReadinessResponse

@@ -46,8 +46,8 @@ def importer_dependencies(
 
 
 def tracked_shape(*, conflicting_replay: bool = False) -> dict[str, object]:
-    first = {"J10": 100.0, "J11": 0.0, "J12": 0.0, "J13": 0.0, "J14": 0.0, "J15": 0.0}
-    second = {"J10": 110.0, "J11": 2.0, "J12": 3.0, "J13": 4.0, "J14": 5.0, "J15": 6.0}
+    first = {"J10": 10.0, "J11": 0.0, "J12": 0.0, "J13": 0.0, "J14": 0.0, "J15": 0.0}
+    second = {"J10": 20.0, "J11": 2.0, "J12": 3.0, "J13": 4.0, "J14": 5.0, "J15": 6.0}
     replay_second = dict(second)
     if conflicting_replay:
         replay_second["J11"] = 9.0
@@ -156,7 +156,7 @@ def test_write_uses_new_uuid_sanitized_metadata_and_fk_snapshot(tmp_path: Path) 
         (
             lambda item: cast(list[dict[str, object]], item["poses"])[1].update(
                 replay_joint_targets_deg={
-                    "J10": 110.0,
+                    "J10": 30.0,
                     "J11": 99.0,
                     "J12": 3.0,
                     "J13": 4.0,

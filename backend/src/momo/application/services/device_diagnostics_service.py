@@ -794,6 +794,10 @@ class DeviceDiagnosticsService:
         device = self.context.device
         if profile is None or device is None:
             raise ValueError("device validation artifacts are incomplete")
+        profile_verified_for_real = (
+            not profile.template
+            and profile.verification_status is ProfileVerificationStatus.VERIFIED_FOR_REAL
+        )
         calibration_by_servo = (
             {joint.servo_id: joint for joint in calibration.joints}
             if calibration is not None
@@ -815,7 +819,9 @@ class DeviceDiagnosticsService:
             if definition is None:
                 raise ValueError("explicit servo ID has no matching Profile joint")
             mode = modes[servo_id]
-            if not isinstance(mode, str) or mode != definition.operating_mode.value:
+            if not isinstance(mode, str) or not mode:
+                raise ValueError("operating mode must be a non-empty string")
+            if profile_verified_for_real and mode != definition.operating_mode.value:
                 raise ValueError("operating mode does not match the reviewed Profile")
             raw = positions[servo_id]
             if isinstance(raw, bool) or not isinstance(raw, int):
@@ -824,6 +830,7 @@ class DeviceDiagnosticsService:
             raw_bounds: tuple[int, int] | None = None
             if (
                 calibration_joint is not None
+                and profile_verified_for_real
                 and calibration_joint.joint_id == definition.joint_id
                 and calibration_joint.operating_mode is definition.operating_mode
             ):
@@ -959,10 +966,15 @@ class DeviceDiagnosticsService:
         results: Mapping[int, ServoPingResult],
     ) -> None:
         DeviceDiagnosticsService._validate_exact_mapping(requested, results, "ping")
-        for servo_id in requested:
+        missing_slots: list[str] = []
+        for index, servo_id in enumerate(requested, start=1):
             result = results[servo_id]
             if result.servo_id != servo_id or not result.responded:
-                raise ValueError("not every explicitly configured servo responded")
+                missing_slots.append(f"servo-{index}")
+        if missing_slots:
+            raise ValueError(
+                "explicit configured servo slots did not respond: " + ", ".join(missing_slots)
+            )
 
     @staticmethod
     def _validate_exact_mapping(

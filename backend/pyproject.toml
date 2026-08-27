@@ -24,6 +24,9 @@ momo-studio-serve = "momo.serve:main"
 camera = [
   "opencv-python-headless>=4.10,<5",
 ]
+hardware = [
+  "ftservo-python-sdk==2.0.0",
+]
 dev = [
   "httpx>=0.28,<1",
   "mypy>=1.14,<2",

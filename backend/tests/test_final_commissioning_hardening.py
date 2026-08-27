@@ -29,6 +29,7 @@ from momo.domain.commissioning import (
 from momo.domain.enums import HardwareAccessPolicy, KinematicsVerificationStatus
 from momo.domain.real_hardware import (
     REQUIRED_COMMISSIONING_MOTION_CONFIRMATION_TEXT,
+    REQUIRED_RAW_DIRECTION_CONFIRMATION_TEXT,
     OperatorSessionPurpose,
     RealHardwareAuthorizationPurpose,
     RealHardwareGateInput,
@@ -107,6 +108,58 @@ def test_three_session_purposes_are_non_upgradeable() -> None:
         )
         for forbidden in (
             RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+        ):
+            with pytest.raises(OperatorSessionScopeError):
+                await sessions.authorize(token, context, purpose=forbidden)
+
+    asyncio.run(scenario())
+
+
+def test_raw_direction_session_is_authorizable_without_calibration_and_cannot_upgrade() -> None:
+    async def scenario() -> None:
+        context = real_context(
+            real_motion_enabled=False,
+            raw_direction_test_enabled=True,
+            raw_direction_adapter_ready=True,
+            calibration=None,
+            kinematics=None,
+            expected_kinematics_fingerprint=None,
+        )
+        clock = FakeClock()
+        authorization = RealHardwareAuthorization()
+        report = authorization.evaluate(
+            RealHardwareGateInput(context=context, evaluated_at=clock.now())
+        )
+        assert report.raw_direction_session_authorizable is True
+        assert report.commissioning_motion_session_authorizable is False
+        assert report.capability_details.raw_direction_test.blocked_reasons == (
+            "RAW_DIRECTION_SESSION_REQUIRED",
+        )
+
+        sessions = OperatorSessionService(clock, authorization, ttl_s=60.0)
+        issued = await sessions.issue(
+            context,
+            purpose=OperatorSessionPurpose.RAW_DIRECTION_TEST,
+            confirmation_text=REQUIRED_RAW_DIRECTION_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+            workspace_clear_confirmed=True,
+            operator_id="synthetic-raw-operator",
+        )
+        token = issued.session_token.get_secret_value()
+        assert issued.evidence.calibration_fingerprint is None
+        assert issued.evidence.raw_direction_envelope == context.raw_direction_safety_envelope
+        await sessions.authorize(
+            token,
+            context,
+            purpose=RealHardwareAuthorizationPurpose.RAW_DIRECTION_TEST,
+        )
+        for forbidden in (
+            RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST,
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK,

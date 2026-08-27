@@ -29,7 +29,11 @@ from momo.application.services.operator_session_service import (
 )
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
 from momo.application.services.security_service import SecurityService
-from momo.domain.enums import KinematicsVerificationStatus
+from momo.domain.enums import (
+    HardwareAccessPolicy,
+    KinematicsVerificationStatus,
+    ProfileVerificationStatus,
+)
 from momo.domain.real_hardware import (
     REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
     DeviceDiagnosticsSnapshot,
@@ -174,6 +178,46 @@ def test_connect_sequence_is_read_only_exact_id_and_diagnostics_is_explicit() ->
     asyncio.run(scenario())
 
 
+def test_identity_only_connection_reports_raw_mode_without_promoting_template() -> None:
+    async def scenario() -> None:
+        context = real_context(
+            hardware_access_policy=HardwareAccessPolicy.READ_ONLY,
+            real_motion_enabled=False,
+            calibration=None,
+        )
+        assert context.profile is not None
+        template_profile = context.profile.model_copy(
+            update={
+                "template": True,
+                "verification_status": ProfileVerificationStatus.VERIFIED_FOR_DRY_RUN,
+            }
+        )
+        context = context.model_copy(update={"profile": template_profile})
+        template_bus = fake_bus(context)
+        first_id = next(iter(template_bus.positions))
+        modes = {servo_id: "MULTI_TURN" for servo_id in template_bus.positions}
+        modes[first_id] = "SINGLE_TURN"
+        bus = FakeServoBus(
+            present_positions=template_bus.positions,
+            operating_modes=modes,
+            torque_states={servo_id: False for servo_id in template_bus.positions},
+        )
+        service, _, _ = device_service(context, bus=bus)
+        token = await issue_token(service)
+
+        snapshot = await service.connect(token)
+
+        assert snapshot.connected is True
+        assert snapshot.profile.template is True
+        assert snapshot.profile.ready_for_real is False
+        assert snapshot.records[0].operating_mode == "SINGLE_TURN"
+        assert all(record.logical_value is None for record in snapshot.records)
+        assert all(event[0] not in {"write_goal_positions", "stop_or_hold"} for event in bus.events)
+        await service.disconnect(token)
+
+    asyncio.run(scenario())
+
+
 def test_read_only_device_flow_cannot_reach_write_bomb() -> None:
     async def scenario() -> None:
         context = real_context()
@@ -254,8 +298,10 @@ def test_partial_connection_failure_closes_bus_and_invalidates_session() -> None
         service, _, _ = device_service(context, bus=bus)
         token = await issue_token(service)
 
-        with pytest.raises(DeviceConnectionError):
+        with pytest.raises(DeviceConnectionError) as captured:
             await service.connect(token)
+        assert isinstance(captured.value.__cause__, ValueError)
+        assert "servo-6" in str(captured.value.__cause__)
         assert service.connected is False
         assert bus.connected is False
         assert [event[0] for event in bus.events] == [
@@ -739,6 +785,7 @@ def test_default_device_api_is_blocked_and_never_touches_a_bus() -> None:
         assert body["capabilities"] == {
             "commissioning_read_only_ready": False,
             "commissioning_motion_test_ready": False,
+            "raw_direction_test_ready": False,
             "commissioning_diagnostics_ready": False,
             "calibration_capture_ready": False,
             "real_joint_motion_ready": False,
@@ -882,6 +929,7 @@ def test_device_api_sets_http_only_commissioning_cookie_and_redacts_diagnostics(
         assert readiness.json()["capabilities"] == {
             "commissioning_read_only_ready": True,
             "commissioning_motion_test_ready": False,
+            "raw_direction_test_ready": False,
             "commissioning_diagnostics_ready": True,
             "calibration_capture_ready": True,
             "real_joint_motion_ready": False,
@@ -938,6 +986,7 @@ def test_provisional_kinematics_does_not_block_commissioning_or_enable_motion() 
         assert after["capabilities"] == {
             "commissioning_read_only_ready": True,
             "commissioning_motion_test_ready": False,
+            "raw_direction_test_ready": False,
             "commissioning_diagnostics_ready": True,
             "calibration_capture_ready": True,
             "real_joint_motion_ready": False,

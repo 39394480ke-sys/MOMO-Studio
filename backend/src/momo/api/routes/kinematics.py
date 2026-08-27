@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from momo.api.dependencies import get_kinematics_service, get_robot_service
-from momo.api.motion_schemas import InverseKinematicsRequest
+from momo.api.motion_schemas import ForwardKinematicsRequest, InverseKinematicsRequest
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.kinematics.results import ForwardKinematicsResult, InverseKinematicsResult
@@ -24,6 +24,21 @@ async def current_fk(
     return await kinematics.forward(
         profile,
         state,
+        state_sequence=status.state_sequence,
+        robot_id=status.robot_id,
+    )
+
+
+@router.post("/kinematics/fk", response_model=ForwardKinematicsResult)
+async def solve_fk(
+    request: ForwardKinematicsRequest,
+    robot_service: RobotServiceDependency,
+    kinematics: KinematicsServiceDependency,
+) -> ForwardKinematicsResult:
+    status, profile, _current = await robot_service.get_motion_snapshot()
+    return await kinematics.forward(
+        profile,
+        request.joint_state,
         state_sequence=status.state_sequence,
         robot_id=status.robot_id,
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -24,6 +25,7 @@ from momo.domain.commissioning import (
     CommissioningSafetyEnvelope,
     CommissioningTestEvidence,
     CommissioningTestResult,
+    PreparedCommissioningJogTarget,
     PreparedCommissioningTestCommand,
     StopBehavior,
 )
@@ -162,6 +164,19 @@ class FirstReadBarrierBus(FakeCommissioningMotionBus):
             self.first_read_started.set()
             await self.release_first_read.wait()
         return await super().read_present_position(servo_id)
+
+
+class LaggingDirectJogBus(FakeCommissioningMotionBus):
+    """Accept prepared goals while keeping Present_Position stationary."""
+
+    async def write_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> ServoWriteResult:
+        present = self._positions[command.servo_id]
+        result = await super().write_prepared_jog_target(command)
+        self._positions[command.servo_id] = present
+        return result
 
 
 def _commissioning_context() -> RealHardwareContext:
@@ -307,6 +322,7 @@ def test_relative_single_joint_success_is_mapped_verified_and_persisted() -> Non
         assert evidence.failure_reason_optional is None
         assert repository.values == {evidence.id: evidence}
         assert {event[0] for event in bus.events} == {
+            "reset_for_session",
             "read_present_position",
             "write_started",
             "write_applied",
@@ -324,6 +340,202 @@ def test_relative_single_joint_success_is_mapped_verified_and_persisted() -> Non
         # The service intentionally has no production-motion entry point.
         for forbidden in ("home", "cartesian", "playback", "vision_follow", "move_joints"):
             assert not hasattr(service, forbidden)
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_step_writes_one_target_without_creating_acceptance_evidence() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        clock = FakeClock()
+        session = _session(context, clock)
+        service, bus, repository, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+        )
+        await service.start_session(_TOKEN)
+
+        result = await service.direct_step(
+            _TOKEN,
+            joint_id="j11",
+            signed_delta=2.0,
+            requested_speed=2.0,
+        )
+
+        assert result.mode == "STEP"
+        assert result.running is False
+        assert result.target_value == pytest.approx(2.0)
+        assert repository.values == {}
+        assert [event[0] for event in bus.events].count("jog_target_applied") == 1
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_step_uses_legacy_loaded_raw_speed_ceiling_for_high_ratio_joint() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        clock = FakeClock()
+        session = _session(context, clock)
+        service, bus, _, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+        )
+        await service.start_session(_TOKEN)
+
+        await service.direct_step(
+            _TOKEN,
+            joint_id="j10",
+            signed_delta=2.0,
+            requested_speed=50.0,
+        )
+
+        targets = [
+            cast(PreparedCommissioningJogTarget, event[1])
+            for event in bus.events
+            if event[0] == "jog_target_applied"
+        ]
+        assert len(targets) == 1
+        assert targets[0].raw_speed == 2_200
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_continuous_jog_streams_until_priority_stop() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        clock = FakeClock()
+        session = _session(context, clock)
+        service, bus, repository, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+        )
+        await service.start_session(_TOKEN)
+
+        started = await service.start_direct_jog(
+            _TOKEN,
+            joint_id="j11",
+            direction=1,
+            requested_speed=50.0,
+        )
+        assert started.running is True
+        for _ in range(3):
+            await clock.advance_to_next()
+            await service.heartbeat_direct_jog(_TOKEN)
+        stopped = await service.stop_direct_jog()
+
+        assert stopped.running is False
+        assert stopped.message == "已请求停止并保持当前位置; 舵机仍连接并保持扭矩。"
+        assert repository.values == {}
+        targets = [
+            cast(PreparedCommissioningJogTarget, event[1])
+            for event in bus.events
+            if event[0] == "jog_target_applied"
+        ]
+        assert [target.target_value for target in targets] == pytest.approx([1.0, 2.0, 3.0])
+        # 50 deg/s maps to roughly 569 STS3215 raw units/s for J11; 2,200 is
+        # only the reviewed loaded-speed ceiling, not the requested speed.
+        assert {target.raw_speed for target in targets} == {569}
+        assert any(event[0] == "stop_or_hold" for event in bus.events)
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_continuous_jog_caps_target_lead_like_legacy_controller() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        assert context.device is not None
+        clock = FakeClock()
+        session = _session(context, clock)
+        bus = LaggingDirectJogBus(
+            allowed_servo_ids=context.device.servo_ids,
+            session_id=session.session_id,
+            present_positions={servo_id: 0 for servo_id in context.device.servo_ids},
+            clock=clock,
+            write_enabled=True,
+            stop_result=RealStopResult.HOLD_REQUESTED,
+        )
+        service, _, _, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+            bus=bus,
+        )
+        await service.start_session(_TOKEN)
+        await service.start_direct_jog(
+            _TOKEN,
+            joint_id="j11",
+            direction=1,
+            requested_speed=50.0,
+        )
+        for _ in range(4):
+            await clock.advance_to_next()
+            await service.heartbeat_direct_jog(_TOKEN)
+
+        targets = [
+            cast(PreparedCommissioningJogTarget, event[1])
+            for event in bus.events
+            if event[0] == "jog_target_applied"
+        ]
+        assert [target.target_value for target in targets] == pytest.approx([1.0, 1.5, 1.5, 1.5])
+        await service.stop_direct_jog()
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_controls_do_not_consume_or_obey_evidence_attempt_budget() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        clock = FakeClock()
+        envelope = CommissioningSafetyEnvelope(max_commands_per_session=2)
+        session = _session(context, clock, envelope=envelope)
+        service, _, repository, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+        )
+        await _start_and_arm(service, joint_id="j11")
+        first = await _run_positive(service, request_id="consume-evidence-budget-1")
+        assert first.result is CommissioningTestResult.PASSED
+        await service.arm(_TOKEN, joint_id="j11")
+        second = await service.run_relative_test(
+            _TOKEN,
+            joint_id="j11",
+            signed_delta=-0.5,
+            requested_speed=1.0,
+            requested_acceleration=2.0,
+            command_duration_s=2.0,
+            request_id="consume-evidence-budget-2",
+        )
+        assert second.result is CommissioningTestResult.PASSED
+        assert len(repository.values) == 2
+        assert (await service.status()).command_count == 2
+
+        step = await service.direct_step(
+            _TOKEN,
+            joint_id="j11",
+            signed_delta=-0.25,
+            requested_speed=1.0,
+        )
+        assert step.mode == "STEP"
+        assert (await service.status()).command_count == 2
+
+        started = await service.start_direct_jog(
+            _TOKEN,
+            joint_id="j11",
+            direction=1,
+            requested_speed=1.0,
+        )
+        assert started.running is True
+        await service.stop_direct_jog()
+        assert (await service.status()).command_count == 2
         await service.shutdown()
 
     asyncio.run(scenario())

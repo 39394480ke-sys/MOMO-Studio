@@ -45,14 +45,15 @@ SoftwareCommit = Annotated[
 
 HARD_MAX_COMMAND_DURATION_S = 2.0
 HARD_MAX_SESSION_DURATION_S = 300.0
-HARD_MAX_REVOLUTE_DELTA_DEG = 2.0
-HARD_MAX_PRISMATIC_DELTA_MM = 1.0
-HARD_MAX_REVOLUTE_SPEED_DEG_S = 2.0
-HARD_MAX_PRISMATIC_SPEED_MM_S = 1.0
+HARD_MAX_REVOLUTE_DELTA_DEG = 3.0
+HARD_MAX_PRISMATIC_DELTA_MM = 3.0
+HARD_MAX_REVOLUTE_SPEED_DEG_S = 50.0
+HARD_MAX_PRISMATIC_SPEED_MM_S = 50.0
 HARD_MAX_REVOLUTE_ACCELERATION_DEG_S2 = 4.0
 HARD_MAX_PRISMATIC_ACCELERATION_MM_S2 = 2.0
 HARD_DEADMAN_LEASE_MS = 400
-HARD_MAX_COMMANDS_PER_SESSION = 24
+HARD_MAX_COMMANDS_PER_SESSION = 120
+HARD_MAX_COMMISSIONING_RAW_SPEED = 2_200
 
 
 class CommissioningSafetyEnvelope(BaseModel):
@@ -219,6 +220,46 @@ class PreparedCommissioningTestCommand(BaseModel):
             raise ValueError("requested acceleration exceeds the commissioning envelope")
         if self.command_duration_s > self.envelope.max_command_duration_s:
             raise ValueError("command duration exceeds the commissioning envelope")
+        return self
+
+
+class PreparedCommissioningJogTarget(BaseModel):
+    """One service-prepared target for step or deadman continuous control.
+
+    HTTP callers can request only a logical direction/delta and speed.  Raw
+    targets and raw speed are derived behind the application boundary and this
+    immutable value is the only direct-control write accepted by the adapter.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+
+    command_id: UUID = Field(default_factory=uuid4)
+    session_id: UUID
+    robot_unit_id: RobotUnitId
+    joint_id: str
+    servo_id: int = Field(strict=True, ge=1, le=253)
+    unit: DomainUnit
+    target_value: float
+    target_raw: int = Field(strict=True)
+    raw_speed: int = Field(strict=True, ge=1, le=HARD_MAX_COMMISSIONING_RAW_SPEED)
+    requested_speed: float = Field(gt=0.0)
+    prepared_at: datetime
+    envelope: CommissioningSafetyEnvelope
+
+    @field_validator("prepared_at")
+    @classmethod
+    def require_aware_prepared_at(cls, value: datetime) -> datetime:
+        return _aware(value, "prepared jog timestamp")
+
+    @model_validator(mode="after")
+    def validate_speed_cap(self) -> Self:
+        cap = (
+            self.envelope.max_prismatic_speed_mm_s
+            if self.unit is DomainUnit.MM
+            else self.envelope.max_revolute_speed_deg_s
+        )
+        if self.requested_speed > cap:
+            raise ValueError("requested jog speed exceeds the commissioning envelope")
         return self
 
 

@@ -19,7 +19,11 @@ from momo.api.motion_schemas import (
     MoveJointsRequest,
     MovePoseRequest,
 )
-from momo.api.security import authorize_control_request, authorize_priority_stop_request
+from momo.api.security import (
+    authorize_control_keepalive_request,
+    authorize_control_request,
+    authorize_priority_stop_request,
+)
 from momo.application.services.jog_service import JogLeaseService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.domain.jog import JogLeaseResponse, JogStopResponse
@@ -190,7 +194,7 @@ async def start_continuous_jog(
     "/jog/{session_id}/heartbeat",
     response_model=JogLeaseResponse,
     dependencies=[
-        Depends(authorize_control_request),
+        Depends(authorize_control_keepalive_request),
         Depends(authorize_real_joint_motion_request),
     ],
 )

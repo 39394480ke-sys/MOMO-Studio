@@ -9,7 +9,10 @@ from math import isfinite
 from typing import Literal
 from uuid import UUID
 
-from momo.domain.commissioning import PreparedCommissioningTestCommand
+from momo.domain.commissioning import (
+    PreparedCommissioningJogTarget,
+    PreparedCommissioningTestCommand,
+)
 from momo.domain.real_hardware import (
     RealStopOutcome,
     RealStopResult,
@@ -136,6 +139,12 @@ class FakeCommissioningMotionBus:
         self._events.append(("read_present_position", readback))
         return readback
 
+    async def read_prepared_joint_state(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> tuple[CommissioningPositionReadback, ...]:
+        return tuple([await self.read_present_position(servo_id) for servo_id in servo_ids])
+
     async def write_prepared_command(
         self,
         command: PreparedCommissioningTestCommand,
@@ -210,6 +219,53 @@ class FakeCommissioningMotionBus:
             if self._active_command_id == command.command_id:
                 self._active_command_id = None
 
+    async def begin_prepared_motion(self, session_id: UUID) -> None:
+        self._require_connected()
+        if session_id != self._session_id:
+            raise PermissionError("prepared motion belongs to a different session")
+        self._events.append(("begin_prepared_motion", session_id))
+
+    async def write_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> ServoWriteResult:
+        if not isinstance(command, PreparedCommissioningJogTarget):
+            raise TypeError("only a prepared commissioning jog target may be written")
+        self._require_connected()
+        self._require_allowed(command.servo_id)
+        if command.session_id != self._session_id:
+            raise PermissionError("prepared jog target belongs to a different session")
+        if not self._write_enabled:
+            raise PermissionError("fake commissioning writes are disabled")
+        self._positions[command.servo_id] = command.target_raw
+        self._events.append(("jog_target_applied", command))
+        return ServoWriteResult(
+            requested_ids=(command.servo_id,),
+            written_ids=(command.servo_id,),
+            failed_ids=(),
+            connected=True,
+            complete=True,
+            safety_state_known=True,
+            detail="prepared jog target applied to in-memory fake state only",
+        )
+
+    async def write_prepared_jog_targets(
+        self,
+        commands: tuple[PreparedCommissioningJogTarget, ...],
+    ) -> ServoWriteResult:
+        requested = tuple(command.servo_id for command in commands)
+        for command in commands:
+            await self.write_prepared_jog_target(command)
+        return ServoWriteResult(
+            requested_ids=requested,
+            written_ids=requested,
+            failed_ids=(),
+            connected=True,
+            complete=True,
+            safety_state_known=True,
+            detail="prepared jog targets applied to in-memory fake state only",
+        )
+
     async def stop_or_hold(self, servo_id: int) -> RealStopOutcome:
         self._require_allowed(servo_id)
         self._stop_generation += 1
@@ -237,6 +293,35 @@ class FakeCommissioningMotionBus:
             connected=True,
             safety_state_known=False,
             detail="fake software Stop/Hold path; physical behavior is never verified",
+        )
+
+    async def stop_or_hold_many(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
+        for servo_id in servo_ids:
+            self._require_allowed(servo_id)
+        self._stop_generation += 1
+        self._events.append(("stop_or_hold_many", servo_ids))
+        if not self._connected:
+            return RealStopOutcome(
+                result=RealStopResult.NOT_CONNECTED,
+                requested_ids=servo_ids,
+                affected_ids=(),
+                connected=False,
+                safety_state_known=False,
+                detail="fake commissioning bus is closed",
+            )
+        affected_ids = (
+            servo_ids
+            if self._stop_result
+            in {RealStopResult.HOLD_REQUESTED, RealStopResult.TORQUE_DISABLE_REQUESTED}
+            else ()
+        )
+        return RealStopOutcome(
+            result=self._stop_result,
+            requested_ids=servo_ids,
+            affected_ids=affected_ids,
+            connected=True,
+            safety_state_known=False,
+            detail="fake software multi-Stop/Hold path; physical behavior is never verified",
         )
 
     async def reset_for_session(self, session_id: UUID) -> None:

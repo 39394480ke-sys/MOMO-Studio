@@ -116,6 +116,10 @@ def _readiness(
                 report.commissioning_motion_session_authorizable,
             ),
             (
+                OperatorSessionPurpose.RAW_DIRECTION_TEST,
+                report.raw_direction_session_authorizable,
+            ),
+            (
                 OperatorSessionPurpose.REAL_MOTION,
                 report.motion_session_authorizable,
             ),
@@ -129,6 +133,7 @@ def _readiness(
         commissioning_motion_session_authorizable=(
             report.commissioning_motion_session_authorizable
         ),
+        raw_direction_session_authorizable=report.raw_direction_session_authorizable,
         motion_session_authorizable=report.motion_session_authorizable,
         blocking_reasons=[item.value for item in report.blocking_reasons],
         capabilities=RealHardwareCapabilityReadinessResponse.model_validate(
@@ -137,6 +142,7 @@ def _readiness(
         capability_details=RealHardwareCapabilityDetailsResponse(
             commissioning_read_only=capability_detail(details.commissioning_read_only),
             commissioning_motion_test=capability_detail(details.commissioning_motion_test),
+            raw_direction_test=capability_detail(details.raw_direction_test),
             real_joint_motion=capability_detail(details.real_joint_motion),
             real_cartesian_motion=capability_detail(details.real_cartesian_motion),
             real_playback=capability_detail(details.real_playback),

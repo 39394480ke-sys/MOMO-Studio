@@ -8,7 +8,11 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from momo.domain.commissioning import PreparedCommissioningTestCommand
+from momo.domain.commissioning import (
+    PreparedCommissioningJogTarget,
+    PreparedCommissioningTestCommand,
+)
+from momo.domain.raw_direction import PreparedRawDirectionCommand
 from momo.domain.real_hardware import (
     HardwareDependencyStatus,
     RealHardwareAccessGrant,
@@ -54,12 +58,31 @@ class CommissioningMotionServoBus(Protocol):
         servo_id: int,
     ) -> CommissioningPositionReadback: ...
 
+    async def read_prepared_joint_state(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> tuple[CommissioningPositionReadback, ...]: ...
+
     async def write_prepared_command(
         self,
         command: PreparedCommissioningTestCommand,
     ) -> ServoWriteResult: ...
 
+    async def begin_prepared_motion(self, session_id: UUID) -> None: ...
+
+    async def write_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> ServoWriteResult: ...
+
+    async def write_prepared_jog_targets(
+        self,
+        commands: tuple[PreparedCommissioningJogTarget, ...],
+    ) -> ServoWriteResult: ...
+
     async def stop_or_hold(self, servo_id: int) -> RealStopOutcome: ...
+
+    async def stop_or_hold_many(self, servo_ids: tuple[int, ...]) -> RealStopOutcome: ...
 
     async def reset_for_session(self, session_id: UUID) -> None: ...
 
@@ -95,6 +118,19 @@ class CommissioningMotionServoBusFacade:
             raise RuntimeError("commissioning adapter returned a different servo ID")
         return readback
 
+    async def read_prepared_joint_state(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> tuple[CommissioningPositionReadback, ...]:
+        if not servo_ids or len(servo_ids) != len(set(servo_ids)):
+            raise ValueError("commissioning read requires unique explicit Servo IDs")
+        for servo_id in servo_ids:
+            self._require_allowed(servo_id)
+        values = await self.__bus.read_prepared_joint_state(servo_ids)
+        if not isinstance(values, tuple) or tuple(item.servo_id for item in values) != servo_ids:
+            raise RuntimeError("commissioning adapter returned an invalid multi-ID readback")
+        return values
+
     async def write_prepared_command(
         self,
         command: PreparedCommissioningTestCommand,
@@ -109,6 +145,45 @@ class CommissioningMotionServoBusFacade:
             raise RuntimeError("commissioning adapter write result escaped the single-ID grant")
         return result
 
+    async def begin_prepared_motion(self, session_id: UUID) -> None:
+        if not isinstance(session_id, UUID):
+            raise TypeError("commissioning session_id must be a UUID")
+        await self.__bus.begin_prepared_motion(session_id)
+
+    async def write_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> ServoWriteResult:
+        if not isinstance(command, PreparedCommissioningJogTarget):
+            raise TypeError("only a prepared commissioning jog target may be written")
+        self._require_allowed(command.servo_id)
+        result = await self.__bus.write_prepared_jog_target(command)
+        if not isinstance(result, ServoWriteResult):
+            raise TypeError("commissioning adapter returned an invalid jog write result")
+        if result.requested_ids != (command.servo_id,):
+            raise RuntimeError("commissioning jog write escaped the single-ID grant")
+        return result
+
+    async def write_prepared_jog_targets(
+        self,
+        commands: tuple[PreparedCommissioningJogTarget, ...],
+    ) -> ServoWriteResult:
+        if not commands:
+            raise ValueError("at least one prepared jog target is required")
+        requested = tuple(command.servo_id for command in commands)
+        if len(requested) != len(set(requested)):
+            raise ValueError("prepared jog targets must use unique Servo IDs")
+        for command in commands:
+            if not isinstance(command, PreparedCommissioningJogTarget):
+                raise TypeError("only prepared commissioning jog targets may be written")
+            self._require_allowed(command.servo_id)
+        result = await self.__bus.write_prepared_jog_targets(commands)
+        if not isinstance(result, ServoWriteResult):
+            raise TypeError("commissioning adapter returned an invalid multi-write result")
+        if result.requested_ids != requested:
+            raise RuntimeError("commissioning multi-write escaped the explicit-ID grant")
+        return result
+
     async def stop_or_hold(self, servo_id: int) -> RealStopOutcome:
         self._require_allowed(servo_id)
         outcome = await self.__bus.stop_or_hold(servo_id)
@@ -116,6 +191,18 @@ class CommissioningMotionServoBusFacade:
             raise TypeError("commissioning adapter returned an invalid Stop/Hold outcome")
         if outcome.requested_ids != (servo_id,):
             raise RuntimeError("commissioning adapter Stop result escaped the single-ID grant")
+        return outcome
+
+    async def stop_or_hold_many(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
+        if not servo_ids or len(servo_ids) != len(set(servo_ids)):
+            raise ValueError("commissioning Stop requires unique explicit Servo IDs")
+        for servo_id in servo_ids:
+            self._require_allowed(servo_id)
+        outcome = await self.__bus.stop_or_hold_many(servo_ids)
+        if not isinstance(outcome, RealStopOutcome):
+            raise TypeError("commissioning adapter returned an invalid multi-Stop outcome")
+        if outcome.requested_ids != servo_ids:
+            raise RuntimeError("commissioning multi-Stop escaped the explicit-ID grant")
         return outcome
 
     async def reset_for_session(self, session_id: UUID) -> None:
@@ -135,6 +222,95 @@ class CommissioningMotionServoBusFacade:
     def _validate_servo_id(servo_id: int) -> None:
         if isinstance(servo_id, bool) or not isinstance(servo_id, int) or not 1 <= servo_id <= 253:
             raise ValueError("servo ID must be an integer from 1 through 253")
+
+
+@runtime_checkable
+class RawDirectionServoBus(Protocol):
+    """Calibration-independent one-Servo boundary for Raw +/- characterization."""
+
+    async def read_present_position(
+        self,
+        servo_id: int,
+    ) -> CommissioningPositionReadback: ...
+
+    async def write_prepared_raw_direction_command(
+        self,
+        command: PreparedRawDirectionCommand,
+    ) -> ServoWriteResult: ...
+
+    async def stop_or_hold(self, servo_id: int) -> RealStopOutcome: ...
+
+    async def reset_for_session(self, session_id: UUID) -> None: ...
+
+    async def close(self) -> None: ...
+
+
+class RawDirectionServoBusFacade:
+    """Keep Raw direction callers inside one immutable explicit-ID allowlist."""
+
+    __slots__ = ("__allowed_servo_ids", "__bus")
+
+    def __init__(self, bus: RawDirectionServoBus, *, allowed_servo_ids: tuple[int, ...]) -> None:
+        if not allowed_servo_ids or len(allowed_servo_ids) != len(set(allowed_servo_ids)):
+            raise ValueError("raw-direction bus requires unique explicit Servo IDs")
+        for servo_id in allowed_servo_ids:
+            self._validate_servo_id(servo_id)
+        self.__bus = bus
+        self.__allowed_servo_ids = frozenset(allowed_servo_ids)
+
+    @property
+    def is_physical_adapter(self) -> bool:
+        return bool(getattr(self.__bus, "is_physical_adapter", False))
+
+    async def read_present_position(self, servo_id: int) -> CommissioningPositionReadback:
+        self._require_allowed(servo_id)
+        readback = await self.__bus.read_present_position(servo_id)
+        if not isinstance(readback, CommissioningPositionReadback):
+            raise TypeError("raw-direction adapter returned an invalid position readback")
+        if readback.servo_id != servo_id:
+            raise RuntimeError("raw-direction adapter returned a different Servo ID")
+        return readback
+
+    async def write_prepared_raw_direction_command(
+        self,
+        command: PreparedRawDirectionCommand,
+    ) -> ServoWriteResult:
+        if not isinstance(command, PreparedRawDirectionCommand):
+            raise TypeError("only a prepared raw-direction command may be written")
+        self._require_allowed(command.servo_id)
+        result = await self.__bus.write_prepared_raw_direction_command(command)
+        if not isinstance(result, ServoWriteResult):
+            raise TypeError("raw-direction adapter returned an invalid write result")
+        if result.requested_ids != (command.servo_id,):
+            raise RuntimeError("raw-direction write escaped the single-ID grant")
+        return result
+
+    async def stop_or_hold(self, servo_id: int) -> RealStopOutcome:
+        self._require_allowed(servo_id)
+        result = await self.__bus.stop_or_hold(servo_id)
+        if not isinstance(result, RealStopOutcome):
+            raise TypeError("raw-direction adapter returned an invalid Stop/Hold outcome")
+        if result.requested_ids != (servo_id,):
+            raise RuntimeError("raw-direction Stop escaped the single-ID grant")
+        return result
+
+    async def reset_for_session(self, session_id: UUID) -> None:
+        if not isinstance(session_id, UUID):
+            raise TypeError("raw-direction session_id must be a UUID")
+        await self.__bus.reset_for_session(session_id)
+
+    async def close(self) -> None:
+        await self.__bus.close()
+
+    def _require_allowed(self, servo_id: int) -> None:
+        self._validate_servo_id(servo_id)
+        if servo_id not in self.__allowed_servo_ids:
+            raise PermissionError("Servo ID is outside the raw-direction allowlist")
+
+    @staticmethod
+    def _validate_servo_id(servo_id: int) -> None:
+        if isinstance(servo_id, bool) or not isinstance(servo_id, int) or not 1 <= servo_id <= 253:
+            raise ValueError("Servo ID must be an integer from 1 through 253")
 
 
 @runtime_checkable
@@ -245,6 +421,8 @@ __all__ = [
     "CommissioningMotionServoBus",
     "CommissioningMotionServoBusFacade",
     "CommissioningPositionReadback",
+    "RawDirectionServoBus",
+    "RawDirectionServoBusFacade",
     "ReadOnlyServoBus",
     "ReadOnlyServoBusFacade",
     "ServoBus",

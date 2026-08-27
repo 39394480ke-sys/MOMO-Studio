@@ -1,9 +1,4 @@
-"""Lazy optional Feetech ServoBus shell with pending SDK/license verification.
-
-No third-party module is imported here.  The Legacy commit requested for SDK
-provenance is not present in this repository's object database, so the production
-package name, bridge API, and license remain deliberately unclaimed.
-"""
+"""Lazy, explicit-ID Feetech ServoBus with a reviewed read-only bridge."""
 
 from __future__ import annotations
 
@@ -11,6 +6,7 @@ import asyncio
 from collections.abc import Callable, Mapping
 from functools import partial
 from importlib import import_module
+from importlib.util import find_spec
 from types import ModuleType
 from typing import Protocol, TypeVar, cast
 
@@ -62,6 +58,8 @@ class _VerifiedFeetechModule(Protocol):
 
 
 _T = TypeVar("_T")
+REVIEWED_READ_ONLY_BRIDGE_MODULE = "momo.adapters.hardware.ftservo_read_only_bridge"
+REVIEWED_PACKAGE = "ftservo-python-sdk==2.0.0"
 
 
 async def _wait_task_terminal(task: asyncio.Task[_T]) -> asyncio.CancelledError | None:
@@ -104,21 +102,37 @@ class FeetechServoBusFactory:
         *,
         verified_bridge_module: str | None = None,
         importer: Callable[[str], ModuleType] = import_module,
+        package_available: Callable[[str], bool] | None = None,
     ) -> None:
         self._module_name = verified_bridge_module
         self._importer = importer
+        self._package_available = package_available or (lambda name: find_spec(name) is not None)
 
     @property
     def dependency(self) -> HardwareDependencyStatus:
+        reviewed = self._module_name == REVIEWED_READ_ONLY_BRIDGE_MODULE
+        installed = reviewed and self._package_available("scservo_sdk")
+        if reviewed and installed:
+            state = HardwareDependencyState.AVAILABLE
+            license_status = "MIT_REVIEWED"
+            notice = (
+                "Official ftservo-python-sdk 2.0.0; MOMO bridge permits only exact-ID "
+                "ping and register reads. All goal/torque/register writes remain disabled."
+            )
+        elif reviewed:
+            state = HardwareDependencyState.UNAVAILABLE
+            license_status = "MIT_REVIEWED"
+            notice = "Reviewed optional ftservo-python-sdk 2.0.0 is not installed."
+        else:
+            state = HardwareDependencyState.PENDING_ADAPTER_VERIFICATION
+            license_status = "UNVERIFIED"
+            notice = "Pending Adapter Verification: no reviewed internal bridge was selected."
         return HardwareDependencyStatus(
             adapter_id="feetech-servo-bus-shell",
-            state=HardwareDependencyState.PENDING_ADAPTER_VERIFICATION,
-            package_name=self._module_name,
-            license_status="UNVERIFIED",
-            notice=(
-                "Pending Adapter Verification: SDK package, license, register semantics, "
-                "and physical Stop behavior are not yet proven from available Legacy evidence."
-            ),
+            state=state,
+            package_name=REVIEWED_PACKAGE if reviewed else self._module_name,
+            license_status=license_status,
+            notice=notice,
         )
 
     def create(self, authorization: RealHardwareAccessGrant) -> FeetechServoBus:
@@ -133,9 +147,9 @@ class FeetechServoBusFactory:
                 "Real hardware authorization was issued for a different adapter"
             )
         module_name = self._module_name
-        if module_name is None:
+        if module_name != REVIEWED_READ_ONLY_BRIDGE_MODULE:
             raise FeetechAdapterPendingError(
-                "Feetech adapter package and license verification are pending"
+                "Only MOMO's reviewed internal read-only Feetech bridge is allowed"
             )
         try:
             module = cast(_VerifiedFeetechModule, self._importer(module_name))

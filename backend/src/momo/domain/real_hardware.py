@@ -42,12 +42,16 @@ from momo.domain.enums import (
     RobotVariant,
 )
 from momo.domain.kinematics.model import KinematicsModel
+from momo.domain.raw_direction import RawDirectionSafetyEnvelope
 from momo.domain.robot import RobotProfile
 
 REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT = "I UNDERSTAND REAL HARDWARE CAN MOVE"
 REQUIRED_COMMISSIONING_CONFIRMATION_TEXT = "I UNDERSTAND COMMISSIONING IS READ ONLY"
 REQUIRED_COMMISSIONING_MOTION_CONFIRMATION_TEXT = (
     "I UNDERSTAND COMMISSIONING MOTION TEST CAN MOVE ONE JOINT"
+)
+REQUIRED_RAW_DIRECTION_CONFIRMATION_TEXT = (
+    "I CONFIRM CURRENT POSE MATCHES URDF ZERO AND RAW TEST CAN MOVE ONE JOINT"
 )
 REQUIRED_FIELD_ACCEPTANCE_CONFIRMATION_TEXT: Literal[
     "I CONFIRM THE FIELD ACCEPTANCE CHECKLIST IS COMPLETE"
@@ -112,9 +116,12 @@ class RealHardwareBlocker(StrEnum):
     ROBOT_UNIT_ID_REQUIRED = "ROBOT_UNIT_ID_REQUIRED"
     ROBOT_UNIT_MISMATCH = "ROBOT_UNIT_MISMATCH"
     COMMISSIONING_MOTION_NOT_ENABLED = "COMMISSIONING_MOTION_NOT_ENABLED"
+    RAW_DIRECTION_TEST_NOT_ENABLED = "RAW_DIRECTION_TEST_NOT_ENABLED"
+    RAW_DIRECTION_ADAPTER_UNAVAILABLE = "RAW_DIRECTION_ADAPTER_UNAVAILABLE"
     SOFTWARE_COMMIT_REQUIRED = "SOFTWARE_COMMIT_REQUIRED"
     PRE_MOTION_CHECKS_INCOMPLETE = "PRE_MOTION_CHECKS_INCOMPLETE"
     COMMISSIONING_MOTION_SESSION_REQUIRED = "COMMISSIONING_MOTION_SESSION_REQUIRED"
+    RAW_DIRECTION_SESSION_REQUIRED = "RAW_DIRECTION_SESSION_REQUIRED"
     JOINT_MOTION_ACCEPTANCE_PENDING = "JOINT_MOTION_ACCEPTANCE_PENDING"
     CARTESIAN_ACCEPTANCE_PENDING = "CARTESIAN_ACCEPTANCE_PENDING"
     PLAYBACK_ACCEPTANCE_PENDING = "PLAYBACK_ACCEPTANCE_PENDING"
@@ -153,6 +160,7 @@ class RealHardwareAuthorizationPurpose(StrEnum):
     DIAGNOSTICS = "DIAGNOSTICS"
     CALIBRATION_CAPTURE = "CALIBRATION_CAPTURE"
     COMMISSIONING_SINGLE_JOINT_TEST = "COMMISSIONING_SINGLE_JOINT_TEST"
+    RAW_DIRECTION_TEST = "RAW_DIRECTION_TEST"
     REAL_JOINT_MOTION = "REAL_JOINT_MOTION"
     REAL_CARTESIAN_MOTION = "REAL_CARTESIAN_MOTION"
     REAL_PLAYBACK = "REAL_PLAYBACK"
@@ -164,6 +172,7 @@ class OperatorSessionPurpose(StrEnum):
 
     COMMISSIONING_READ_ONLY = "COMMISSIONING_READ_ONLY"
     COMMISSIONING_MOTION_TEST = "COMMISSIONING_MOTION_TEST"
+    RAW_DIRECTION_TEST = "RAW_DIRECTION_TEST"
     REAL_MOTION = "REAL_MOTION"
 
 
@@ -171,6 +180,7 @@ class OperatorSessionScope(StrEnum):
     DIAGNOSTICS_READ = "DIAGNOSTICS_READ"
     CALIBRATION_CAPTURE = "CALIBRATION_CAPTURE"
     COMMISSIONING_SINGLE_JOINT_TEST = "COMMISSIONING_SINGLE_JOINT_TEST"
+    RAW_DIRECTION_TEST = "RAW_DIRECTION_TEST"
     REAL_JOINT_MOTION = "REAL_JOINT_MOTION"
     REAL_CARTESIAN_MOTION = "REAL_CARTESIAN_MOTION"
     REAL_PLAYBACK = "REAL_PLAYBACK"
@@ -184,6 +194,7 @@ COMMISSIONING_SCOPES = frozenset(
     }
 )
 COMMISSIONING_MOTION_SCOPES = frozenset({OperatorSessionScope.COMMISSIONING_SINGLE_JOINT_TEST})
+RAW_DIRECTION_SCOPES = frozenset({OperatorSessionScope.RAW_DIRECTION_TEST})
 MOTION_SCOPES = frozenset(
     {
         OperatorSessionScope.REAL_JOINT_MOTION,
@@ -201,6 +212,7 @@ AUTHORIZATION_PURPOSE_SCOPE = {
     RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST: (
         OperatorSessionScope.COMMISSIONING_SINGLE_JOINT_TEST
     ),
+    RealHardwareAuthorizationPurpose.RAW_DIRECTION_TEST: OperatorSessionScope.RAW_DIRECTION_TEST,
     RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: (OperatorSessionScope.REAL_JOINT_MOTION),
     RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION: (
         OperatorSessionScope.REAL_CARTESIAN_MOTION
@@ -391,7 +403,11 @@ class HardwareConfirmationEvidence(BaseModel):
         if self.required_confirmation_text != expected:
             raise ValueError("confirmation text must match the operator session purpose")
         if self.workspace_clear_required is not (
-            self.session_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+            self.session_purpose
+            in {
+                OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+                OperatorSessionPurpose.RAW_DIRECTION_TEST,
+            }
         ):
             raise ValueError("workspace-clear requirement must match the session purpose")
         return self
@@ -453,6 +469,7 @@ class OperatorSessionEvidence(BaseModel):
     field_acceptance_evidence_id: UUID | None = None
     pre_motion_evidence_id: UUID | None = None
     commissioning_envelope: CommissioningSafetyEnvelope | None = None
+    raw_direction_envelope: RawDirectionSafetyEnvelope | None = None
     device_fingerprint: Fingerprint
     allowed_servo_ids: tuple[ServoId, ...]
     issued_at: datetime
@@ -484,7 +501,11 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("commissioning sessions cannot bind motion evidence")
             if self.field_acceptance_evidence_id is not None:
                 raise ValueError("commissioning sessions cannot bind field acceptance")
-            if self.pre_motion_evidence_id is not None or self.commissioning_envelope is not None:
+            if (
+                self.pre_motion_evidence_id is not None
+                or self.commissioning_envelope is not None
+                or self.raw_direction_envelope is not None
+            ):
                 raise ValueError("read-only commissioning cannot bind motion-test evidence")
             if self.workspace_clear_confirmed:
                 raise ValueError(
@@ -501,12 +522,33 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("single-joint commissioning does not bind Kinematics authority")
             if self.field_acceptance_evidence_id is not None:
                 raise ValueError("commissioning motion tests cannot bind production acceptance")
-            if self.pre_motion_evidence_id is None or self.commissioning_envelope is None:
-                raise ValueError(
-                    "commissioning motion tests require pre-motion evidence and envelope"
-                )
+            if self.commissioning_envelope is None:
+                raise ValueError("commissioning motion tests require a fixed safety envelope")
             if not self.workspace_clear_confirmed:
                 raise ValueError("commissioning motion tests require workspace-clear confirmation")
+            if self.raw_direction_envelope is not None:
+                raise ValueError("calibrated commissioning cannot inherit raw-direction authority")
+        elif self.purpose is OperatorSessionPurpose.RAW_DIRECTION_TEST:
+            if self.hardware_access_policy is not HardwareAccessPolicy.FULL:
+                raise ValueError("raw-direction sessions require FULL hardware policy")
+            if self.scopes != RAW_DIRECTION_SCOPES:
+                raise ValueError("raw-direction sessions have one exact scope")
+            if self.calibration_fingerprint is not None or self.kinematics_fingerprint is not None:
+                raise ValueError("raw-direction sessions cannot claim calibrated motion evidence")
+            if self.field_acceptance_evidence_id is not None:
+                raise ValueError("raw-direction sessions cannot bind production acceptance")
+            if self.pre_motion_evidence_id is not None:
+                raise ValueError(
+                    "raw-direction sessions cannot claim calibrated pre-motion evidence"
+                )
+            if self.raw_direction_envelope is None:
+                raise ValueError("raw-direction sessions require a fixed raw-count envelope")
+            if self.commissioning_envelope is not None:
+                raise ValueError(
+                    "raw-direction sessions cannot inherit logical commissioning authority"
+                )
+            if not self.workspace_clear_confirmed:
+                raise ValueError("raw-direction tests require workspace-clear confirmation")
         else:
             if self.hardware_access_policy is not HardwareAccessPolicy.FULL:
                 raise ValueError("motion sessions require FULL hardware policy")
@@ -520,7 +562,11 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("motion sessions require a calibration fingerprint")
             if self.field_acceptance_evidence_id is None:
                 raise ValueError("motion sessions require capability acceptance evidence")
-            if self.pre_motion_evidence_id is not None or self.commissioning_envelope is not None:
+            if (
+                self.pre_motion_evidence_id is not None
+                or self.commissioning_envelope is not None
+                or self.raw_direction_envelope is not None
+            ):
                 raise ValueError("production motion cannot inherit commissioning-test authority")
             geometry_scopes = {
                 OperatorSessionScope.REAL_CARTESIAN_MOTION,
@@ -576,6 +622,8 @@ class RealHardwareContext(BaseModel):
     hardware_access_policy: HardwareAccessPolicy = HardwareAccessPolicy.DISABLED
     real_motion_enabled: bool = False
     commissioning_motion_test_enabled: bool = False
+    raw_direction_test_enabled: bool = False
+    raw_direction_adapter_ready: bool = False
     startup_hardware_enabled: bool = False
     explicit_local_config: bool = False
     robot_unit_id: Annotated[
@@ -612,6 +660,9 @@ class RealHardwareContext(BaseModel):
     physical_stop_verification: PhysicalStopVerification = PhysicalStopVerification.PENDING
     commissioning_safety_envelope: CommissioningSafetyEnvelope = Field(
         default_factory=CommissioningSafetyEnvelope,
+    )
+    raw_direction_safety_envelope: RawDirectionSafetyEnvelope = Field(
+        default_factory=RawDirectionSafetyEnvelope,
     )
     field_acceptance_checklist_version: Annotated[
         str,
@@ -693,6 +744,7 @@ class RealHardwareCapabilityDetails(BaseModel):
     commissioning_motion_test: CapabilityReadinessDetail = Field(
         default_factory=CapabilityReadinessDetail
     )
+    raw_direction_test: CapabilityReadinessDetail = Field(default_factory=CapabilityReadinessDetail)
     real_joint_motion: CapabilityReadinessDetail = Field(default_factory=CapabilityReadinessDetail)
     real_cartesian_motion: CapabilityReadinessDetail = Field(
         default_factory=CapabilityReadinessDetail
@@ -710,6 +762,7 @@ class RealHardwareCapabilityReadiness(BaseModel):
     commissioning_diagnostics_ready: bool = False
     calibration_capture_ready: bool = False
     commissioning_motion_test_ready: bool = False
+    raw_direction_test_ready: bool = False
     real_joint_motion_ready: bool = False
     real_cartesian_motion_ready: bool = False
     real_playback_ready: bool = False
@@ -746,6 +799,7 @@ class RealHardwareReadinessReport(BaseModel):
     session_authorizable: bool
     commissioning_session_authorizable: bool = False
     commissioning_motion_session_authorizable: bool = False
+    raw_direction_session_authorizable: bool = False
     motion_session_authorizable: bool = False
     blocking_reasons: tuple[RealHardwareBlocker, ...]
     capabilities: RealHardwareCapabilityReadiness
@@ -766,6 +820,7 @@ class RealHardwareReadinessReport(BaseModel):
         if self.session_authorizable is not (
             self.commissioning_session_authorizable
             or self.commissioning_motion_session_authorizable
+            or self.raw_direction_session_authorizable
             or self.motion_session_authorizable
         ):
             raise ValueError("session_authorizable must summarize purpose-specific readiness")
@@ -779,10 +834,13 @@ class RealHardwareReadinessReport(BaseModel):
             and self.capabilities.commissioning_motion_test_ready
         ):
             raise ValueError("motion-test authorization ends once its session is active")
+        if self.raw_direction_session_authorizable and self.capabilities.raw_direction_test_ready:
+            raise ValueError("raw-direction authorization ends once its session is active")
         if self.motion_session_authorizable and self.capabilities.real_joint_motion_ready:
             raise ValueError("motion session authorization ends once joint motion is ready")
         any_capability_ready = (
-            self.capabilities.real_joint_motion_ready
+            self.capabilities.raw_direction_test_ready
+            or self.capabilities.real_joint_motion_ready
             or self.capabilities.real_cartesian_motion_ready
             or self.capabilities.real_playback_ready
             or self.capabilities.real_vision_follow_ready
@@ -792,6 +850,7 @@ class RealHardwareReadinessReport(BaseModel):
         if (
             self.commissioning_session_authorizable
             or self.commissioning_motion_session_authorizable
+            or self.raw_direction_session_authorizable
             or self.motion_session_authorizable
         ) and self.session is not None:
             raise ValueError("an authorizable report cannot already contain a session")
@@ -842,6 +901,9 @@ class RealHardwareAccessGrant(BaseModel):
             ),
             RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST: (
                 self.capabilities.commissioning_motion_test_ready
+            ),
+            RealHardwareAuthorizationPurpose.RAW_DIRECTION_TEST: (
+                self.capabilities.raw_direction_test_ready
             ),
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: (
                 self.capabilities.real_joint_motion_ready
@@ -925,6 +987,8 @@ def confirmation_text_for(purpose: OperatorSessionPurpose) -> str:
         return REQUIRED_COMMISSIONING_CONFIRMATION_TEXT
     if purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
         return REQUIRED_COMMISSIONING_MOTION_CONFIRMATION_TEXT
+    if purpose is OperatorSessionPurpose.RAW_DIRECTION_TEST:
+        return REQUIRED_RAW_DIRECTION_CONFIRMATION_TEXT
     return REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT
 
 

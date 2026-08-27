@@ -91,34 +91,27 @@ scene fixtures written for repository tests and browser acceptance. They contain
 third-party weights or training data and must not be represented as a general-purpose
 learned model.
 
-### Stage 8 optional Feetech adapter candidate
+### Optional read-only Feetech adapter
 
-The pinned Legacy commit declares `feetech-servo-sdk==1.0.0` in its tracked
-`requirements-arm.txt`, and tracked Legacy code imports that distribution as
-`scservo_sdk`. MOMO Studio used those tracked facts only to shape an independently
-written, lazy optional adapter shell. It copied no SDK source, register table, driver,
-binary, Calibration, serial setting, or Stop implementation. The package is not added to
-`backend/pyproject.toml` or `backend/uv.lock`; normal import, startup, tests, and builds do
-not import it.
+The optional `hardware` extra pins `ftservo-python-sdk==2.0.0`, published from the
+official `ftservo/FTServo_Python` project. The reviewed wheel is
+`ftservo_python_sdk-2.0.0-py3-none-any.whl`, SHA-256
+`c8303df01b2c772f3e1dffbb3b789e2d39545f6fb187ec45032c7737356be2a4`. Its bundled
+`LICENSE` grants the MIT License and its package metadata identifies the official GitHub
+repository. The wheel depends on `pyserial`.
 
-The candidate remains **Pending Adapter Verification**. The
-[PyPI 1.0.0 record](https://pypi.org/project/feetech-servo-sdk/1.0.0/) identifies a 2022
-source distribution, `scservo_sdk`, an Adam-Software homepage, and `The Unlicense`, while
-describing its contents as copied from an older official archive. The currently visible
-[FTServo SDK repository](https://gitee.com/ftservo/SCServoSDK) added an MIT license in
-2024. Those facts do not establish that the exact 2022 archive, every copied file, or the
-package's physical Stop/register semantics share the later license or current API.
-LeRobot's current Feetech adapter documentation also describes the published PyPI build
-as unofficial and applies compatibility workarounds; MOMO Studio does not reuse that
-implementation.
+MOMO Studio's independently written bridge imports this optional SDK only after a valid
+read-only operator grant. It opens one explicitly configured port at 1 Mbps and exposes
+only explicit-ID ping, model validation, operating-mode/limit reads, present-position
+reads, and torque-state reads. It contains no enumeration or scan call and all
+goal/torque/arbitrary-register writes remain unavailable. The default install and default
+composition do not install/import the package or open a serial device.
 
-Before enabling or distributing the optional adapter, a reviewer must pin and inspect
-the exact artifact and hash, trace every file to its upstream revision/license, collect
-license text, confirm Python/platform support, validate only the required typed calls,
-and field-test explicit-ID ping/read/write and Stop/Hold semantics. Until then the shell
-reports unavailable/Pending, and Stop returns `SAFETY_STATE_UNCERTAIN` rather than
-guessing. No package installation, archive download, serial access, or hardware call was
-performed during Stage 8 autonomous work.
+Physical Stop/Hold and every motion/write path remain unverified and disabled. The bus
+still reports `SAFETY_STATE_UNCERTAIN` for Stop rather than guessing. Distribution review
+must collect the SDK and pyserial license files/notices for the selected platform and
+repeat vulnerability review. Read-only field acceptance is separate from permission to
+calibrate or move the robot.
 
 ## Project-generated design reference
 

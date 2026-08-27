@@ -23,6 +23,7 @@ from momo.domain.real_hardware import (
     AUTHORIZATION_PURPOSE_SCOPE,
     COMMISSIONING_MOTION_SCOPES,
     COMMISSIONING_SCOPES,
+    RAW_DIRECTION_SCOPES,
     IssuedOperatorSession,
     OperatorSessionEvidence,
     OperatorSessionPurpose,
@@ -105,6 +106,11 @@ class OperatorSessionService:
             not in context.field_acceptance_bundle.valid_capabilities(context)
         ):
             resolved_purpose = OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+        elif context.raw_direction_test_enabled and (
+            FieldAcceptanceCapability.JOINT_MOTION
+            not in context.field_acceptance_bundle.valid_capabilities(context)
+        ):
+            resolved_purpose = OperatorSessionPurpose.RAW_DIRECTION_TEST
         else:
             resolved_purpose = OperatorSessionPurpose.REAL_MOTION
         report = self.authorization.evaluate(
@@ -117,6 +123,7 @@ class OperatorSessionService:
             OperatorSessionPurpose.COMMISSIONING_MOTION_TEST: (
                 report.commissioning_motion_session_authorizable
             ),
+            OperatorSessionPurpose.RAW_DIRECTION_TEST: report.raw_direction_session_authorizable,
             OperatorSessionPurpose.REAL_MOTION: report.motion_session_authorizable,
         }[resolved_purpose]
         if not purpose_authorizable:
@@ -140,7 +147,11 @@ class OperatorSessionService:
                 "Physical E-stop readiness must be explicitly confirmed"
             )
         if (
-            resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+            resolved_purpose
+            in {
+                OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+                OperatorSessionPurpose.RAW_DIRECTION_TEST,
+            }
             and workspace_clear_confirmed is not True
         ):
             raise OperatorConfirmationError(
@@ -170,15 +181,24 @@ class OperatorSessionService:
         raw_token = secrets.token_urlsafe(32)
         issued_at = now
         session_ttl_s = self.ttl_s
-        if resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
+        if resolved_purpose in {
+            OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+            OperatorSessionPurpose.RAW_DIRECTION_TEST,
+        }:
+            envelope_duration_s = (
+                context.raw_direction_safety_envelope.max_session_duration_s
+                if resolved_purpose is OperatorSessionPurpose.RAW_DIRECTION_TEST
+                else context.commissioning_safety_envelope.max_session_duration_s
+            )
             session_ttl_s = min(
                 session_ttl_s,
-                context.commissioning_safety_envelope.max_session_duration_s,
+                envelope_duration_s,
             )
         expires_at = now + timedelta(seconds=session_ttl_s)
         scopes = {
             OperatorSessionPurpose.COMMISSIONING_READ_ONLY: COMMISSIONING_SCOPES,
             OperatorSessionPurpose.COMMISSIONING_MOTION_TEST: COMMISSIONING_MOTION_SCOPES,
+            OperatorSessionPurpose.RAW_DIRECTION_TEST: RAW_DIRECTION_SCOPES,
             OperatorSessionPurpose.REAL_MOTION: frozenset({OperatorSessionScope.REAL_JOINT_MOTION}),
         }[resolved_purpose]
         joint_acceptance = context.field_acceptance_bundle.newest_for(
@@ -229,6 +249,11 @@ class OperatorSessionService:
                 if resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
                 else None
             ),
+            raw_direction_envelope=(
+                context.raw_direction_safety_envelope
+                if resolved_purpose is OperatorSessionPurpose.RAW_DIRECTION_TEST
+                else None
+            ),
             device_fingerprint=explicit_device_fingerprint(device),
             allowed_servo_ids=device.servo_ids,
             issued_at=issued_at,
@@ -236,7 +261,11 @@ class OperatorSessionService:
             confirmed=True,
             physical_estop_confirmed=True,
             workspace_clear_confirmed=(
-                resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+                resolved_purpose
+                in {
+                    OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+                    OperatorSessionPurpose.RAW_DIRECTION_TEST,
+                }
             ),
             control_mode=ControlMode.REAL,
             hardware_access_policy=context.hardware_access_policy,
@@ -418,7 +447,17 @@ def _context_digest(
             else None
         ),
     }
-    if purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
+    if purpose is OperatorSessionPurpose.RAW_DIRECTION_TEST:
+        payload.update(
+            {
+                "raw_direction_test_enabled": context.raw_direction_test_enabled,
+                "raw_direction_adapter_ready": context.raw_direction_adapter_ready,
+                "raw_direction_safety_envelope": (
+                    context.raw_direction_safety_envelope.model_dump(mode="json")
+                ),
+            }
+        )
+    elif purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
         pre_motion = context.field_acceptance_bundle.newest_for(
             FieldAcceptanceCapability.PRE_MOTION_CHECKS
         )

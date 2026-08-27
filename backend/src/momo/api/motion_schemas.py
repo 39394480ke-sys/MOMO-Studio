@@ -100,6 +100,19 @@ class MoveJointsRequest(MotionRequestBase):
         )
 
 
+class ForwardKinematicsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    joint_state: JointState
+
+    @field_validator("joint_state")
+    @classmethod
+    def require_explicit_joint_units(cls, value: JointState) -> JointState:
+        if value.units is None:
+            raise ValueError("joint_state.units is required at the HTTP boundary")
+        return value
+
+
 class JointJogStepRequest(MotionRequestBase):
     joint_id: JointId
     delta: Annotated[float, Field(strict=True, allow_inf_nan=False)]

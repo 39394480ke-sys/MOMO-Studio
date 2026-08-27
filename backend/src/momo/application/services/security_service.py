@@ -310,6 +310,7 @@ class SecurityService:
         monotonic: Callable[[], float],
         max_sessions: int = MAX_SECURITY_SESSIONS,
         control_rate_limit: int = 20,
+        control_keepalive_rate_limit: int = 600,
         control_rate_window_seconds: float = 1.0,
         max_rate_limit_principals: int = MAX_RATE_LIMIT_PRINCIPALS,
         audit_sink: SecurityAuditSink | None = None,
@@ -328,6 +329,15 @@ class SecurityService:
         self._sessions: dict[bytes, _StoredSession] = {}
         self.control_rate_limiter = PrincipalRateLimiter(
             limit=control_rate_limit,
+            window_seconds=control_rate_window_seconds,
+            max_principals=max_rate_limit_principals,
+            monotonic=monotonic,
+        )
+        # Lease heartbeats cannot arm hardware or change a target.  Keep them
+        # bounded independently so a 150 ms deadman cadence cannot exhaust the
+        # much smaller operator-command budget during a normal field session.
+        self.control_keepalive_rate_limiter = PrincipalRateLimiter(
+            limit=control_keepalive_rate_limit,
             window_seconds=control_rate_window_seconds,
             max_principals=max_rate_limit_principals,
             monotonic=monotonic,
@@ -488,6 +498,13 @@ class SecurityService:
     def authorize_control(self, **credentials: Any) -> AuthorizedPrincipal:
         principal = self.authorize(surface=SecuritySurface.CONTROL, **credentials)
         self.control_rate_limiter.consume(principal.principal_id)
+        return principal
+
+    def authorize_control_keepalive(self, **credentials: Any) -> AuthorizedPrincipal:
+        """Authorize a lease renewal without consuming a new-command slot."""
+
+        principal = self.authorize(surface=SecuritySurface.CONTROL, **credentials)
+        self.control_keepalive_rate_limiter.consume(principal.principal_id)
         return principal
 
     def audit(

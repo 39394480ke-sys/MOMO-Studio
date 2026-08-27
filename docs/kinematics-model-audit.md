@@ -48,7 +48,7 @@ version, variant, frames, and ordered joint identity/type/axis/origin/limits:
 | Variant | Current schema 1.0.0 fingerprint |
 |---|---|
 | V1 | `9477f15fd2484ba393ee95eff15441d544e1a1aa904668b10c6b4e53f96e6e4e` |
-| V2 | `84fdb19f6f7045856e68be8b54ae6192b26c27106756bef604e69817903eca13` |
+| V2 | `21a7429b3617f4bebc9e0af9bd0c6c4005c4273828527f8dfca3bea5d0454783` |
 
 A missing or mismatched declaration rejects model loading. Verification/provenance state
 and human-readable prose are excluded so editorial changes cannot invalidate compatible

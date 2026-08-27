@@ -13,6 +13,7 @@ import type {
 export const REAL_CAPABILITY_KEYS: readonly DeviceCapabilityKey[] = [
   'commissioning_read_only',
   'commissioning_motion_test',
+  'raw_direction_test',
   'real_joint_motion',
   'real_cartesian_motion',
   'real_playback',
@@ -95,6 +96,7 @@ export function closedCapabilityDetails(reason: string): DeviceCapabilityDetails
   return {
     commissioning_read_only: detail(),
     commissioning_motion_test: detail(),
+    raw_direction_test: detail(),
     real_joint_motion: detail(),
     real_cartesian_motion: detail(),
     real_playback: detail(),

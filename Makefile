@@ -1,4 +1,4 @@
-.PHONY: install install-camera test lint format-check build audit dev-backend serve-backend dev-frontend schemas
+.PHONY: install install-camera install-hardware test lint format-check build audit dev-backend serve-backend dev-frontend schemas
 
 BACKEND_PYTHON ?= backend/.venv/bin/python
 UV ?= uv
@@ -11,6 +11,9 @@ install:
 
 install-camera:
 	$(UV) sync --project backend --extra dev --extra camera --python 3.11 --locked
+
+install-hardware:
+	$(UV) sync --project backend --extra dev --extra camera --extra hardware --python 3.11 --locked
 
 test:
 	$(BACKEND_PYTHON) -m pytest backend/tests

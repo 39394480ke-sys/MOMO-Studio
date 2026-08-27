@@ -55,11 +55,12 @@ class RealHardwareAuthorization:
         profile = context.profile
         if profile is None:
             shared.append(RealHardwareBlocker.PROFILE_MISSING)
-        else:
+        verified_profile_blockers: list[RealHardwareBlocker] = []
+        if profile is not None:
             if profile.template:
-                shared.append(RealHardwareBlocker.PROFILE_IS_TEMPLATE)
+                verified_profile_blockers.append(RealHardwareBlocker.PROFILE_IS_TEMPLATE)
             if profile.verification_status is not ProfileVerificationStatus.VERIFIED_FOR_REAL:
-                shared.append(RealHardwareBlocker.PROFILE_NOT_VERIFIED_FOR_REAL)
+                verified_profile_blockers.append(RealHardwareBlocker.PROFILE_NOT_VERIFIED_FOR_REAL)
 
         if context.dependency_state is not HardwareDependencyState.AVAILABLE:
             shared.append(RealHardwareBlocker.SERVO_BUS_DEPENDENCY_UNAVAILABLE)
@@ -94,6 +95,11 @@ class RealHardwareAuthorization:
         elif profile is not None:
             calibration_blockers.extend(self._calibration_blockers(context))
 
+        # Commissioning is the bounded path used to verify a provisional Profile
+        # against a non-template, unit-bound Calibration. Requiring the Profile to
+        # be VERIFIED_FOR_REAL before that test creates a circular dependency.
+        # Production motion below still requires the verified Profile and accepted
+        # field evidence.
         motion_test_base = [*shared, *calibration_blockers]
         if context.hardware_access_policy is not HardwareAccessPolicy.FULL:
             motion_test_base.insert(1, RealHardwareBlocker.HARDWARE_POLICY_MUST_BE_FULL)
@@ -103,10 +109,20 @@ class RealHardwareAuthorization:
             motion_test_base.append(RealHardwareBlocker.SOFTWARE_COMMIT_REQUIRED)
 
         valid_acceptance = context.field_acceptance_bundle.valid_capabilities(context)
-        if FieldAcceptanceCapability.PRE_MOTION_CHECKS not in valid_acceptance:
-            motion_test_base.append(RealHardwareBlocker.PRE_MOTION_CHECKS_INCOMPLETE)
 
-        production_base = [*shared, *calibration_blockers]
+        # Raw direction exists to verify profile sign candidates, so it requires
+        # an explicit complete Profile but does not require VERIFIED_FOR_REAL yet.
+        raw_direction_base = list(shared)
+        if context.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raw_direction_base.insert(1, RealHardwareBlocker.HARDWARE_POLICY_MUST_BE_FULL)
+        if context.raw_direction_test_enabled is not True:
+            raw_direction_base.append(RealHardwareBlocker.RAW_DIRECTION_TEST_NOT_ENABLED)
+        if context.raw_direction_adapter_ready is not True:
+            raw_direction_base.append(RealHardwareBlocker.RAW_DIRECTION_ADAPTER_UNAVAILABLE)
+        if len(context.software_commit) < 7 or context.software_commit == "unknown":
+            raw_direction_base.append(RealHardwareBlocker.SOFTWARE_COMMIT_REQUIRED)
+
+        production_base = [*shared, *verified_profile_blockers, *calibration_blockers]
         if context.hardware_access_policy is not HardwareAccessPolicy.FULL:
             production_base.insert(1, RealHardwareBlocker.HARDWARE_POLICY_MUST_BE_FULL)
         if context.real_motion_enabled is not True:
@@ -156,9 +172,13 @@ class RealHardwareAuthorization:
         motion_test_session_valid = self._session_valid_for(
             gate, OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
         )
+        raw_direction_session_valid = self._session_valid_for(
+            gate, OperatorSessionPurpose.RAW_DIRECTION_TEST
+        )
         motion_session_valid = self._session_valid_for(gate, OperatorSessionPurpose.REAL_MOTION)
         commissioning_base = list(dict.fromkeys(commissioning_base))
         motion_test_base = list(dict.fromkeys(motion_test_base))
+        raw_direction_base = list(dict.fromkeys(raw_direction_base))
         production_base = list(dict.fromkeys(production_base))
         cartesian_blockers = list(dict.fromkeys(cartesian_blockers))
         playback_blockers = list(dict.fromkeys(playback_blockers))
@@ -166,6 +186,7 @@ class RealHardwareAuthorization:
 
         commissioning_ready = not commissioning_base
         motion_test_ready = not motion_test_base and motion_test_session_valid
+        raw_direction_ready = not raw_direction_base and raw_direction_session_valid
         joint_ready = not production_base and motion_session_valid
         cartesian_ready = not cartesian_blockers and motion_session_valid
         playback_ready = not playback_blockers and motion_session_valid
@@ -175,6 +196,7 @@ class RealHardwareAuthorization:
             commissioning_diagnostics_ready=commissioning_ready,
             calibration_capture_ready=commissioning_ready,
             commissioning_motion_test_ready=motion_test_ready,
+            raw_direction_test_ready=raw_direction_ready,
             real_joint_motion_ready=joint_ready,
             real_cartesian_motion_ready=cartesian_ready,
             real_playback_ready=playback_ready,
@@ -182,6 +204,7 @@ class RealHardwareAuthorization:
         )
         commissioning_authorizable = commissioning_ready and session is None
         motion_test_authorizable = not motion_test_base and session is None
+        raw_direction_authorizable = not raw_direction_base and session is None
         motion_authorizable = not production_base and session is None
 
         def detail(
@@ -206,13 +229,19 @@ class RealHardwareAuthorization:
                 commissioning_base,
                 session_valid=commissioning_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
-                evidence=("EXPLICIT_DEVICE", "VERIFIED_PROFILE"),
+                evidence=("EXPLICIT_DEVICE", "PROFILE_JOINT_IDENTITY"),
             ),
             commissioning_motion_test=detail(
                 motion_test_base,
                 session_valid=motion_test_session_valid,
                 session_blocker=RealHardwareBlocker.COMMISSIONING_MOTION_SESSION_REQUIRED,
-                evidence=("CALIBRATION", "PRE_MOTION_CHECKS"),
+                evidence=("CALIBRATION", "EXPLICIT_OPERATOR_SESSION"),
+            ),
+            raw_direction_test=detail(
+                raw_direction_base,
+                session_valid=raw_direction_session_valid,
+                session_blocker=RealHardwareBlocker.RAW_DIRECTION_SESSION_REQUIRED,
+                evidence=("PROFILE_JOINT_IDENTITY", "ZERO_RAW_SNAPSHOT", "PHYSICAL_ESTOP"),
             ),
             real_joint_motion=detail(
                 production_base,
@@ -252,6 +281,12 @@ class RealHardwareAuthorization:
             blockers = list(commissioning_base)
             relevant_session_valid = commissioning_session_valid
         elif (
+            context.raw_direction_test_enabled
+            and FieldAcceptanceCapability.JOINT_MOTION not in valid_acceptance
+        ):
+            blockers = list(raw_direction_base)
+            relevant_session_valid = raw_direction_session_valid
+        elif (
             context.commissioning_motion_test_enabled
             and FieldAcceptanceCapability.JOINT_MOTION not in valid_acceptance
         ):
@@ -270,7 +305,10 @@ class RealHardwareAuthorization:
         state = self._state_for(
             unique_blockers,
             session_authorizable=(
-                commissioning_authorizable or motion_test_authorizable or motion_authorizable
+                commissioning_authorizable
+                or raw_direction_authorizable
+                or motion_test_authorizable
+                or motion_authorizable
             ),
             # The state machine treats all three independent new-session gates as
             # authorizable; no active token is ever upgraded in place.
@@ -281,6 +319,7 @@ class RealHardwareAuthorization:
                     and context.hardware_access_policy is HardwareAccessPolicy.READ_ONLY
                 )
                 or motion_test_session_valid
+                or raw_direction_session_valid
             ),
         )
         active_session = (
@@ -300,10 +339,14 @@ class RealHardwareAuthorization:
             state=state,
             ready=capabilities.all_ready,
             session_authorizable=(
-                commissioning_authorizable or motion_test_authorizable or motion_authorizable
+                commissioning_authorizable
+                or raw_direction_authorizable
+                or motion_test_authorizable
+                or motion_authorizable
             ),
             commissioning_session_authorizable=commissioning_authorizable,
             commissioning_motion_session_authorizable=motion_test_authorizable,
+            raw_direction_session_authorizable=raw_direction_authorizable,
             motion_session_authorizable=motion_authorizable,
             blocking_reasons=unique_blockers,
             capabilities=capabilities,
@@ -329,6 +372,9 @@ class RealHardwareAuthorization:
             ),
             RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST: (
                 report.capabilities.commissioning_motion_test_ready
+            ),
+            RealHardwareAuthorizationPurpose.RAW_DIRECTION_TEST: (
+                report.capabilities.raw_direction_test_ready
             ),
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: (
                 report.capabilities.real_joint_motion_ready
@@ -392,6 +438,11 @@ class RealHardwareAuthorization:
         elif context.hardware_access_policy is HardwareAccessPolicy.READ_ONLY:
             resolved_purpose = OperatorSessionPurpose.COMMISSIONING_READ_ONLY
         elif (
+            context.raw_direction_test_enabled
+            and FieldAcceptanceCapability.JOINT_MOTION not in valid_capabilities
+        ):
+            resolved_purpose = OperatorSessionPurpose.RAW_DIRECTION_TEST
+        elif (
             context.commissioning_motion_test_enabled
             and FieldAcceptanceCapability.JOINT_MOTION not in valid_capabilities
         ):
@@ -441,7 +492,11 @@ class RealHardwareAuthorization:
             protocol=device.protocol if device is not None else None,
             session_purpose=resolved_purpose,
             workspace_clear_required=(
-                resolved_purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
+                resolved_purpose
+                in {
+                    OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+                    OperatorSessionPurpose.RAW_DIRECTION_TEST,
+                }
             ),
             required_confirmation_text=confirmation_text_for(resolved_purpose),
         )
@@ -550,22 +605,28 @@ class RealHardwareAuthorization:
                 and getattr(session, "calibration_fingerprint", None) is None
                 and getattr(session, "kinematics_fingerprint", None) is None
             )
+        if purpose is OperatorSessionPurpose.RAW_DIRECTION_TEST:
+            return bool(
+                context.raw_direction_test_enabled
+                and context.raw_direction_adapter_ready
+                and getattr(session, "hardware_access_policy", None) is HardwareAccessPolicy.FULL
+                and getattr(session, "calibration_fingerprint", None) is None
+                and getattr(session, "kinematics_fingerprint", None) is None
+                and getattr(session, "pre_motion_evidence_id", None) is None
+                and getattr(session, "raw_direction_envelope", None)
+                == context.raw_direction_safety_envelope
+                and getattr(session, "workspace_clear_confirmed", False) is True
+                and getattr(session, "field_acceptance_evidence_id", None) is None
+            )
         calibration = context.calibration
         if calibration is None:
             return False
         if purpose is OperatorSessionPurpose.COMMISSIONING_MOTION_TEST:
-            pre_motion = context.field_acceptance_bundle.newest_for(
-                FieldAcceptanceCapability.PRE_MOTION_CHECKS
-            )
             return bool(
                 context.commissioning_motion_test_enabled
-                and pre_motion is not None
-                and FieldAcceptanceCapability.PRE_MOTION_CHECKS
-                in context.field_acceptance_bundle.valid_capabilities(context)
                 and getattr(session, "hardware_access_policy", None) is HardwareAccessPolicy.FULL
                 and getattr(session, "calibration_fingerprint", None)
                 == calibration_fingerprint(calibration)
-                and getattr(session, "pre_motion_evidence_id", None) == pre_motion.evidence_id
                 and getattr(session, "commissioning_envelope", None)
                 == context.commissioning_safety_envelope
                 and getattr(session, "workspace_clear_confirmed", False) is True
@@ -619,6 +680,7 @@ class RealHardwareAuthorization:
             return RealHardwareReadinessState.BLOCKED_BY_HARDWARE_POLICY
         if first in {
             RealHardwareBlocker.REAL_MOTION_NOT_ENABLED,
+            RealHardwareBlocker.RAW_DIRECTION_TEST_NOT_ENABLED,
             RealHardwareBlocker.STARTUP_HARDWARE_FLAG_MISSING,
             RealHardwareBlocker.EXPLICIT_LOCAL_CONFIG_MISSING,
         }:
@@ -641,6 +703,7 @@ class RealHardwareAuthorization:
             RealHardwareBlocker.EXPLICIT_DEVICE_MISSING,
             RealHardwareBlocker.DEVICE_SERVO_IDS_MISMATCH,
             RealHardwareBlocker.DEVICE_SAFETY_STATE_UNCERTAIN,
+            RealHardwareBlocker.RAW_DIRECTION_ADAPTER_UNAVAILABLE,
         }:
             return RealHardwareReadinessState.BLOCKED_BY_DEVICE
         return RealHardwareReadinessState.BLOCKED_BY_OPERATOR_AUTHORIZATION

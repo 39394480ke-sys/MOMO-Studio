@@ -19,6 +19,7 @@ import { useRuntimeStatus } from '../components/runtimeStatusContext';
 import { CartesianControlPanel } from '../features/control/CartesianControlPanel';
 import { CommandStatusPanel } from '../features/control/CommandStatusPanel';
 import { ControlSafetyBar } from '../features/control/ControlSafetyBar';
+import { DirectJointControlPanel } from '../features/control/DirectJointControlPanel';
 import { JointControlPanel } from '../features/control/JointControlPanel';
 import { MotionParametersPanel } from '../features/control/MotionParametersPanel';
 import {
@@ -126,6 +127,11 @@ function availabilityFor(options: {
 export function ControlPage() {
   const runtime = useRuntimeStatus();
   const { summary: realSession } = useRealSession();
+  const directCommissioningControl = runtime.controlMode === 'REAL' && (
+    realSession.authorizationOptions.some(
+      (option) => option.purpose === 'COMMISSIONING_MOTION_TEST' && option.authorizable,
+    ) || realSession.session?.purpose === 'COMMISSIONING_MOTION_TEST'
+  );
   const backendOnline = runtime.backend === 'connected';
   const dryRunWorkspace =
     runtime.controlMode === 'DRY RUN' &&
@@ -413,8 +419,12 @@ export function ControlPage() {
     <div className="page control-workspace">
       <PageIntro
         title="控制"
-        description="用于直接控制机器人运动的安全门控仿真工作区。"
-        detail="支持 V1/V2 关节、TCP 运动学、笛卡尔运动与按住点动安全租约。"
+        description={directCommissioningControl
+          ? '用于现场逐项验收真实机械臂的受限控制工作区。'
+          : '用于直接控制机器人运动的安全门控仿真工作区。'}
+        detail={directCommissioningControl
+          ? '一次授权后可测试关节步进/连续、整组关节、Home、BASE/TOOL 笛卡尔与目标位姿。'
+          : '支持 V1/V2 关节、TCP 运动学、笛卡尔运动与按住点动安全租约。'}
       />
 
       {(runtime.error || effectiveStale) ? (
@@ -436,7 +446,9 @@ export function ControlPage() {
         </div>
       ) : null}
 
-      <ControlSafetyBar
+      {directCommissioningControl ? <DirectJointControlPanel /> : null}
+
+      {!directCommissioningControl ? <ControlSafetyBar
         availability={safetyAvailability}
         backendOnline={backendOnline}
         lifecyclePending={runtime.pendingAction}
@@ -456,9 +468,9 @@ export function ControlPage() {
         robot={robot}
         socketState={socket.connectionState}
         stale={effectiveStale}
-      />
+      /> : null}
 
-      <section className="control-overview" aria-labelledby="active-robot-title">
+      {!directCommissioningControl ? <section className="control-overview" aria-labelledby="active-robot-title">
         <div className="section-heading section-heading--compact">
           <div>
           <p className="section-kicker">活动机器人</p>
@@ -475,9 +487,9 @@ export function ControlPage() {
           <div><dt>校准</dt><dd>{runtime.calibration?.status ?? robot?.calibration_status ?? '待确认'}</dd></div>
           <div><dt>更新时间</dt><dd>{formatUpdatedAt(robot?.updated_at)}</dd></div>
         </dl>
-      </section>
+      </section> : null}
 
-      <div className="control-workspace-grid">
+      {!directCommissioningControl ? <div className="control-workspace-grid">
         {robot && definitions.length > 0 ? (
           <JointControlPanel
             activeJog={deadman.active}
@@ -538,7 +550,7 @@ export function ControlPage() {
             robotError={null}
           />
         </div>
-      </div>
+      </div> : null}
     </div>
   );
 }

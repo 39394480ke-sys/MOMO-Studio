@@ -19,6 +19,7 @@ import { useRealSession } from '../../components/realSessionContext';
 import { CalibrationWizard } from './CalibrationWizard';
 import { CommissioningMotionPanel } from './CommissioningMotionPanel';
 import { OperatorSessionDialog } from './OperatorSessionDialog';
+import { RawDirectionPanel } from './RawDirectionPanel';
 
 type PendingAction = 'connect' | 'diagnostics' | 'disconnect' | 'stop';
 type CalibrationUiState = 'NOT_CONFIGURED' | 'DRAFT' | 'CONFIGURED';
@@ -41,6 +42,7 @@ function maskedList(values: string[]): string {
 function purposeLabel(purpose: OperatorSessionPurpose): string {
   if (purpose === 'COMMISSIONING_READ_ONLY') return 'READ ONLY';
   if (purpose === 'COMMISSIONING_MOTION_TEST') return 'COMMISSIONING MOTION TEST';
+  if (purpose === 'RAW_DIRECTION_TEST') return 'RAW DIRECTION TEST';
   return 'REAL MOTION';
 }
 
@@ -73,7 +75,8 @@ export function RealHardwarePanel() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPurpose, setSelectedPurpose] = useState<OperatorSessionPurpose | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [fieldAcceptanceError, setFieldAcceptanceError] = useState<string | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [stopResult, setStopResult] = useState<DeviceStopResponse | null>(null);
 
@@ -85,9 +88,9 @@ export function RealHardwarePanel() {
     if (signal?.aborted) return;
     if (acceptanceResult.status === 'fulfilled') {
       setFieldAcceptance(acceptanceResult.value);
-      setError(null);
+      setFieldAcceptanceError(null);
     } else {
-      setError(messageFor(acceptanceResult.reason));
+      setFieldAcceptanceError(messageFor(acceptanceResult.reason));
     }
   }, [refreshSession]);
 
@@ -112,13 +115,14 @@ export function RealHardwarePanel() {
     request: () => Promise<DeviceDiagnostics>,
   ) => {
     setPending(action);
-    setError(null);
+    setActionError(null);
     try {
       setDiagnostics(await request());
       await refresh();
     } catch (requestError) {
-      setError(messageFor(requestError));
+      const requestMessage = messageFor(requestError);
       await refresh();
+      setActionError(requestMessage);
     } finally {
       setPending(null);
     }
@@ -149,24 +153,24 @@ export function RealHardwarePanel() {
   };
 
   const endSession = async () => {
-    setError(null);
+    setActionError(null);
     try {
       await revokeSession();
       setDiagnostics(null);
     } catch (requestError) {
-      setError(messageFor(requestError));
+      setActionError(messageFor(requestError));
     }
   };
 
   const stop = async () => {
     setPending('stop');
     setStopResult(null);
-    setError(null);
+    setActionError(null);
     try {
       setStopResult(await stopRealDevice());
       await refresh();
     } catch (requestError) {
-      setError(messageFor(requestError));
+      setActionError(messageFor(requestError));
     } finally {
       setPending(null);
     }
@@ -182,12 +186,14 @@ export function RealHardwarePanel() {
   const commissioningMotionAvailable =
     summary.capabilityDetails.commissioning_motion_test.ready ||
     readiness?.commissioning_motion_session_authorizable === true;
+  const rawDirectionAvailable = summary.capabilityDetails.raw_direction_test.ready ||
+    readiness?.raw_direction_session_authorizable === true;
   const motionPrerequisitesAvailable = summary.capabilityDetails.real_joint_motion.ready ||
     readiness?.motion_session_authorizable === true;
   const accessMode = !readiness || HARDWARE_DISABLED_STATES.has(readiness.state)
     ? 'DISABLED'
-    : commissioningAvailable || commissioningMotionAvailable ||
-        session?.purpose.startsWith('COMMISSIONING')
+    : commissioningAvailable || commissioningMotionAvailable || rawDirectionAvailable ||
+        session?.purpose.startsWith('COMMISSIONING') || session?.purpose === 'RAW_DIRECTION_TEST'
       ? 'COMMISSIONING'
       : 'REAL_MOTION';
   const busy = pending !== null || sessionPending !== null;
@@ -207,27 +213,32 @@ export function RealHardwarePanel() {
     ? 'STALE · PENDING'
     : fieldAcceptance?.effective_status ?? diagnostics?.field_acceptance ?? 'PENDING';
   const headerLabel = accessMode === 'COMMISSIONING'
-    ? commissioningMotionAvailable
-      ? 'Commissioning motion test available · SINGLE JOINT'
+    ? rawDirectionAvailable
+      ? '方向验收可开始'
+      : commissioningMotionAvailable
+      ? '单关节验收可开始'
       : commissioningAvailable
-        ? 'Commissioning available · READ ONLY'
-      : 'Commissioning blocked · READ ONLY'
+        ? '只读连接可用'
+      : '实体工作台未就绪'
     : accessMode === 'REAL_MOTION'
       ? readiness?.ready
-        ? 'Real Motion authorized'
-        : 'Real Motion blocked'
-      : 'Hardware access disabled';
+        ? '实体运动已授权'
+        : '实体运动未开放'
+      : 'DRY RUN · 实体未启用';
   const selectedAuthorization = summary.authorizationOptions.find(
     (option) => option.purpose === selectedPurpose,
   ) ?? null;
-  const displayError = error ?? summary.error;
+  const rawAuthorization = summary.authorizationOptions.find(
+    (option) => option.purpose === 'RAW_DIRECTION_TEST',
+  ) ?? null;
+  const displayError = actionError ?? fieldAcceptanceError ?? summary.error;
 
   return (
     <section className="settings-section real-hardware" aria-labelledby="real-hardware-title">
       <div className="settings-section__heading settings-section__heading--inline">
         <div>
-          <p className="section-kicker">Stage 8 · Field gated</p>
-          <h2 id="real-hardware-title">Real Hardware Boundary</h2>
+          <p className="section-kicker">实体工作台</p>
+          <h2 id="real-hardware-title">V2 连接与方向验收</h2>
         </div>
         <strong className={`real-readiness real-readiness--${accessMode === 'COMMISSIONING' ? 'readonly' : readiness?.ready ? 'ready' : 'blocked'}`}>
           {headerLabel}
@@ -235,24 +246,9 @@ export function RealHardwarePanel() {
       </div>
 
       <p className="real-hardware__intro">
-        Nothing on this page scans, homes, calibrates, or moves a robot automatically.
-        Device access requires every backend gate and a short-lived, HttpOnly cookie-backed Operator Session.
+        常规检查由系统自动完成。进入方向验收时只确认一次，之后可在同一会话中连续完成六轴。
+        页面不会自动扫描、回零或移动机械臂。
       </p>
-
-      {accessMode === 'COMMISSIONING' && (
-        <div className="commissioning-banner" role="status">
-          <div>
-            <strong>Commissioning mode</strong>
-            <span className="commissioning-badge">
-              {commissioningMotionAvailable ? 'STAGED' : 'READ ONLY'}
-            </span>
-          </div>
-          <p>
-            Read-only diagnostics remain isolated. Motion Test requires its own session and
-            permits only one backend-bounded joint command while held.
-          </p>
-        </div>
-      )}
 
       {displayError && (
         <div className="settings-notice settings-notice--error" role="alert">
@@ -260,6 +256,50 @@ export function RealHardwarePanel() {
           <span>{displayError}</span>
         </div>
       )}
+
+      <div className="bench-session-strip">
+        <div>
+          <span>本次现场会话</span>
+          <strong>{session
+            ? `${purposeLabel(session.purpose)} · ${sessionLabel} 到期`
+            : rawAuthorization?.authorizable
+              ? '设备条件已满足，等待一次确认'
+              : '尚未开始'}</strong>
+          <small>只有设备条件真正变化或 Stop 失败时，系统才会中断流程。</small>
+        </div>
+        <div className="real-actions">
+          {!session && rawAuthorization && (
+            <button
+              className="command-button command-button--danger-solid"
+              disabled={!rawAuthorization.authorizable || busy}
+              onClick={() => {
+                setDialogError(null);
+                setSelectedPurpose('RAW_DIRECTION_TEST');
+                setDialogOpen(true);
+              }}
+              type="button"
+            >
+              一次确认，开始六轴验收
+            </button>
+          )}
+          {session && (
+            <button
+              className="command-button"
+              disabled={busy}
+              onClick={() => void endSession()}
+              type="button"
+            >
+              结束本次会话
+            </button>
+          )}
+        </div>
+      </div>
+
+      <RawDirectionPanel />
+
+      <details className="real-advanced">
+        <summary>高级诊断与后续验收阶段</summary>
+        <div className="real-advanced__content">
 
       <div className="real-gate-grid">
         <div className="real-gate-card">
@@ -331,6 +371,7 @@ export function RealHardwarePanel() {
           {([
             ['Commissioning read-only', 'commissioning_read_only'],
             ['Commissioning motion test', 'commissioning_motion_test'],
+            ['Raw ± direction test', 'raw_direction_test'],
             ['Joint motion', 'real_joint_motion'],
             ['Cartesian motion', 'real_cartesian_motion'],
             ['Playback', 'real_playback'],
@@ -380,9 +421,12 @@ export function RealHardwarePanel() {
           <small>The HttpOnly authorization cookie is never exposed to JavaScript.</small>
         </div>
         <div className="real-actions">
-          {summary.authorizationOptions.map((option) => (
+          {summary.authorizationOptions
+            .filter((option) => option.purpose !== 'RAW_DIRECTION_TEST')
+            .map((option) => (
             <button
-              className={option.purpose === 'COMMISSIONING_MOTION_TEST'
+              className={option.purpose === 'COMMISSIONING_MOTION_TEST' ||
+                option.purpose === 'RAW_DIRECTION_TEST'
                 ? 'command-button command-button--danger-solid'
                 : 'command-button command-button--primary'}
               disabled={!option.authorizable || busy || hasSession}
@@ -398,7 +442,9 @@ export function RealHardwarePanel() {
                 ? 'Authorize READ ONLY'
                 : option.purpose === 'COMMISSIONING_MOTION_TEST'
                   ? 'Authorize Motion Test'
-                  : 'Authorize Real Motion'}
+                  : option.purpose === 'RAW_DIRECTION_TEST'
+                    ? 'Authorize Raw ± Test'
+                    : 'Authorize Real Motion'}
             </button>
           ))}
           <button
@@ -508,6 +554,8 @@ export function RealHardwarePanel() {
       )}
 
       <CommissioningMotionPanel diagnostics={diagnostics} />
+        </div>
+      </details>
 
       {dialogOpen && selectedAuthorization && (
         <OperatorSessionDialog

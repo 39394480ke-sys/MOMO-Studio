@@ -129,14 +129,14 @@ def test_motion_validates_joint_states_against_variant_profile() -> None:
 
 def test_motion_can_validate_against_an_explicit_supplied_profile() -> None:
     profile_data = canonical_robot_profile(RobotVariant.V2).model_dump(mode="json")
-    profile_data["joint_definitions"][0]["maximum"] = 50.0
+    profile_data["joint_definitions"][0]["maximum"] = 20.0
     supplied_profile = RobotProfile.model_validate(profile_data)
 
     motion_data = make_motion().model_dump(mode="python")
     for keyframe in motion_data["keyframes"]:
-        keyframe["pose_snapshot"]["joint_state"]["positions"]["j10"] = 100.0
+        keyframe["pose_snapshot"]["joint_state"]["positions"]["j10"] = 30.0
 
-    # The product placeholder profile permits 100 mm, while the supplied profile does not.
+    # The product profile permits 30 mm, while the supplied profile does not.
     canonical_motion = Motion.model_validate(motion_data)
     assert canonical_motion.keyframes
     with pytest.raises(ValidationError, match=r"snapshot joint state is invalid.*outside"):

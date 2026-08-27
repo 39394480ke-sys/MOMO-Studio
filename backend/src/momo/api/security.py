@@ -95,6 +95,25 @@ async def authorize_control_request(
     return principal
 
 
+async def authorize_control_keepalive_request(
+    request: Request,
+    service: SecurityServiceDependency,
+    session_cookie: SessionCookie = None,
+) -> AuthorizedPrincipal:
+    """Authenticate a bounded lease heartbeat using its independent budget."""
+
+    try:
+        principal = service.authorize_control_keepalive(
+            authorization=request.headers.get("authorization"),
+            session_cookie=session_cookie,
+            query_keys=tuple(request.query_params.keys()),
+        )
+    except SecurityViolation as error:
+        raise security_http_error(error) from error
+    request.state.security_principal = principal
+    return principal
+
+
 async def authorize_priority_stop_request(
     request: Request,
     service: SecurityServiceDependency,

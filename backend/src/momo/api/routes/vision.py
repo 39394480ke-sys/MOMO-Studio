@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from momo.api.dependencies import authorize_real_vision_follow_request, get_vision_service
 from momo.api.security import (
+    authorize_control_keepalive_request,
     authorize_control_request,
     authorize_priority_stop_request,
     reauthorize_http_stream,
@@ -324,7 +325,7 @@ async def reset_tracking(service: VisionServiceDependency) -> VisionStatusRespon
     "/follow/start",
     response_model=VisionFollowLeaseResponse,
     dependencies=[
-        Depends(authorize_control_request),
+        Depends(authorize_control_keepalive_request),
         Depends(authorize_real_vision_follow_request),
     ],
 )

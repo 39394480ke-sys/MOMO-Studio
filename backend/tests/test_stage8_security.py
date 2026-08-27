@@ -420,6 +420,34 @@ def test_rate_limit_is_per_principal_and_principal_table_is_bounded() -> None:
     assert limiter.principal_count == 1
 
 
+def test_control_keepalives_have_a_separate_bounded_rate_budget() -> None:
+    clock = MutableSecurityClock()
+    service = SecurityService(
+        NetworkSecurityPolicy(allowed_origins=("http://127.0.0.1:5173",)),
+        lan_token=None,
+        now=clock.now,
+        monotonic=clock.monotonic,
+        control_rate_limit=2,
+        control_keepalive_rate_limit=3,
+        control_rate_window_seconds=60,
+    )
+    credentials = {"query_keys": ()}
+
+    service.authorize_control(**credentials)
+    service.authorize_control_keepalive(**credentials)
+    service.authorize_control_keepalive(**credentials)
+    service.authorize_control_keepalive(**credentials)
+    # Keepalives did not consume the remaining operator-command slot.
+    service.authorize_control(**credentials)
+
+    with pytest.raises(SecurityViolation) as control_limited:
+        service.authorize_control(**credentials)
+    assert control_limited.value.code == "RATE_LIMITED"
+    with pytest.raises(SecurityViolation) as keepalive_limited:
+        service.authorize_control_keepalive(**credentials)
+    assert keepalive_limited.value.code == "RATE_LIMITED"
+
+
 def test_strict_origin_echoes_only_allowlisted_origin_and_body_guard_is_bounded() -> None:
     clock = MutableSecurityClock()
     audit_sink = BoundedMemoryAuditSink()

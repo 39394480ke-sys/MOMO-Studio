@@ -53,17 +53,26 @@ functions may convert them. Unit conversion cannot depend on the name `j10`.
 
 ## Commissioning and Real Motion authorization
 
-Real hardware has three disjoint Operator Session purposes:
+Real hardware has four disjoint Operator Session purposes:
 
 | Purpose | Narrow authority |
 |---|---|
 | `COMMISSIONING_READ_ONLY` | Exact-device diagnostics and Calibration capture; no write capability |
 | `COMMISSIONING_MOTION_TEST` | One separately armed, bounded, relative single-joint test under a backend deadman |
+| `RAW_DIRECTION_TEST` | One 5-minute, Raw-count-only zero/direction bootstrap session; no Calibration or logical-motion claim |
 | `REAL_MOTION` | Only the production capabilities supported by current capability evidence |
 
 Purpose and scopes are immutable. Moving to another purpose requires a new session ID,
 expiry, operator confirmation, and evidence snapshot. Completion of Calibration, a test,
 acceptance, or Kinematics verification cannot upgrade an existing session.
+
+Raw direction bootstrap has its own default-false `raw_direction_test_enabled` switch,
+`FULL` hardware policy, exact Profile/Device joint-to-Servo allowlist, operator/E-stop/
+workspace/current-URDF-zero confirmation, 300-second session, 400 ms deadman, 24-command
+cap, one active joint, fixed 8-count steps, and ±32-count captured-zero envelope. Both
+Raw signs are required for every enabled joint before one human URDF-alignment answer;
+the resulting Legacy-prefilled/current-zero draft is session-only until one final review
+confirmation. The release composition intentionally supplies no physical Raw writer.
 
 Read-only commissioning retains its capability-narrowed `ReadOnlyServoBus`: explicit
 open/close, exact-ID ping, and typed present-position/mode/torque reads. It has no goal,

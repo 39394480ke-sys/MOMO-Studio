@@ -27,6 +27,7 @@ from momo.domain.enums import (
 )
 from momo.domain.real_hardware import (
     REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+    REQUIRED_COMMISSIONING_MOTION_CONFIRMATION_TEXT,
     REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
     ExplicitServoDevice,
     FieldAcceptanceStatus,
@@ -178,6 +179,32 @@ def test_profile_calibration_kinematics_and_explicit_ids_must_match() -> None:
     assert RealHardwareBlocker.DEVICE_SERVO_IDS_MISMATCH in report.blocking_reasons
 
 
+def test_read_only_identity_characterization_does_not_promote_template_profile() -> None:
+    clock = FakeClock()
+    context = real_context(
+        hardware_access_policy=HardwareAccessPolicy.READ_ONLY,
+        real_motion_enabled=False,
+        calibration=None,
+    )
+    assert context.profile is not None
+    template = context.profile.model_copy(
+        update={
+            "template": True,
+            "verification_status": ProfileVerificationStatus.VERIFIED_FOR_DRY_RUN,
+        }
+    )
+    report = evaluate(context.model_copy(update={"profile": template}), clock)
+
+    assert report.commissioning_session_authorizable is True
+    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE not in report.blocking_reasons
+    assert RealHardwareBlocker.PROFILE_NOT_VERIFIED_FOR_REAL not in report.blocking_reasons
+    assert report.capabilities.commissioning_read_only_ready is True
+    assert report.capabilities.real_joint_motion_ready is False
+    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE in (
+        report.capability_details.real_joint_motion.blocked_reasons
+    )
+
+
 def test_explicit_device_rejects_scan_like_or_invalid_id_contracts() -> None:
     with pytest.raises(ValidationError, match="at least one explicit servo ID"):
         ExplicitServoDevice(serial_port="/dev/fake", protocol="SCS", servo_ids=())
@@ -276,6 +303,40 @@ def test_fresh_robot_commissioning_is_read_only_without_calibration_or_acceptanc
                 context,
                 purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
             )
+
+    asyncio.run(scenario())
+
+
+def test_bounded_commissioning_session_does_not_require_prior_acceptance_evidence() -> None:
+    async def scenario() -> None:
+        context = real_context(
+            real_motion_enabled=False,
+            commissioning_motion_test_enabled=True,
+            field_acceptance_status=FieldAcceptanceStatus.PENDING,
+            field_acceptance_evidence=None,
+            field_acceptance_bundle=ValidatedFieldAcceptanceBundle(),
+        )
+        clock = FakeClock()
+        authorization = RealHardwareAuthorization()
+        sessions = OperatorSessionService(clock, authorization, ttl_s=60.0)
+
+        report = evaluate(context, clock)
+        assert report.commissioning_motion_session_authorizable is True
+        issued = await sessions.issue(
+            context,
+            purpose=OperatorSessionPurpose.COMMISSIONING_MOTION_TEST,
+            confirmation_text=REQUIRED_COMMISSIONING_MOTION_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+            workspace_clear_confirmed=True,
+        )
+
+        assert issued.evidence.pre_motion_evidence_id is None
+        assert issued.evidence.commissioning_envelope is not None
+        await sessions.authorize(
+            issued.session_token.get_secret_value(),
+            context,
+            purpose=RealHardwareAuthorizationPurpose.COMMISSIONING_SINGLE_JOINT_TEST,
+        )
 
     asyncio.run(scenario())
 
