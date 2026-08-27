@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  closeLiveCamera,
   clearVisionTarget,
   detectVisionTarget,
   getVisionCapabilities,
   getVisionStatus,
   heartbeatVisionFollow,
+  openLiveCamera,
   resetVisionTracking,
   selectVisionTarget,
   startVisionFollow,
@@ -88,11 +90,16 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     runtime.controlMode === 'DRY RUN' &&
     runtime.hardwareAccessPolicy === 'DISABLED' &&
     runtime.realMotionEnabled === false;
+  const readOnlyLiveCamera = capabilities?.camera_access_policy === 'LIVE_CAMERA_ALLOWED';
   const realVisionCapability = realCapabilityAvailability(realSession, 'real_vision_follow');
-  const followAllowed = runtime.controlMode === 'REAL'
+  const followAllowed = readOnlyLiveCamera
+    ? false
+    : runtime.controlMode === 'REAL'
     ? realVisionCapability.allowed
     : dryRunFollowAllowed;
-  const followBlockedReason = runtime.controlMode === 'REAL'
+  const followBlockedReason = readOnlyLiveCamera
+    ? 'Live camera is read-only; tracking and Follow are disabled'
+    : runtime.controlMode === 'REAL'
     ? realVisionCapability.reason
     : dryRunFollowAllowed
       ? null
@@ -283,6 +290,40 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     }
   }, []);
 
+  const openCamera = useCallback(async () => {
+    setBusy('open-camera');
+    setError(null);
+    setStreamFailed(false);
+    try {
+      const next = await openLiveCamera();
+      if (!mountedRef.current) return;
+      setStatus(next);
+      setCapabilities(await getVisionCapabilities());
+    } catch (caught) {
+      if (mountedRef.current) setError(errorMessage(caught));
+    } finally {
+      if (mountedRef.current) setBusy((current) => current === 'open-camera' ? null : current);
+    }
+  }, []);
+
+  const closeCamera = useCallback(async () => {
+    priorityEpochRef.current += 1;
+    setBusy('close-camera');
+    setError(null);
+    try {
+      const next = await closeLiveCamera();
+      if (!mountedRef.current) return;
+      setStatus(next);
+      setDetections([]);
+      setStreamFailed(false);
+      setCapabilities(await getVisionCapabilities());
+    } catch (caught) {
+      if (mountedRef.current) setError(errorMessage(caught));
+    } finally {
+      if (mountedRef.current) setBusy((current) => current === 'close-camera' ? null : current);
+    }
+  }, []);
+
   const startFollow = useCallback(async () => {
     if (!followAllowed) {
       setError(followBlockedReason ?? 'Vision Follow is not authorized by the backend.');
@@ -346,6 +387,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
   return {
     busy,
     capabilities,
+    closeCamera,
     clearError: () => setError(null),
     clearTarget,
     configuration,
@@ -357,6 +399,8 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     error,
     mapping,
     online,
+    openCamera,
+    readOnlyLiveCamera,
     runtimeMode: runtime.controlMode,
     runtimePolicy: runtime.hardwareAccessPolicy,
     realVisionCapability,

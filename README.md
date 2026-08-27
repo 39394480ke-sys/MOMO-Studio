@@ -16,6 +16,7 @@ timeline-based trajectory authoring, trajectory playback, and vision following.
 | Trajectory / Playback | **VALIDATED IN DRY RUN** |
 | Studio Timeline | **VALIDATED** |
 | Synthetic Vision / Follow | **VALIDATED IN DRY RUN** |
+| Read-only live camera preview | **IMPLEMENTED; EXPLICIT LOCAL OPT-IN REQUIRED** |
 | Commissioning software workflow | **VALIDATED WITH FAKE/BOMB/ISOLATED ADAPTERS** |
 | Real Feetech hardware | **FIELD VERIFICATION REQUIRED** |
 | Physical Stop | **FIELD VERIFICATION REQUIRED** |
@@ -32,6 +33,8 @@ the software path only; it is not physical field acceptance.
 - Authors Joint and Cartesian-linear transitions on a Studio timeline.
 - Preflights, previews, and plays trajectories through one Motion Safety Gateway.
 - Provides deterministic Synthetic Vision, tracking, and safe Dry Run Follow.
+- Provides an optional explicit-ID live-camera preview that is read-only: no selection,
+  detection, tracking, recording, or Follow.
 - Provides read-only commissioning, initial Calibration, staged field evidence, and
   explainable Real-capability gates without silently enabling hardware.
 
@@ -123,6 +126,11 @@ Open the Vite URL printed by the frontend command. The copied configuration rema
 `DRY_RUN`, hardware access is disabled, Real and commissioning motion are disabled, and
 Vision is Synthetic-only.
 
+For the separately gated read-only camera preview, install the optional local dependency
+with `make install-camera`, then follow the exact ignored-local-config procedure in the
+[operator guide](docs/operator-guide.md#read-only-live-camera-preview). The default
+installation and configuration never open a camera.
+
 > Running the default development configuration cannot control a real robot.
 
 ## Development
@@ -164,6 +172,8 @@ use `backend/.venv`; frontend commands run through npm in `frontend/`.
 - Field acceptance is staged. No writable global `PASSED` value can authorize motion.
 - The normal release composition does not create a production write-capable Feetech bus.
 - Camera access defaults to `SYNTHETIC_ONLY` and never auto-opens a real camera.
+- Live preview requires an ignored local device ID plus an explicit button press; closing
+  it releases the device and captured frames are never persisted by MOMO Studio.
 
 See the [Safety model](docs/safety.md) and
 [staged field-acceptance decision](docs/adr/0019-staged-field-acceptance.md).
@@ -192,8 +202,8 @@ Start with the [documentation index](docs/README.md). Key entry points:
 
 The latest candidate verification passes:
 
-- Backend: 629 tests.
-- Frontend: 230 tests across 19 files.
+- Backend: 633 tests.
+- Frontend: 231 tests across 19 files.
 - Hardware/camera/commissioning isolation: 140 tests.
 - Ruff, Ruff format, strict mypy, ESLint, TypeScript, Vite production build,
   deterministic schemas, lock/dependency checks, secret scan, `pip-audit`, and
@@ -210,6 +220,8 @@ handoff.
 - Kinematics remain provisional; Real Cartesian is blocked.
 - Real Playback remains blocked where its required evidence is incomplete.
 - Real Vision Follow is blocked; camera latency and Vision gains are not field tuned.
+- Read-only live preview is intentionally not object detection, tracking, recording, or
+  evidence that Real Vision Follow is ready.
 - Desktop/Tauri packaging is not implemented.
 - The project license decision remains pending, and Legacy asset redistribution rights
   must not be assumed.

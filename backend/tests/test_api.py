@@ -183,6 +183,8 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
         "/api/v1/studio/drafts/{draft_id}/validate": frozenset({"post"}),
         "/api/v1/trajectory/{digest}/preview": frozenset({"get"}),
         "/api/v1/vision/capabilities": frozenset({"get"}),
+        "/api/v1/vision/camera/close": frozenset({"post"}),
+        "/api/v1/vision/camera/open": frozenset({"post"}),
         "/api/v1/vision/detect/{detector}": frozenset({"post"}),
         "/api/v1/vision/follow/start": frozenset({"post"}),
         "/api/v1/vision/follow/{lease_id}/heartbeat": frozenset({"post"}),
@@ -202,4 +204,8 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
     assert not any(isinstance(route, Mount) for route in route_tree)
     custom_http_routes = [route for route in route_tree if isinstance(route, APIRoute)]
     paths = {route.path.lower() for route in custom_http_routes}
-    assert not any(token in path for path in paths for token in ("raw-servo", "serial", "camera"))
+    assert not any(token in path for path in paths for token in ("raw-servo", "serial"))
+    assert {path for path in paths if "camera" in path} == {
+        "/vision/camera/close",
+        "/vision/camera/open",
+    }

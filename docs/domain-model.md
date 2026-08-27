@@ -10,6 +10,11 @@ plus disabled hardware access and the default composition has no Real bus factor
 No enum value alone grants motion capability. Camera access is independently typed as `DISABLED`,
 `SYNTHETIC_ONLY`, or `LIVE_CAMERA_ALLOWED`, with `SYNTHETIC_ONLY` as the tracked
 default. A live policy value alone neither selects nor opens a camera.
+`LIVE_CAMERA_ALLOWED` additionally requires an explicit device identifier and a boolean
+opt-in from the selected ignored local configuration file. The composition owns one
+operator-controlled source in `CLOSED`; only a confirmed open command may import the
+optional provider and acquire that device. The live session is preview-only and cannot
+create selection, detection, tracking, recording, or Follow state.
 
 `RobotId` is a validated stable identifier. The composition root creates one `primary`
 robot in a `RobotManager`; it does not expose a global robot value, `arm_a`, Fleet, or
@@ -357,6 +362,12 @@ display name, model source, notice, and safe detail. The deterministic Synthetic
 detectors/tracker are explicitly scenario fixtures, not general-purpose model claims.
 Unavailable optional OpenCV capabilities remain visible rather than becoming invented
 success.
+
+The read-only OpenCV source is also transient. It emits bounded JPEG `VisionFrame`
+values after explicit open, exposes no raw device identifier in capability or frame
+metadata, never enumerates cameras, and returns to `CLOSED` after release. Its frames
+use the existing bounded in-memory history and no-store transport; they are not domain
+entities and are never written by the Vision service.
 
 ## Vision Follow lease and controller
 

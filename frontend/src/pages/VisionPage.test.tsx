@@ -79,10 +79,39 @@ describe('Stage 7 Vision workspace', () => {
     expect(screen.getByRole('button', { name: 'Face detect' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
     expect(screen.getByText('REAL FOLLOW BLOCKED')).toBeVisible();
-    expect(screen.getByText('Not opened')).toBeVisible();
+    expect(screen.getByText('Not configured')).toBeVisible();
     expect(screen.queryByRole('button', { name: /photo|record|material|gesture|cinematic/i })).not.toBeInTheDocument();
     expect(view.container.querySelector('.vision-workspace')).toBeInTheDocument();
     expect(view.container.querySelector('.vision-controls')).toBeInTheDocument();
+  });
+
+  it('opens and closes an explicitly configured live camera while keeping analysis read-only', async () => {
+    const user = userEvent.setup();
+    const backend = mockStage7Backend({ cameraAccessPolicy: 'LIVE_CAMERA_ALLOWED' });
+    const view = renderVision();
+
+    expect(await screen.findByText('READ ONLY CAMERA')).toBeVisible();
+    expect(screen.getByText('Live camera closed')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Open live camera/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Close live camera/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
+    expect(screen.queryByRole('img', { name: 'Live vision stream' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Open live camera/ }));
+    await waitFor(() => expect(backend.requestsFor('/vision/camera/open')).toHaveLength(1));
+    expect(backend.lastBody('/vision/camera/open')).toEqual({ confirm_read_only_open: true });
+    expect(await screen.findByRole('img', { name: 'Live vision stream' })).toBeVisible();
+    expect(screen.getByText('Open · read only')).toBeVisible();
+    expect(screen.queryByLabelText('Follow dead zone')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Person detect' })).toBeDisabled();
+    expect(backend.requestsFor('/vision/selection')).toHaveLength(0);
+    expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
+
+    await user.click(screen.getByRole('button', { name: /Close live camera/ }));
+    await waitFor(() => expect(backend.requestsFor('/vision/camera/close')).toHaveLength(1));
+    expect(await screen.findByText('Live camera closed')).toBeVisible();
+    expect(screen.queryByRole('img', { name: 'Live vision stream' })).not.toBeInTheDocument();
+    expect(view.container.querySelector('.vision-crosshair')).not.toBeInTheDocument();
   });
 
   it('maps a pointer drag to the exact normalized frame ROI and starts then stops Dry Run Follow', async () => {

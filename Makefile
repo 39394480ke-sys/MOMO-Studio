@@ -1,4 +1,4 @@
-.PHONY: install test lint format-check build audit dev-backend serve-backend dev-frontend schemas
+.PHONY: install install-camera test lint format-check build audit dev-backend serve-backend dev-frontend schemas
 
 BACKEND_PYTHON ?= backend/.venv/bin/python
 UV ?= uv
@@ -8,6 +8,9 @@ LOCAL_CONFIG ?= config/local.yaml
 install:
 	$(UV) sync --project backend --extra dev --python 3.11 --locked
 	$(NPM) --prefix frontend ci
+
+install-camera:
+	$(UV) sync --project backend --extra dev --extra camera --python 3.11 --locked
 
 test:
 	$(BACKEND_PYTHON) -m pytest backend/tests

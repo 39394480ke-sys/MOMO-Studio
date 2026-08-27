@@ -57,7 +57,9 @@ Kinematics, and all capability-specific Real operation remain field gated.
 
 ## Phase G — Vision field tuning
 
-- Review the exact live-camera provider, device policy, provenance, and latency.
+- Preserve the implemented explicit-ID read-only preview as a separate capability; it
+  is visibility evidence only, not live tracking or Real Follow acceptance.
+- Review the exact tracking/detection provider, provenance, and end-to-end latency.
 - Characterize tracking loss, end-to-end latency, dead zone, filtering, and gains.
 - Complete Vision Follow evidence only after its Joint/Kinematics prerequisites.
 - Retain automatic Stop on stale/lost/low-confidence targets and lease loss.

@@ -1,4 +1,4 @@
-import { AlertTriangle, Radar, ShieldCheck, Square } from 'lucide-react';
+import { AlertTriangle, Camera, CameraOff, Radar, ShieldCheck, Square } from 'lucide-react';
 
 import type { VisionFollowConfiguration, VisionProviderCapability } from '../../api/types';
 import type { VisionWorkspace } from './useVisionWorkspace';
@@ -78,6 +78,7 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
   const robotConnected = workspace.status?.robot_state === 'CONNECTED';
   const sourceOperational = workspace.status?.source_state === 'READY'
     || workspace.status?.source_state === 'STREAMING';
+  const liveCameraOpen = workspace.readOnlyLiveCamera && sourceOperational;
   const latestFrame = workspace.status?.latest_frame ?? null;
   const frameFresh = latestFrame !== null
     && latestFrame.age_ms <= workspace.configuration.frame_freshness_limit_s * 1000;
@@ -118,7 +119,9 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
   else if (follow?.active) startReason = 'Follow is already active';
   const startDisabled = startReason !== null || workspace.busy !== null;
   const stopAvailable = follow?.active || workspace.busy === 'start-follow';
-  const tuningDisabled = follow?.active === true || workspace.busy === 'start-follow';
+  const tuningDisabled = workspace.readOnlyLiveCamera
+    || follow?.active === true
+    || workspace.busy === 'start-follow';
 
   return (
     <aside className="vision-controls" aria-label="Vision controls">
@@ -132,8 +135,38 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
           <div><dt>Camera policy</dt><dd>{workspace.capabilities?.camera_access_policy ?? 'Unavailable'}</dd></div>
           <div><dt>Source state</dt><dd>{workspace.status?.source_state ?? (workspace.online ? 'Waiting' : 'OFFLINE')}</dd></div>
           <div><dt>Mode</dt><dd>{workspace.runtimeMode}</dd></div>
-          <div><dt>Live camera</dt><dd>Not opened</dd></div>
+          <div>
+            <dt>Live camera</dt>
+            <dd>{workspace.readOnlyLiveCamera ? liveCameraOpen ? 'Open · read only' : 'Closed' : 'Not configured'}</dd>
+          </div>
         </dl>
+        {workspace.readOnlyLiveCamera ? (
+          <>
+            <div className="vision-follow-actions">
+              <button
+                className="command-button command-button--primary"
+                disabled={!workspace.online || liveCameraOpen || workspace.busy !== null}
+                onClick={() => void workspace.openCamera()}
+                type="button"
+              >
+                <Camera aria-hidden="true" />
+                {workspace.busy === 'open-camera' ? 'Opening…' : 'Open live camera'}
+              </button>
+              <button
+                className="command-button"
+                disabled={!liveCameraOpen || workspace.busy !== null}
+                onClick={() => void workspace.closeCamera()}
+                type="button"
+              >
+                <CameraOff aria-hidden="true" />
+                {workspace.busy === 'close-camera' ? 'Closing…' : 'Close live camera'}
+              </button>
+            </div>
+            <p className="vision-provider-note">
+              Read-only preview only. Selection, detection, tracking, recording, and Follow remain disabled.
+            </p>
+          </>
+        ) : null}
         <p className="vision-blocked-reason">
           {workspace.capabilities?.real_follow_blocked_reason
             ?? workspace.status?.real_follow_blocked_reason
@@ -149,19 +182,19 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
         <div className="vision-button-grid">
           <button
             className="command-button"
-            disabled={!workspace.status?.selection || workspace.busy !== null}
+            disabled={workspace.readOnlyLiveCamera || !workspace.status?.selection || workspace.busy !== null}
             onClick={() => void workspace.clearTarget()}
             type="button"
           >Clear selection</button>
           <button
             className="command-button"
-            disabled={!workspace.status?.selection || workspace.busy !== null}
+            disabled={workspace.readOnlyLiveCamera || !workspace.status?.selection || workspace.busy !== null}
             onClick={() => void workspace.resetTracking()}
             type="button"
           >Reset tracker</button>
           <button
             className="command-button"
-            disabled={!person?.available || detectionBlockReason !== null || workspace.busy !== null}
+            disabled={workspace.readOnlyLiveCamera || !person?.available || detectionBlockReason !== null || workspace.busy !== null}
             onClick={() => void workspace.detect('person')}
             title={!person?.available
               ? person?.reason ?? 'Person provider unavailable'
@@ -170,7 +203,7 @@ export function VisionControls({ workspace }: { workspace: VisionWorkspace }) {
           >Person detect</button>
           <button
             className="command-button"
-            disabled={!face?.available || detectionBlockReason !== null || workspace.busy !== null}
+            disabled={workspace.readOnlyLiveCamera || !face?.available || detectionBlockReason !== null || workspace.busy !== null}
             onClick={() => void workspace.detect('face')}
             title={!face?.available
               ? face?.reason ?? 'Face provider unavailable'

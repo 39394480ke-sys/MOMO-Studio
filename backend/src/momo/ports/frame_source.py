@@ -21,3 +21,10 @@ class FrameSource(Protocol):
     async def latest_frame(self) -> VisionFrame | None: ...
 
     async def aclose(self) -> None: ...
+
+
+@runtime_checkable
+class OperatorControlledFrameSource(FrameSource, Protocol):
+    """A configured source that can only be opened by an explicit operator action."""
+
+    async def open(self) -> None: ...

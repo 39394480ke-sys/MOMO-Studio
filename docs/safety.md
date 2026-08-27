@@ -241,12 +241,20 @@ nothing.
 ## Vision access and Follow deadman
 
 Camera policy is independent from hardware policy. `SYNTHETIC_ONLY` is the safe default;
-`DISABLED` composes a fail-closed source. `LIVE_CAMERA_ALLOWED` is vocabulary, not an
-implicit open. The optional OpenCV factory requires explicit local enablement, one
-explicit bounded device ID, and operator action before its lazy import. Source
-construction still performs no device I/O, application startup always selects Synthetic,
-and Stage 7 exposes no live-open/enumeration route. OpenCV is absent from the manifest
-and lock. Frames are `no-store`, never recorded, and subject to bounded retention.
+`DISABLED` composes a fail-closed source. `LIVE_CAMERA_ALLOWED` is not an implicit open.
+It is accepted only when the selected ignored local file supplies the same explicit
+bounded device ID and `live_camera_local_config_enabled: true`. Environment overrides
+cannot manufacture that local authorization. The composition creates one closed,
+operator-controlled source without importing OpenCV or touching a device.
+
+Only `POST /api/v1/vision/camera/open` with the literal read-only confirmation can lazy
+import OpenCV and open the configured ID. It never enumerates devices or probes a
+default. The service validates a first frame before reporting success. Close is an
+authenticated priority release path; cancellation and backend shutdown still complete
+device release and clear transient frame/selection/tracking state. Live frames are
+bounded JPEG observations transported with `no-store`, never recorded or persisted.
+Selection, detection, tracking, and Follow fail closed for this mode, so camera access
+cannot become a second motion path.
 
 A manual selection or provider result is usable only when its complete frame ID,
 source, aware capture time, and dimensions match a retained unexpired frame. A new

@@ -47,6 +47,7 @@ Historical Stage reports are evidence records, not the current product guide.
 - [Vision provider capabilities](vision-provider-capabilities.md) — Synthetic and optional
   live-provider policies, bounds, tracking, and Follow leases.
 - [ADR 0014: Vision access and Follow lease](adr/0014-vision-access-policy-and-follow-lease.md).
+- [ADR 0020: Operator-controlled read-only live camera](adr/0020-operator-controlled-read-only-live-camera.md).
 
 ## Safety
 

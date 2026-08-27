@@ -259,9 +259,13 @@ paths = app.openapi()['paths']
 assert '/api/v1/motion/joints' in paths
 assert '/api/v1/kinematics/ik' in paths
 assert all(
-    'raw-servo' not in path and 'serial' not in path and 'camera' not in path
+    'raw-servo' not in path and 'serial' not in path
     for path in paths
 )
+assert {path for path in paths if 'camera' in path} == {
+    '/api/v1/vision/camera/close',
+    '/api/v1/vision/camera/open',
+}
 print('hardware-isolated-startup-ok')
 """
     environment = os.environ.copy()

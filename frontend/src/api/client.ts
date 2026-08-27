@@ -1073,7 +1073,12 @@ export function normalizeVisionStatus(value: unknown): VisionStatus {
   const sourceState = stringValue(value.source_state);
   const robotState = stringValue(value.robot_state);
   const blockedReason = stringValue(value.real_follow_blocked_reason);
-  if (!sourceState || !robotState || !blockedReason) {
+  if (
+    !sourceState ||
+    !['DISABLED', 'READY', 'STREAMING', 'DISCONNECTED', 'FAULTED', 'CLOSED'].includes(sourceState) ||
+    !robotState ||
+    !blockedReason
+  ) {
     throw new TypeError('Backend returned an incomplete Vision status');
   }
   const frame = value.latest_frame;
@@ -1150,7 +1155,7 @@ export function normalizeVisionStatus(value: unknown): VisionStatus {
   }
   return {
     camera_access_policy: cameraAccessPolicy(value.camera_access_policy),
-    source_state: sourceState,
+    source_state: sourceState as VisionStatus['source_state'],
     latest_frame: latestFrame,
     selection: parsedSelection,
     tracking: parsedTracking,
@@ -1188,6 +1193,16 @@ export async function getVisionCapabilities(signal?: AbortSignal): Promise<Visio
 
 export async function getVisionStatus(signal?: AbortSignal): Promise<VisionStatus> {
   return normalizeVisionStatus(await requestJson<unknown>('/vision/status', { signal }));
+}
+
+export async function openLiveCamera(): Promise<VisionStatus> {
+  return normalizeVisionStatus(await postJson<unknown>('/vision/camera/open', {
+    confirm_read_only_open: true,
+  }));
+}
+
+export async function closeLiveCamera(): Promise<VisionStatus> {
+  return normalizeVisionStatus(await postJson<unknown>('/vision/camera/close', {}));
 }
 
 export async function selectVisionTarget(

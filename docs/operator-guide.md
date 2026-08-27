@@ -23,6 +23,8 @@ hardware_startup_enabled: false
 hardware_local_config_enabled: false
 robot_unit_id: ""
 camera_access_policy: SYNTHETIC_ONLY
+live_camera_device_id: ""
+live_camera_local_config_enabled: false
 field_acceptance_checklist_version: "1"
 ```
 
@@ -71,6 +73,45 @@ assets and extensionless SPA refresh fallback. Missing API routes and missing as
 404, `index.html` is `no-store`, `/docs` and `/redoc` are disabled, and no CDN/Internet
 asset is required. This is still the same React UI, not a second GUI or a Tauri native
 application.
+
+## Read-only live camera preview
+
+This optional mode displays one explicitly identified local camera. It does not scan or
+enumerate devices, save frames, record video, select or detect targets, start tracking,
+or enable Follow. It is independent from robot hardware policy and does not grant any
+motion capability.
+
+Install the optional camera dependency:
+
+```bash
+make install-camera
+```
+
+Choose the device ID outside MOMO Studio, then place only that reviewed ID in ignored
+`config/local.yaml`. Numeric IDs must be canonical decimal indexes such as `0` or `1`.
+Never commit a device ID or local camera path.
+
+```yaml
+camera_access_policy: LIVE_CAMERA_ALLOWED
+live_camera_device_id: "<reviewed-local-camera-id>"
+live_camera_local_config_enabled: true
+vision_frame_width_px: 1280
+vision_frame_height_px: 720
+vision_max_fps: 30
+```
+
+Restart the backend with that local file. Startup validates and composes a closed source
+but performs no OpenCV import and no camera open. On Vision, confirm `LIVE_CAMERA_ALLOWED`,
+`CLOSED`, and `READ ONLY CAMERA`, then press **Open live camera**. The request carries an
+explicit read-only confirmation; the backend imports OpenCV, opens only the configured
+ID, validates a first JPEG frame, and begins the bounded no-store stream. Press
+**Close live camera** before unplugging or leaving the workflow. Backend shutdown also
+releases an open device.
+
+If opening fails, verify that another application is not using the camera and that the
+ignored ID is correct. Change the local file and restart; the product deliberately has
+no camera-enumeration endpoint. Return to the safe default by restoring
+`SYNTHETIC_ONLY`, an empty ID, and `live_camera_local_config_enabled: false`.
 
 ## Dry Run workflow
 

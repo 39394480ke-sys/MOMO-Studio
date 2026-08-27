@@ -20,6 +20,7 @@ from momo.adapters.storage.runtime_state_repository import FileRuntimeStateRepos
 from momo.adapters.time.system_clock import SystemClock
 from momo.adapters.vision import (
     DisabledFrameSource,
+    OperatorControlledOpenCvCameraSource,
     PassthroughVisionStreamEncoder,
     SyntheticFaceDetector,
     SyntheticFrameSource,
@@ -29,6 +30,7 @@ from momo.adapters.vision import (
     UnavailableFaceDetector,
     UnavailableTargetDetector,
     UnavailableTargetTracker,
+    explicit_device_identifier,
 )
 from momo.application.services.calibration_service import CalibrationService
 from momo.application.services.jog_service import JogLeaseService
@@ -48,9 +50,10 @@ from momo.application.services.trajectory_service import (
 from momo.application.services.vision_follow import VisionFollowService
 from momo.application.services.vision_service import VisionApplicationService
 from momo.domain.robot import RobotId, RobotProfile
-from momo.domain.vision import CameraAccessPolicy
+from momo.domain.vision import CameraAccessPolicy, VisionProviderCapability
 from momo.ports.frame_source import FrameSource
 from momo.ports.robot_driver import RobotDriver
+from momo.ports.vision import FaceDetector, TargetDetector, TargetTracker, VisionStreamEncoder
 from momo.settings import Settings, repository_root
 
 
@@ -186,13 +189,67 @@ def build_application_services(
     )
     scenario = SyntheticVisionScenario()
     source: FrameSource
+    tracker: TargetTracker = SyntheticTargetTracker(
+        scenario=scenario,
+        source_id=settings.vision_source_id,
+    )
+    person_detector: TargetDetector = SyntheticPersonDetector(
+        scenario=scenario,
+        source_id=settings.vision_source_id,
+    )
+    face_detector: FaceDetector = SyntheticFaceDetector(
+        scenario=scenario,
+        source_id=settings.vision_source_id,
+    )
+    stream_encoder: VisionStreamEncoder = PassthroughVisionStreamEncoder(media_type="image/png")
+    additional_tracker_capabilities: tuple[VisionProviderCapability, ...] = (
+        UnavailableTargetTracker(
+            provider_id="opencv-live-target-tracker",
+            display_name="OpenCV live target tracker",
+            detail="Live OpenCV tracking is not loaded in the Synthetic session",
+        ).capability,
+    )
+    additional_detector_capabilities: tuple[VisionProviderCapability, ...] = (
+        UnavailableTargetDetector(
+            provider_id="opencv-hog-person-detector",
+            display_name="OpenCV HOG person detector",
+            model_source="OpenCV built-in HOG descriptor",
+            notice="Optional local OpenCV provider; no weights are downloaded.",
+            detail="Live OpenCV person detection is not loaded",
+        ).capability,
+        UnavailableFaceDetector(detail="Live OpenCV Haar face detection is not loaded").capability,
+    )
     if settings.camera_access_policy is CameraAccessPolicy.DISABLED:
         source = DisabledFrameSource()
+    elif settings.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED:
+        source = OperatorControlledOpenCvCameraSource(
+            camera_access_policy=settings.camera_access_policy,
+            local_config_enabled=settings.live_camera_local_config_enabled,
+            device_identifier=explicit_device_identifier(settings.live_camera_device_id),
+            source_id="live-camera-read-only",
+            clock=clock,
+            max_fps=settings.vision_max_fps,
+            width_px=settings.vision_frame_width_px,
+            height_px=settings.vision_frame_height_px,
+        )
+        read_only_detail = "Read-only live camera does not enable tracking or Follow"
+        tracker = UnavailableTargetTracker(
+            provider_id="opencv-live-target-tracker",
+            display_name="OpenCV live target tracker",
+            detail=read_only_detail,
+        )
+        person_detector = UnavailableTargetDetector(
+            provider_id="opencv-hog-person-detector",
+            display_name="OpenCV HOG person detector",
+            model_source="OpenCV built-in HOG descriptor",
+            notice="No detector is loaded for the read-only live camera.",
+            detail=read_only_detail,
+        )
+        face_detector = UnavailableFaceDetector(detail=read_only_detail)
+        stream_encoder = PassthroughVisionStreamEncoder(media_type="image/jpeg")
+        additional_tracker_capabilities = ()
+        additional_detector_capabilities = ()
     else:
-        # LIVE_CAMERA_ALLOWED only exposes a configuration capability here.  The
-        # composition still selects Synthetic until a future explicit operator
-        # route invokes the reviewed optional factory; application startup cannot
-        # import OpenCV or open/enumerate a device.
         source = SyntheticFrameSource(
             clock=clock,
             source_id=settings.vision_source_id,
@@ -206,42 +263,16 @@ def build_application_services(
     vision = VisionApplicationService(
         camera_access_policy=settings.camera_access_policy,
         source=source,
-        tracker=SyntheticTargetTracker(
-            scenario=scenario,
-            source_id=settings.vision_source_id,
-        ),
-        person_detector=SyntheticPersonDetector(
-            scenario=scenario,
-            source_id=settings.vision_source_id,
-        ),
-        face_detector=SyntheticFaceDetector(
-            scenario=scenario,
-            source_id=settings.vision_source_id,
-        ),
-        stream_encoder=PassthroughVisionStreamEncoder(media_type="image/png"),
+        tracker=tracker,
+        person_detector=person_detector,
+        face_detector=face_detector,
+        stream_encoder=stream_encoder,
         follow=follow,
         robot=robot_service,
         clock=clock,
         max_stream_clients=settings.vision_max_stream_clients,
-        additional_tracker_capabilities=(
-            UnavailableTargetTracker(
-                provider_id="opencv-live-target-tracker",
-                display_name="OpenCV live target tracker",
-                detail="Live OpenCV tracking is not loaded in the Synthetic session",
-            ).capability,
-        ),
-        additional_detector_capabilities=(
-            UnavailableTargetDetector(
-                provider_id="opencv-hog-person-detector",
-                display_name="OpenCV HOG person detector",
-                model_source="OpenCV built-in HOG descriptor",
-                notice="Optional local OpenCV provider; no weights are downloaded.",
-                detail="Live OpenCV person detection is not loaded",
-            ).capability,
-            UnavailableFaceDetector(
-                detail="Live OpenCV Haar face detection is not loaded"
-            ).capability,
-        ),
+        additional_tracker_capabilities=additional_tracker_capabilities,
+        additional_detector_capabilities=additional_detector_capabilities,
     )
     motion.register_stop_hook(follow.stop_all)
     return ApplicationServices(

@@ -57,15 +57,17 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
   const sourceState = workspace.status?.source_state ?? null;
   const syntheticSource = workspace.capabilities?.source.provider_id
     .toLowerCase().includes('synthetic') ?? false;
-  const sourceLabel = syntheticSource ? 'Synthetic' : 'Vision';
+  const sourceLabel = syntheticSource ? 'Synthetic' : workspace.readOnlyLiveCamera ? 'Live' : 'Vision';
   const sourceOperational = sourceState === 'READY' || sourceState === 'STREAMING';
   const frameFresh = latestFrame !== null
     && latestFrame.age_ms <= workspace.configuration.frame_freshness_limit_s * 1000;
-  const streamEnabled = workspace.online
+  const streamCapable = workspace.online
     && workspace.capabilities?.camera_access_policy !== 'DISABLED'
     && workspace.capabilities?.source.available === true
     && workspace.capabilities.stream.available;
+  const streamEnabled = streamCapable && sourceOperational;
   const canSelect = streamEnabled
+    && !workspace.readOnlyLiveCamera
     && sourceOperational
     && frameFresh
     && workspace.statusReachable
@@ -129,7 +131,7 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
   } else if (!workspace.capabilities) {
     unavailableHeading = 'Checking Vision providers';
     unavailableDetail = 'Selection waits for an explicit source capability.';
-  } else if (!streamEnabled) {
+  } else if (!streamCapable) {
     unavailableHeading = workspace.capabilities.camera_access_policy === 'DISABLED'
       ? 'Vision source disabled'
       : 'Vision stream unavailable';
@@ -143,8 +145,12 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
     unavailableHeading = 'Vision status unavailable';
     unavailableDetail = 'Selection and Follow remain disabled until status polling recovers.';
   } else if (sourceState !== null && !sourceOperational) {
-    unavailableHeading = `Vision source ${sourceState.toLowerCase()}`;
-    unavailableDetail = 'Selection and Follow remain disabled.';
+    unavailableHeading = workspace.readOnlyLiveCamera && sourceState === 'CLOSED'
+      ? 'Live camera closed'
+      : `Vision source ${String(sourceState).toLowerCase()}`;
+    unavailableDetail = workspace.readOnlyLiveCamera
+      ? 'Use Open live camera in Source & policy. No robot motion is enabled.'
+      : 'Selection and Follow remain disabled.';
   } else if (!latestFrame) {
     unavailableHeading = 'Waiting for the first frame';
     unavailableDetail = 'Selection will unlock after a frame identity is published.';
@@ -164,7 +170,7 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
           className={`status-pill status-pill--${workspace.status?.tracking?.status === 'LOCKED' ? 'ready' : 'idle'}`}
           role="status"
         >
-          {workspace.status?.tracking?.status ?? 'NO TARGET'}
+          {workspace.readOnlyLiveCamera ? 'READ ONLY' : workspace.status?.tracking?.status ?? 'NO TARGET'}
         </span>
       </div>
 
@@ -201,17 +207,21 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
             <span>{unavailableDetail}</span>
           </div>
         ) : null}
-        <div className="vision-crosshair" aria-hidden="true"><span /><span /></div>
-        <div
-          aria-label="Follow dead zone"
-          className="vision-dead-zone"
-          style={{
-            left: `${(0.5 - workspace.configuration.dead_zone_x) * 100}%`,
-            top: `${(0.5 - workspace.configuration.dead_zone_y) * 100}%`,
-            width: `${workspace.configuration.dead_zone_x * 200}%`,
-            height: `${workspace.configuration.dead_zone_y * 200}%`,
-          }}
-        />
+        {!workspace.readOnlyLiveCamera ? (
+          <>
+            <div className="vision-crosshair" aria-hidden="true"><span /><span /></div>
+            <div
+              aria-label="Follow dead zone"
+              className="vision-dead-zone"
+              style={{
+                left: `${(0.5 - workspace.configuration.dead_zone_x) * 100}%`,
+                top: `${(0.5 - workspace.configuration.dead_zone_y) * 100}%`,
+                width: `${workspace.configuration.dead_zone_x * 200}%`,
+                height: `${workspace.configuration.dead_zone_y * 200}%`,
+              }}
+            />
+          </>
+        ) : null}
         {visibleDetections.map((detection) => (
           <div
             className="vision-box vision-box--detection"
@@ -247,7 +257,9 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
         <div><dt>Robot</dt><dd>{workspace.status?.robot_state ?? 'Unknown'}</dd></div>
       </dl>
       <p className="vision-stage__hint" id="vision-selection-instructions">
-        Drag directly on a fresh {sourceLabel} frame to select any target. The frame identity is captured when the drag begins; an expired frame is rejected.
+        {workspace.readOnlyLiveCamera
+          ? 'Live preview is read-only. Frames are not recorded, and tracking or Follow cannot be started.'
+          : `Drag directly on a fresh ${sourceLabel} frame to select any target. The frame identity is captured when the drag begins; an expired frame is rejected.`}
       </p>
     </section>
   );

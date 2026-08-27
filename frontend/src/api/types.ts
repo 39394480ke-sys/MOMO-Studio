@@ -758,6 +758,7 @@ export interface RobotSocketSnapshot {
 }
 
 export type CameraAccessPolicy = 'DISABLED' | 'SYNTHETIC_ONLY' | 'LIVE_CAMERA_ALLOWED';
+export type VisionSourceState = 'DISABLED' | 'READY' | 'STREAMING' | 'DISCONNECTED' | 'FAULTED' | 'CLOSED';
 
 export interface NormalizedBoundingBox {
   x: number;
@@ -826,7 +827,7 @@ export interface VisionFollowStatus {
 
 export interface VisionStatus {
   camera_access_policy: CameraAccessPolicy;
-  source_state: string;
+  source_state: VisionSourceState;
   latest_frame: VisionFrameMetadata | null;
   selection: VisionTargetSelection | null;
   tracking: VisionTrackingResult | null;

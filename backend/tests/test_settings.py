@@ -218,17 +218,21 @@ def test_live_camera_policy_requires_device_and_explicit_local_configuration(
     )
     monkeypatch.setenv("MOMO_CAMERA_ACCESS_POLICY", "LIVE_CAMERA_ALLOWED")
     monkeypatch.setenv("MOMO_LIVE_CAMERA_DEVICE_ID", "explicit-device")
+    monkeypatch.setenv("MOMO_LIVE_CAMERA_LOCAL_CONFIG_ENABLED", "true")
     with pytest.raises(ValueError, match="explicitly supplied local config"):
         load_settings(default_config_path=default)
 
     local = tmp_path / "local.yaml"
     local.write_text(
-        "camera_access_policy: live_camera_allowed\nlive_camera_device_id: explicit-device\n",
+        "camera_access_policy: live_camera_allowed\n"
+        "live_camera_device_id: explicit-device\n"
+        "live_camera_local_config_enabled: true\n",
         encoding="utf-8",
     )
     configured = load_settings(default_config_path=default, local_config_path=local)
     assert configured.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED
     assert configured.live_camera_device_id == "explicit-device"
+    assert configured.live_camera_local_config_enabled is True
 
 
 @pytest.mark.parametrize(

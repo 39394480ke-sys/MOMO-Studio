@@ -58,6 +58,14 @@ class VisionDetectionRequest(BaseModel):
     frame_id: FrameIdValue
 
 
+class VisionCameraOpenRequest(BaseModel):
+    """One explicit operator confirmation; device identity remains server-owned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    confirm_read_only_open: Literal[True]
+
+
 class VisionProviderCapabilityResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

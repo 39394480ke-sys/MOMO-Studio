@@ -464,6 +464,13 @@ is 71 method/path combinations across 61 unique HTTP paths plus the same read-on
 Robot WebSocket. There is no Vision command WebSocket, live-camera-open route, raw
 camera identifier, recording route, or alternate motion path.
 
+The later read-only-camera slice adds `POST /vision/camera/open` and
+`POST /vision/camera/close`. They accept no device identifier: the ID exists only in the
+selected ignored local configuration. Open requires a literal read-only confirmation
+and normal control admission; Close uses the priority-stop authorization boundary so an
+ordinary control-rate bucket cannot prevent release. There remains no Vision command
+WebSocket, enumeration, recording, raw-camera, or motion route.
+
 Stage 8 adds release/security session exchange, readiness/session/connect/diagnostic/
 Stop device endpoints, protected Calibration-session/read/preview/confirm/save/rollback
 endpoints, and backup export/preview/restore endpoints. These routes depend on
@@ -607,11 +614,13 @@ still supplies no Real bus factory. The serial-port field is inert until a separ
 reviewed field composition holds a complete grant. Kinematics models are reviewed
 repository inputs, not local hardware configuration.
 
-Stage 7 defaults to the in-memory source at 12 fps and 640×360, with configuration caps
-of 30 fps and 1280×720. `LIVE_CAMERA_ALLOWED` does not change startup composition: the
-optional OpenCV shell requires a complete explicit grant before lazy import and another
-explicit call before `VideoCapture`. OpenCV is not a declared dependency, no route
-performs that call, and startup never enumerates a device.
+Vision defaults to the in-memory source at 12 fps and 640×360, with configuration caps
+of 30 fps and 1280×720. `LIVE_CAMERA_ALLOWED` changes composition only when the selected
+ignored local file also contains the explicit device ID and local opt-in. That
+composition is closed: it performs no OpenCV import or device access at startup. A
+confirmed operator open request lazy-loads the optional `camera` dependency and calls
+`VideoCapture` for only that ID. The source is latest-value, JPEG, bounded, no-store,
+and read-only; Close or shutdown releases it. No code enumerates devices.
 
 Dry Run runtime state remains schema-versioned, path-confined, ignored operational data
 written with a same-directory temporary file, flush, `fsync`, and replace. Restore

@@ -57,14 +57,15 @@ locked-runtime `pip-audit` reported no known vulnerabilities, and the frontend p
 audit reported zero vulnerabilities. These checks do not replace distribution-time
 license-file collection or vulnerability review.
 
-### Stage 7 optional Vision providers
+### Optional read-only OpenCV camera provider
 
-Stage 7 adds a project-written optional OpenCV camera adapter shell and unavailable
-capability descriptions; it does **not** add `opencv-python`, `opencv-contrib-python`,
-`cv2`, or another OpenCV distribution to `backend/pyproject.toml` or `backend/uv.lock`.
-The normal composition does not import OpenCV. The optional factory checks the complete
-camera grant before a lazy import, and construction does not open a device. No camera
-was opened or enumerated during implementation or verification.
+The `camera` extra declares and locks `opencv-python-headless>=4.10,<5`; the current lock
+selects `opencv-python-headless 4.14.0.94`. Installed package metadata reports Apache
+2.0 and the canonical `opencv/opencv-python` project. Distribution review must also
+collect the wheel's license files and bundled native/transitive notices. The default
+`make install` does not install this extra. Normal Synthetic composition does not import
+OpenCV. Even in an authorized live composition, startup does not import OpenCV or open a
+device; a confirmed operator request is required.
 
 The capability ledger mentions an optional OpenCV live tracker, built-in HOG person
 detector, and Haar-based face detector. All are unavailable in the Stage 7 composition.
@@ -73,7 +74,8 @@ cascade file, model weight, binary, or external asset was copied, vendored, inst
 or downloaded by this Stage. A capability name is not a provenance or redistribution
 approval.
 
-Before any OpenCV provider is distributed or activated, record and review:
+Before distributing OpenCV or activating later tracking/detection providers, record and
+review:
 
 1. the exact selected package, version/build, canonical source, license files, bundled
    third-party notices, native/transitive components, and platform wheels;

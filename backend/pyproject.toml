@@ -21,6 +21,9 @@ dependencies = [
 momo-studio-serve = "momo.serve:main"
 
 [project.optional-dependencies]
+camera = [
+  "opencv-python-headless>=4.10,<5",
+]
 dev = [
   "httpx>=0.28,<1",
   "mypy>=1.14,<2",

@@ -8,8 +8,8 @@ application owner, authorization boundary, Stage provenance, and disposition. It
 not claim physical verification. The count and tables must be regenerated after the
 final route wiring and before the final report is marked complete.
 
-After staged-acceptance route wiring, generated OpenAPI contains **106 HTTP operations
-over 92 unique `/api/v1` paths**, plus one read-only Robot WebSocket. The earlier Stage 8
+After the read-only-camera route wiring, generated OpenAPI contains **108 HTTP operations
+over 94 unique `/api/v1` paths**, plus one read-only Robot WebSocket. The earlier Stage 8
 baseline was 93 operations over 79 paths; the final delta is six commissioning, four
 Kinematics-verification, and three staged-acceptance operations/paths.
 
@@ -82,6 +82,7 @@ not manufacture a Real Operator Session.
 | `GET /vision/capabilities`, `GET /vision/status` | Vision workspace hook | `VisionApplicationService` | V | 7 | Retain; active metadata/status |
 | `GET /vision/stream` | `VisionCanvas` image stream | `VisionApplicationService` | V, ongoing frame reauth | 7 | Retain; active latest-value no-store stream |
 | `GET /vision/frame` | URL exported, no rendered product caller | `VisionApplicationService` | V | 7 | Retain; documented exact-frame fallback and tests |
+| `POST /vision/camera/open`, `POST /vision/camera/close` | Vision workspace hook | `VisionApplicationService` | C / P | post-RC read-only camera | Retain; explicit configured-ID acquisition and priority device release; no device ID in request |
 | `POST /vision/selection`, `DELETE /vision/selection`, `POST /vision/detect/{detector}`, `POST /vision/tracking/reset` | Vision workspace hook | `VisionApplicationService` | V | 7 | Retain; active bounded Synthetic workflow |
 | `POST /vision/follow/start`, `POST /vision/follow/{lease_id}/heartbeat` | Vision workspace hook | `VisionFollowService` → motion gateway | V+C; REAL adds O-RV | 7 | Retain; renewable Follow ownership |
 | `POST /vision/follow/{lease_id}/stop` | Vision workspace hook | `VisionFollowService` | V+P | 7 | Retain; Follow-owner priority Stop |

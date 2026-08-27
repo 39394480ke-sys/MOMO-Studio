@@ -436,8 +436,12 @@ def test_robot_websocket_is_read_only_and_contains_full_fk_status(tmp_path: Path
     assert not any(
         forbidden in path.lower()
         for path in app.openapi()["paths"]
-        for forbidden in ("raw-servo", "serial", "camera")
+        for forbidden in ("raw-servo", "serial")
     )
+    assert {path for path in app.openapi()["paths"] if "camera" in path} == {
+        "/api/v1/vision/camera/close",
+        "/api/v1/vision/camera/open",
+    }
 
 
 def test_robot_websocket_rate_cap_and_disconnect_cleanup(

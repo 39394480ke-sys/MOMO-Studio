@@ -50,10 +50,16 @@ class _VideoCapture(Protocol):
 
     def read(self) -> tuple[bool, _CapturedImage | None]: ...
 
+    def set(self, property_id: int, value: float) -> bool: ...
+
     def release(self) -> None: ...
 
 
 class _OpenCvModule(Protocol):
+    CAP_PROP_FPS: int
+    CAP_PROP_FRAME_HEIGHT: int
+    CAP_PROP_FRAME_WIDTH: int
+
     def VideoCapture(self, device_identifier: DeviceIdentifier) -> _VideoCapture: ...
 
     def imencode(
@@ -91,6 +97,18 @@ def _validate_device_identifier(device_identifier: DeviceIdentifier) -> None:
         raise ValueError("string camera device identifier must be non-empty and bounded")
 
 
+def explicit_device_identifier(value: str) -> DeviceIdentifier:
+    """Convert a canonical decimal local ID without probing or enumerating devices."""
+
+    normalized = value.strip()
+    if normalized.isdecimal() and (normalized == "0" or not normalized.startswith("0")):
+        identifier = int(normalized)
+        _validate_device_identifier(identifier)
+        return identifier
+    _validate_device_identifier(normalized)
+    return normalized
+
+
 class OpenCvCameraSourceFactory:
     """The sole lazy-import construction path for the optional camera adapter."""
 
@@ -120,6 +138,8 @@ class OpenCvCameraSourceFactory:
         source_id: str = "live-camera",
         clock: Clock | None = None,
         max_fps: float = 15.0,
+        width_px: int = 1280,
+        height_px: int = 720,
     ) -> OpenCvCameraSource:
         grant = _CameraGrant(
             policy=camera_access_policy,
@@ -151,7 +171,120 @@ class OpenCvCameraSourceFactory:
             source_id=source_id,
             clock=clock,
             max_fps=max_fps,
+            width_px=width_px,
+            height_px=height_px,
         )
+
+
+class OperatorControlledOpenCvCameraSource:
+    """Configured live camera whose import and device access are operator-triggered."""
+
+    def __init__(
+        self,
+        *,
+        camera_access_policy: CameraAccessPolicy,
+        local_config_enabled: bool,
+        device_identifier: DeviceIdentifier,
+        source_id: str = "live-camera",
+        clock: Clock | None = None,
+        max_fps: float = 15.0,
+        width_px: int = 1280,
+        height_px: int = 720,
+        factory: OpenCvCameraSourceFactory | None = None,
+    ) -> None:
+        _validate_device_identifier(device_identifier)
+        if camera_access_policy is not CameraAccessPolicy.LIVE_CAMERA_ALLOWED:
+            raise CameraAccessDeniedError("camera policy does not allow live camera access")
+        if local_config_enabled is not True:
+            raise CameraAccessDeniedError("live camera requires explicit local configuration")
+        FrameMetadata(
+            frame_id="validation-00000001",
+            source_id=source_id,
+            captured_at=SystemClock().now(),
+            width_px=width_px,
+            height_px=height_px,
+        )
+        self._device_identifier = device_identifier
+        self._camera_access_policy = camera_access_policy
+        self._local_config_enabled = local_config_enabled
+        self._source_id = source_id
+        self._clock = clock
+        self._max_fps = max_fps
+        self._width_px = width_px
+        self._height_px = height_px
+        self._factory = factory or OpenCvCameraSourceFactory()
+        self._source: OpenCvCameraSource | None = None
+        self._idle_status = VisionStatus.CLOSED
+        self._lock = asyncio.Lock()
+
+    @property
+    def source_id(self) -> str:
+        return self._source_id
+
+    @property
+    def status(self) -> VisionStatus:
+        source = self._source
+        return source.status if source is not None else self._idle_status
+
+    @property
+    def capability(self) -> VisionProviderCapability:
+        source = self._source
+        if source is not None:
+            return source.capability
+        return VisionProviderCapability(
+            provider_id="opencv-camera-source",
+            kind=VisionProviderKind.FRAME_SOURCE,
+            status=VisionProviderStatus.AVAILABLE,
+            display_name="OpenCV live camera",
+            model_source="Optional local OpenCV package",
+            notice=(
+                "Explicit-ID read-only source; no enumeration, persistence, recording, "
+                "tracking, or Follow."
+            ),
+        )
+
+    async def open(self) -> None:
+        async with self._lock:
+            if self._source is not None and self._source.status in {
+                VisionStatus.READY,
+                VisionStatus.STREAMING,
+            }:
+                return
+            source = await asyncio.to_thread(
+                self._factory.create,
+                camera_access_policy=self._camera_access_policy,
+                local_config_enabled=self._local_config_enabled,
+                device_identifier=self._device_identifier,
+                operator_action=True,
+                source_id=self._source_id,
+                clock=self._clock,
+                max_fps=self._max_fps,
+                width_px=self._width_px,
+                height_px=self._height_px,
+            )
+            try:
+                await source.open()
+            except Exception:
+                await source.aclose()
+                self._source = None
+                self._idle_status = VisionStatus.FAULTED
+                raise
+            self._source = source
+            self._idle_status = VisionStatus.READY
+
+    async def latest_frame(self) -> VisionFrame | None:
+        source = self._source
+        if source is None:
+            return None
+        return await source.latest_frame()
+
+    async def aclose(self) -> None:
+        async with self._lock:
+            source = self._source
+            self._source = None
+            if source is not None:
+                await source.aclose()
+            self._idle_status = VisionStatus.CLOSED
 
 
 class OpenCvCameraSource:
@@ -166,6 +299,8 @@ class OpenCvCameraSource:
         source_id: str,
         clock: Clock | None,
         max_fps: float,
+        width_px: int,
+        height_px: int,
     ) -> None:
         _validate_device_identifier(device_identifier)
         if (
@@ -190,6 +325,8 @@ class OpenCvCameraSource:
         self._source_id = source_id
         self._clock = clock or SystemClock()
         self._max_fps = float(max_fps)
+        self._width_px = width_px
+        self._height_px = height_px
         self._capture: _VideoCapture | None = None
         self._sequence = 0
         self._last_capture_monotonic: float | None = None
@@ -227,6 +364,21 @@ class OpenCvCameraSource:
                 await asyncio.to_thread(capture.release)
                 self._status = VisionStatus.FAULTED
                 raise RuntimeError("explicit camera device could not be opened")
+            await asyncio.to_thread(
+                capture.set,
+                self._cv2.CAP_PROP_FRAME_WIDTH,
+                float(self._width_px),
+            )
+            await asyncio.to_thread(
+                capture.set,
+                self._cv2.CAP_PROP_FRAME_HEIGHT,
+                float(self._height_px),
+            )
+            await asyncio.to_thread(
+                capture.set,
+                self._cv2.CAP_PROP_FPS,
+                self._max_fps,
+            )
             self._capture = capture
             self._status = VisionStatus.READY
 

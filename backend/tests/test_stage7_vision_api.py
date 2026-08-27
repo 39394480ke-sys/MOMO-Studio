@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +21,7 @@ from momo.domain.errors import (
     VisionProviderUnavailableError,
 )
 from momo.domain.vision import (
+    CameraAccessPolicy,
     Detection,
     NormalizedBoundingBox,
     TargetSelection,
@@ -27,6 +29,8 @@ from momo.domain.vision import (
     TrackingStatus,
     VisionFrame,
     VisionProviderCapability,
+    VisionProviderKind,
+    VisionProviderStatus,
     VisionStatus,
 )
 from momo.domain.vision_follow import (
@@ -44,6 +48,24 @@ from momo.settings import Settings
 def make_app(tmp_path: Path) -> FastAPI:
     return create_app(
         Settings(
+            runtime_state_directory=str(tmp_path / "runtime"),
+            calibration_directory=str(tmp_path / "calibration"),
+            pose_directory=str(tmp_path / "poses"),
+            motion_library_directory=str(tmp_path / "motions"),
+            motion_draft_directory=str(tmp_path / "drafts"),
+        )
+    )
+
+
+def make_live_app(tmp_path: Path) -> FastAPI:
+    return create_app(
+        Settings(
+            camera_access_policy=CameraAccessPolicy.LIVE_CAMERA_ALLOWED,
+            live_camera_device_id="explicit-test-device",
+            live_camera_local_config_enabled=True,
+            vision_frame_width_px=1280,
+            vision_frame_height_px=720,
+            vision_max_fps=30.0,
             runtime_state_directory=str(tmp_path / "runtime"),
             calibration_directory=str(tmp_path / "calibration"),
             pose_directory=str(tmp_path / "poses"),
@@ -98,6 +120,133 @@ def follow_request(profile: dict[str, Any]) -> dict[str, object]:
             "verification_status": ProfileVerificationStatus.VERIFIED_FOR_DRY_RUN.value,
         },
     }
+
+
+class _FakeOperatorCameraSource:
+    source_id = "live-camera-read-only"
+
+    def __init__(self) -> None:
+        self.status = VisionStatus.CLOSED
+        self.open_calls = 0
+        self.close_calls = 0
+        self.sequence = 0
+        self.capability = VisionProviderCapability(
+            provider_id="opencv-camera-source",
+            kind=VisionProviderKind.FRAME_SOURCE,
+            status=VisionProviderStatus.AVAILABLE,
+            display_name="Fake live camera",
+            model_source="Test fixture",
+            notice="No real device access",
+        )
+
+    async def open(self) -> None:
+        self.open_calls += 1
+        self.status = VisionStatus.READY
+
+    async def latest_frame(self) -> VisionFrame | None:
+        if self.status not in {VisionStatus.READY, VisionStatus.STREAMING}:
+            return None
+        self.sequence += 1
+        self.status = VisionStatus.STREAMING
+        return VisionFrame.model_validate(
+            {
+                "metadata": {
+                    "frame_id": f"live-camera-read-only-{self.sequence:08d}",
+                    "source_id": self.source_id,
+                    "captured_at": datetime.now(UTC),
+                    "width_px": 1280,
+                    "height_px": 720,
+                },
+                "content": b"\xff\xd8fake-jpeg\xff\xd9",
+                "media_type": "image/jpeg",
+            }
+        )
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+        self.status = VisionStatus.CLOSED
+
+
+def test_live_camera_requires_explicit_open_and_remains_read_only(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = make_live_app(tmp_path)
+        source = _FakeOperatorCameraSource()
+        app.state.vision_service.source = source
+        try:
+            initial = await request(app, "GET", "/api/v1/vision/status")
+            assert initial.status_code == 200
+            assert initial.json()["source_state"] == "CLOSED"
+            assert initial.json()["latest_frame"] is None
+
+            before_open = await request(app, "GET", "/api/v1/vision/frame")
+            assert before_open.status_code == 503
+            assert source.open_calls == 0
+
+            unconfirmed = await request(
+                app,
+                "POST",
+                "/api/v1/vision/camera/open",
+                json_data={"confirm_read_only_open": False},
+            )
+            assert unconfirmed.status_code == 422
+            assert source.open_calls == 0
+
+            opened = await request(
+                app,
+                "POST",
+                "/api/v1/vision/camera/open",
+                json_data={"confirm_read_only_open": True},
+            )
+            assert opened.status_code == 200, opened.text
+            assert opened.json()["source_state"] == "STREAMING"
+            assert opened.json()["latest_frame"]["width_px"] == 1280
+            assert source.open_calls == 1
+
+            frame = await request(app, "GET", "/api/v1/vision/frame")
+            assert frame.status_code == 200
+            assert frame.headers["content-type"] == "image/jpeg"
+            frame_id = frame.headers["x-frame-id"]
+            selected = await request(
+                app,
+                "POST",
+                "/api/v1/vision/selection",
+                json_data={
+                    "frame_id": frame_id,
+                    "bounding_box": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2},
+                },
+            )
+            assert selected.status_code == 503
+            assert "read-only" in selected.json()["message"]
+
+            closed = await request(app, "POST", "/api/v1/vision/camera/close", json_data={})
+            assert closed.status_code == 200
+            assert closed.json()["source_state"] == "CLOSED"
+            assert closed.json()["latest_frame"] is None
+            assert source.close_calls == 1
+        finally:
+            await shutdown(app)
+
+    asyncio.run(scenario())
+
+
+def test_synthetic_runtime_rejects_live_camera_open(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = make_app(tmp_path)
+        try:
+            response = await request(
+                app,
+                "POST",
+                "/api/v1/vision/camera/open",
+                json_data={"confirm_read_only_open": True},
+            )
+            assert response.status_code == 503
+            assert app.state.vision_service.source.capability.provider_id == (
+                "synthetic-frame-source"
+            )
+        finally:
+            await shutdown(app)
+
+    asyncio.run(scenario())
 
 
 def test_synthetic_api_detection_selection_follow_and_global_stop(tmp_path: Path) -> None:

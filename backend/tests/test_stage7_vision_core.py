@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import UTC, datetime, timedelta
 from types import ModuleType
 from typing import cast
@@ -15,6 +16,7 @@ from momo.adapters.vision import (
     DisabledFrameSource,
     LatestFrameHub,
     OpenCvCameraSourceFactory,
+    OperatorControlledOpenCvCameraSource,
     PassthroughVisionStreamEncoder,
     SyntheticFaceDetector,
     SyntheticFrameSource,
@@ -23,6 +25,7 @@ from momo.adapters.vision import (
     UnavailableFaceDetector,
     UnavailableTargetDetector,
     UnavailableTargetTracker,
+    explicit_device_identifier,
 )
 from momo.domain.errors import VisionProviderUnavailableError
 from momo.domain.vision import (
@@ -345,6 +348,7 @@ class _FakeEncoded:
 class _FakeCapture:
     def __init__(self) -> None:
         self.released = False
+        self.settings: list[tuple[int, float]] = []
 
     def isOpened(self) -> bool:
         return True
@@ -352,11 +356,19 @@ class _FakeCapture:
     def read(self) -> tuple[bool, _FakeImage]:
         return True, _FakeImage()
 
+    def set(self, property_id: int, value: float) -> bool:
+        self.settings.append((property_id, value))
+        return True
+
     def release(self) -> None:
         self.released = True
 
 
 class _FakeCv2(ModuleType):
+    CAP_PROP_FRAME_WIDTH = 3
+    CAP_PROP_FRAME_HEIGHT = 4
+    CAP_PROP_FPS = 5
+
     def __init__(self) -> None:
         super().__init__("cv2")
         self.capture_calls: list[str | int] = []
@@ -407,6 +419,7 @@ def test_opencv_factory_is_lazy_policy_first_and_constructor_does_not_open() -> 
         assert fake_cv2.capture_calls == []
         await source.open()
         assert fake_cv2.capture_calls == ["explicit-device"]
+        assert fake_cv2.capture.settings == [(3, 1280.0), (4, 720.0), (5, 15.0)]
         frame = await source.latest_frame()
         assert frame is not None
         assert frame.media_type == "image/jpeg"
@@ -415,6 +428,58 @@ def test_opencv_factory_is_lazy_policy_first_and_constructor_does_not_open() -> 
         assert fake_cv2.capture.released is True
 
     asyncio.run(scenario())
+
+
+def test_operator_controlled_opencv_source_defers_import_and_device_open() -> None:
+    async def scenario() -> None:
+        fake_cv2 = _FakeCv2()
+        imports: list[str] = []
+        importer_threads: list[int] = []
+        event_loop_thread = threading.get_ident()
+
+        def importer(name: str) -> ModuleType:
+            imports.append(name)
+            importer_threads.append(threading.get_ident())
+            return cast(ModuleType, fake_cv2)
+
+        source = OperatorControlledOpenCvCameraSource(
+            camera_access_policy=CameraAccessPolicy.LIVE_CAMERA_ALLOWED,
+            local_config_enabled=True,
+            device_identifier=1,
+            clock=FakeClock(),
+            max_fps=30.0,
+            width_px=1280,
+            height_px=720,
+            factory=OpenCvCameraSourceFactory(importer=importer),
+        )
+        assert source.status is VisionStatus.CLOSED
+        assert imports == []
+        assert fake_cv2.capture_calls == []
+
+        await source.open()
+        assert imports == ["cv2"]
+        assert importer_threads != [event_loop_thread]
+        assert fake_cv2.capture_calls == [1]
+        frame = await source.latest_frame()
+        assert frame is not None
+        assert frame.media_type == "image/jpeg"
+        assert source_status(source) is VisionStatus.STREAMING
+
+        await source.aclose()
+        assert fake_cv2.capture.released is True
+        assert source.status is VisionStatus.CLOSED
+
+    asyncio.run(scenario())
+
+
+def test_explicit_camera_identifier_parses_only_canonical_bounded_indexes() -> None:
+    assert explicit_device_identifier("0") == 0
+    assert explicit_device_identifier(" 1 ") == 1
+    assert explicit_device_identifier("01") == "01"
+    assert explicit_device_identifier("camera-path") == "camera-path"
+
+    with pytest.raises(ValueError, match="between 0 and 64"):
+        explicit_device_identifier("65")
 
 
 def test_public_ports_are_structurally_implemented() -> None:

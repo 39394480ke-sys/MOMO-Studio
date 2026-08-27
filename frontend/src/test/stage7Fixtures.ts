@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 
 import type {
+  CameraAccessPolicy,
   ControlMode,
   HardwareAccessPolicy,
   NormalizedBoundingBox,
@@ -33,6 +34,7 @@ interface Stage7Options {
   hardwareAccessPolicy?: HardwareAccessPolicy;
   realMotionEnabled?: boolean;
   realSessionScopes?: OperatorSessionScope[];
+  cameraAccessPolicy?: CameraAccessPolicy;
 }
 
 export function mockStage7Backend(options: Stage7Options = {}) {
@@ -48,23 +50,24 @@ export function mockStage7Backend(options: Stage7Options = {}) {
   let followActive = false;
   let followStopReason: string | null = null;
   let frameId = FRAME_ID;
-  let sourceState = 'STREAMING';
+  const liveCamera = options.cameraAccessPolicy === 'LIVE_CAMERA_ALLOWED';
+  let sourceState: VisionStatus['source_state'] = liveCamera ? 'CLOSED' : 'STREAMING';
   let visionStatusCalls = 0;
   let visionStatusAvailable = true;
   const requests: Array<{ path: string; method: string; body: unknown }> = [];
   const defaultBox = { x: 0.2, y: 0.25, width: 0.25, height: 0.35 };
 
   const status = (): VisionStatus => ({
-    camera_access_policy: 'SYNTHETIC_ONLY',
+    camera_access_policy: options.cameraAccessPolicy ?? 'SYNTHETIC_ONLY',
     source_state: sourceState,
-    latest_frame: {
+    latest_frame: sourceState === 'READY' || sourceState === 'STREAMING' ? {
       frame_id: frameId,
       width_px: options.frameWidthPx ?? 640,
       height_px: options.frameHeightPx ?? 360,
       captured_at: '2026-08-24T00:00:00Z',
-      source_id: 'synthetic-primary',
+      source_id: liveCamera ? 'live-camera-read-only' : 'synthetic-primary',
       age_ms: 18,
-    },
+    } : null,
     selection,
     tracking: selection && trackingState ? {
       frame_id: frameId,
@@ -107,11 +110,26 @@ export function mockStage7Backend(options: Stage7Options = {}) {
   });
 
   const capabilities = {
-    camera_access_policy: 'SYNTHETIC_ONLY',
-    source: capability('synthetic-frame-source', 'frame-source'),
-    trackers: [capability('synthetic-tracker', 'tracker')],
+    camera_access_policy: options.cameraAccessPolicy ?? 'SYNTHETIC_ONLY',
+    source: capability(
+      liveCamera ? 'opencv-camera-source' : 'synthetic-frame-source',
+      'frame-source',
+      true,
+      sourceState === 'STREAMING',
+    ),
+    trackers: [capability(
+      liveCamera ? 'opencv-live-target-tracker' : 'synthetic-tracker',
+      'tracker',
+      !liveCamera,
+      !liveCamera,
+    )],
     detectors: [
-      capability('synthetic-person-detector', 'person-detector'),
+      capability(
+        liveCamera ? 'opencv-hog-person-detector' : 'synthetic-person-detector',
+        'person-detector',
+        !liveCamera,
+        false,
+      ),
       capability('opencv-haar-face', 'face-detector', options.faceAvailable ?? false, false),
     ],
     stream: capability('bounded-local-stream', 'stream'),
@@ -134,6 +152,16 @@ export function mockStage7Backend(options: Stage7Options = {}) {
       if (!visionStatusAvailable) {
         return jsonResponse({ code: 'VISION_STATUS_UNAVAILABLE', message: 'Vision status unavailable' }, false, 503);
       }
+      return jsonResponse(status());
+    }
+    if (path === '/vision/camera/open' && method === 'POST') {
+      sourceState = 'STREAMING';
+      return jsonResponse(status());
+    }
+    if (path === '/vision/camera/close' && method === 'POST') {
+      sourceState = 'CLOSED';
+      selection = null;
+      trackingState = null;
       return jsonResponse(status());
     }
     if (path === '/vision/selection' && method === 'POST') {
@@ -200,7 +228,7 @@ export function mockStage7Backend(options: Stage7Options = {}) {
     setFrameId: (nextFrameId: string) => {
       frameId = nextFrameId;
     },
-    setSourceState: (nextSourceState: string) => {
+    setSourceState: (nextSourceState: VisionStatus['source_state']) => {
       sourceState = nextSourceState;
     },
     setVisionStatusAvailable: (available: boolean) => {

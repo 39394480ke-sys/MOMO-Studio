@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  closeLiveCamera,
   clearVisionTarget,
   detectVisionTarget,
   getVisionCapabilities,
   getVisionStatus,
   heartbeatVisionFollow,
+  openLiveCamera,
   selectVisionTarget,
   startVisionFollow,
   stopVisionFollow,
@@ -115,6 +117,8 @@ describe('Stage 7 Vision API client', () => {
 
     const box = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 };
     await selectVisionTarget(FRAME_ID, box);
+    await openLiveCamera();
+    await closeLiveCamera();
     await clearVisionTarget();
     await detectVisionTarget('person', FRAME_ID);
     await startVisionFollow({
@@ -134,14 +138,18 @@ describe('Stage 7 Vision API client', () => {
     expect(requests[0]).toEqual({
       path: '/vision/selection', method: 'POST', body: { frame_id: FRAME_ID, bounding_box: box },
     });
-    expect(requests[1]).toEqual({ path: '/vision/selection', method: 'DELETE', body: undefined });
-    expect(requests[2]).toEqual({
+    expect(requests[1]).toEqual({
+      path: '/vision/camera/open', method: 'POST', body: { confirm_read_only_open: true },
+    });
+    expect(requests[2]).toEqual({ path: '/vision/camera/close', method: 'POST', body: {} });
+    expect(requests[3]).toEqual({ path: '/vision/selection', method: 'DELETE', body: undefined });
+    expect(requests[4]).toEqual({
       path: '/vision/detect/person', method: 'POST', body: { frame_id: FRAME_ID },
     });
-    expect(requests[4]).toEqual({
+    expect(requests[6]).toEqual({
       path: `/vision/follow/${LEASE_ID}/heartbeat`, method: 'POST', body: {},
     });
-    expect(requests[5]).toEqual({
+    expect(requests[7]).toEqual({
       path: `/vision/follow/${LEASE_ID}/stop`, method: 'POST', body: {},
     });
   });

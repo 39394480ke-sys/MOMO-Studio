@@ -115,6 +115,7 @@ class Settings(BaseSettings):
         str,
         StringConstraints(strip_whitespace=True, max_length=128),
     ] = ""
+    live_camera_local_config_enabled: bool = False
     runtime_state_directory: str = "data/runtime/robots"
     profile_directory: str = "robot_profiles"
     calibration_directory: str = "calibration/examples"
@@ -259,15 +260,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_release_candidate_settings(self) -> Self:
-        if (
-            self.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED
-            and not self.live_camera_device_id
+        if self.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED and (
+            not self.live_camera_device_id or not self.live_camera_local_config_enabled
         ):
             raise ValueError(
-                "LIVE_CAMERA_ALLOWED requires an explicit non-empty live_camera_device_id"
+                "LIVE_CAMERA_ALLOWED requires live_camera_device_id and explicit "
+                "local configuration"
             )
+        if (
+            self.live_camera_local_config_enabled
+            and self.camera_access_policy is not CameraAccessPolicy.LIVE_CAMERA_ALLOWED
+        ):
+            raise ValueError("live_camera_local_config_enabled requires LIVE_CAMERA_ALLOWED")
         if self.vision_frame_width_px * self.vision_frame_height_px > 1280 * 720:
-            raise ValueError("Synthetic vision resolution must not exceed 1280x720 pixels")
+            raise ValueError("Vision resolution must not exceed 1280x720 pixels")
         if self.lan_enabled:
             token = self.lan_auth_token.get_secret_value()
             if len(token) < 32:
@@ -376,6 +382,7 @@ def load_settings(
         local_device = local_values.get("live_camera_device_id")
         if (
             normalized_policy != CameraAccessPolicy.LIVE_CAMERA_ALLOWED.value
+            or local_values.get("live_camera_local_config_enabled") is not True
             or not isinstance(local_device, str)
             or local_device.strip() != settings.live_camera_device_id
         ):

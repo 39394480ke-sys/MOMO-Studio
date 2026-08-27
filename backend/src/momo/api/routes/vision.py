@@ -18,6 +18,7 @@ from momo.api.security import (
 )
 from momo.api.vision_schemas import (
     NormalizedBoundingBoxDto,
+    VisionCameraOpenRequest,
     VisionCapabilitiesResponse,
     VisionDetectionRequest,
     VisionDetectionResponse,
@@ -44,6 +45,7 @@ from momo.domain.vision import (
     TrackingStatus,
     VisionProviderCapability,
     VisionProviderStatus,
+    VisionStatus,
 )
 from momo.domain.vision_follow import (
     FollowActuatorMapping,
@@ -192,6 +194,28 @@ async def vision_status(service: VisionServiceDependency) -> VisionStatusRespons
     return _status(await service.status(), now=service.clock.now())
 
 
+@router.post(
+    "/camera/open",
+    response_model=VisionStatusResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
+async def open_live_camera(
+    request: VisionCameraOpenRequest,
+    service: VisionServiceDependency,
+) -> VisionStatusResponse:
+    del request
+    return _status(await service.open_live_camera(), now=service.clock.now())
+
+
+@router.post(
+    "/camera/close",
+    response_model=VisionStatusResponse,
+    dependencies=[Depends(authorize_priority_stop_request)],
+)
+async def close_live_camera(service: VisionServiceDependency) -> VisionStatusResponse:
+    return _status(await service.close_live_camera(), now=service.clock.now())
+
+
 @router.get("/frame")
 async def latest_frame(service: VisionServiceDependency) -> Response:
     frame = await service.capture_frame()
@@ -215,6 +239,11 @@ async def stream(request: Request, service: VisionServiceDependency) -> Streamin
     if service.source.capability.status is not VisionProviderStatus.AVAILABLE:
         raise VisionProviderUnavailableError(
             service.source.capability.detail or "The configured frame source is unavailable"
+        )
+    if service.source.status not in {VisionStatus.READY, VisionStatus.STREAMING}:
+        raise VisionProviderUnavailableError(
+            "The configured frame source is not open",
+            details={"source_state": service.source.status.value},
         )
 
     async def parts() -> AsyncIterator[bytes]:

@@ -44,6 +44,7 @@ from momo.ports.clock import Clock
 from momo.ports.vision import (
     FaceDetector,
     FrameSource,
+    OperatorControlledFrameSource,
     TargetDetector,
     TargetTracker,
     VisionStreamEncoder,
@@ -150,6 +151,79 @@ class VisionApplicationService:
             stream=self.stream_encoder.capability,
         )
 
+    async def open_live_camera(self) -> VisionRuntimeSnapshot:
+        """Open one configured camera only after the explicit HTTP operator action."""
+
+        opening = asyncio.create_task(
+            self._complete_open_live_camera(),
+            name="vision-live-camera-explicit-open",
+        )
+        try:
+            return await asyncio.shield(opening)
+        except asyncio.CancelledError:
+            with suppress(Exception):
+                await asyncio.shield(opening)
+            await asyncio.shield(self._close_live_camera_source())
+            raise
+
+    async def _complete_open_live_camera(self) -> VisionRuntimeSnapshot:
+        if (
+            self.camera_access_policy is not CameraAccessPolicy.LIVE_CAMERA_ALLOWED
+            or not isinstance(self.source, OperatorControlledFrameSource)
+        ):
+            raise VisionProviderUnavailableError(
+                "This runtime is not configured for an operator-controlled live camera"
+            )
+        if self._closed:
+            raise VisionProviderUnavailableError("Vision service is closed")
+        await self._stop_active_follow(FollowStopReason.OPERATOR_STOP)
+        try:
+            async with self._frame_lock:
+                await self.source.open()
+                self._source_faulted = False
+                self._clear_frame_state_unlocked()
+            frame = await self.capture_frame()
+            if frame is None:
+                raise VisionProviderUnavailableError(
+                    "The configured live camera opened but returned no frame",
+                    details={"provider_id": self.source.capability.provider_id},
+                )
+        except VisionProviderUnavailableError:
+            await self._close_live_camera_source()
+            raise
+        except Exception as error:
+            await self._close_live_camera_source()
+            raise VisionProviderUnavailableError(
+                "The configured live camera could not be opened",
+                details={"provider_id": self.source.capability.provider_id},
+            ) from error
+        return await self.status()
+
+    async def close_live_camera(self) -> VisionRuntimeSnapshot:
+        """Release the configured live camera and discard all transient frame state."""
+
+        closing = asyncio.create_task(
+            self._complete_close_live_camera(),
+            name="vision-live-camera-explicit-close",
+        )
+        try:
+            return await asyncio.shield(closing)
+        except asyncio.CancelledError:
+            await asyncio.shield(closing)
+            raise
+
+    async def _complete_close_live_camera(self) -> VisionRuntimeSnapshot:
+        if (
+            self.camera_access_policy is not CameraAccessPolicy.LIVE_CAMERA_ALLOWED
+            or not isinstance(self.source, OperatorControlledFrameSource)
+        ):
+            raise VisionProviderUnavailableError(
+                "This runtime is not configured for an operator-controlled live camera"
+            )
+        await self._stop_active_follow(FollowStopReason.OPERATOR_STOP)
+        await self._close_live_camera_source()
+        return await self.status()
+
     async def status(self) -> VisionRuntimeSnapshot:
         robot_status = await self.robot.get_status()
         async with self._frame_lock:
@@ -251,7 +325,7 @@ class VisionApplicationService:
         async with self._stream_lock:
             if self._active_streams >= self.max_stream_clients:
                 raise VisionProviderUnavailableError(
-                    "The bounded Synthetic stream client limit was reached",
+                    "The bounded Vision stream client limit was reached",
                     details={"maximum_clients": self.max_stream_clients},
                 )
             self._active_streams += 1
@@ -282,6 +356,7 @@ class VisionApplicationService:
         width: float,
         height: float,
     ) -> VisionRuntimeSnapshot:
+        self._require_analysis_allowed()
         await self._stop_active_follow(FollowStopReason.OPERATOR_STOP)
         async with self._frame_lock:
             frame = self._fresh_frame_unlocked(frame_id)
@@ -399,6 +474,7 @@ class VisionApplicationService:
         detector: Literal["person", "face"],
         frame_id: str,
     ) -> tuple[VisionProviderCapability, tuple[Detection, ...]]:
+        self._require_analysis_allowed()
         provider: TargetDetector | FaceDetector = (
             self.person_detector if detector == "person" else self.face_detector
         )
@@ -430,6 +506,10 @@ class VisionApplicationService:
         return capability, tuple(detections)
 
     async def start_follow(self, configuration: FollowConfiguration) -> FollowStatus:
+        if self.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED:
+            raise VisionFollowConflictError(
+                "The live camera session is read-only; tracking and Follow are disabled"
+            )
         async with self._frame_lock:
             if self._source_faulted or self.source.status in {
                 VisionStatus.DISCONNECTED,
@@ -518,6 +598,26 @@ class VisionApplicationService:
         ):
             removed = self._frames.popleft()
             self._frame_history_bytes -= len(removed.content)
+
+    def _clear_frame_state_unlocked(self) -> None:
+        self._frames.clear()
+        self._frame_history_bytes = 0
+        self._latest_frame = None
+        self._selection = None
+        self._tracking = None
+
+    async def _close_live_camera_source(self) -> None:
+        async with self._frame_lock:
+            await self.source.aclose()
+            self._source_faulted = False
+            self._clear_frame_state_unlocked()
+
+    def _require_analysis_allowed(self) -> None:
+        if self.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED:
+            raise VisionProviderUnavailableError(
+                "The live camera session is read-only; selection, detection, and tracking "
+                "are disabled"
+            )
 
     async def _release_stream(self) -> None:
         async with self._stream_lock:

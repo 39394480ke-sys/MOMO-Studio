@@ -6,6 +6,8 @@ from momo.adapters.vision.opencv_camera import (
     CameraAccessDeniedError,
     OpenCvCameraSource,
     OpenCvCameraSourceFactory,
+    OperatorControlledOpenCvCameraSource,
+    explicit_device_identifier,
 )
 from momo.adapters.vision.stream_encoder import PassthroughVisionStreamEncoder
 from momo.adapters.vision.synthetic_detectors import (
@@ -29,6 +31,7 @@ __all__ = [
     "LatestFrameSubscription",
     "OpenCvCameraSource",
     "OpenCvCameraSourceFactory",
+    "OperatorControlledOpenCvCameraSource",
     "PassthroughVisionStreamEncoder",
     "SyntheticFaceDetector",
     "SyntheticFrameSource",
@@ -39,4 +42,5 @@ __all__ = [
     "UnavailableFaceDetector",
     "UnavailableTargetDetector",
     "UnavailableTargetTracker",
+    "explicit_device_identifier",
 ]
