@@ -100,32 +100,32 @@ function gotoDisabledReason(
   runtime: ReturnType<typeof useRuntimeStatus>,
   realSession: RealSessionSummary,
 ): string | null {
-  if (runtime.backend !== 'connected') return 'backend offline';
+  if (runtime.backend !== 'connected') return '后端离线';
   if (runtime.controlMode === 'REAL') {
     const capability = realCapabilityAvailability(realSession, 'real_joint_motion');
     if (!capability.allowed) return capability.reason;
   } else if (runtime.hardwareAccessPolicy !== 'DISABLED' || runtime.realMotionEnabled) {
-    return 'Dry Run hardware isolation is unavailable';
+    return '仿真运行的硬件隔离不可用';
   }
-  if (runtime.stale || runtime.robot?.stale !== false) return 'robot state is stale';
+  if (runtime.stale || runtime.robot?.stale !== false) return '机械臂状态已经过期';
   if (!runtime.robot?.connected) {
     return runtime.controlMode === 'REAL'
-      ? 'backend reports the Real robot disconnected'
-      : 'Dry Run robot is disconnected';
+      ? '后端报告真机机械臂未连接'
+      : '仿真机械臂未连接';
   }
-  if (runtime.pendingAction !== null) return 'robot lifecycle action is pending';
-  if (pose.robot_variant !== runtime.robot.variant) return 'robot variant mismatch';
+  if (runtime.pendingAction !== null) return '机械臂连接状态正在切换';
+  if (pose.robot_variant !== runtime.robot.variant) return '机械臂型号不匹配';
   if (!runtime.profile || runtime.profile.profile.variant !== runtime.robot.variant) {
-    return 'active profile is unavailable';
+    return '当前机械臂配置不可用';
   }
   if (pose.profile_fingerprint !== runtime.robot.profile_fingerprint) {
-    return 'profile fingerprint mismatch';
+    return '配置指纹不匹配';
   }
   if (
     !runtime.profile.kinematics_fingerprint ||
     pose.kinematics_fingerprint !== runtime.profile.kinematics_fingerprint
   ) {
-    return 'kinematics fingerprint mismatch';
+    return '运动学指纹不匹配';
   }
   const snapshotJoints = new Set(Object.keys(pose.joint_state.positions));
   const enabledJoints = runtime.profile.profile.enabled_joints;
@@ -133,7 +133,7 @@ function gotoDisabledReason(
     snapshotJoints.size !== enabledJoints.length ||
     enabledJoints.some((jointId) => !snapshotJoints.has(jointId))
   ) {
-    return 'enabled joint set mismatch';
+    return '启用关节集合不匹配';
   }
   return null;
 }
@@ -143,23 +143,23 @@ function playbackDisabledReason(
   runtime: ReturnType<typeof useRuntimeStatus>,
   realSession: RealSessionSummary,
 ): string | null {
-  if (runtime.backend !== 'connected') return 'backend offline';
+  if (runtime.backend !== 'connected') return '后端离线';
   if (runtime.controlMode === 'REAL') {
     const capability = realCapabilityAvailability(realSession, 'real_playback');
     if (!capability.allowed) return capability.reason;
   } else if (runtime.hardwareAccessPolicy !== 'DISABLED' || runtime.realMotionEnabled) {
-    return 'Dry Run hardware isolation is unavailable';
+    return '仿真运行的硬件隔离不可用';
   }
-  if (runtime.stale || runtime.robot?.stale !== false) return 'robot state is stale';
+  if (runtime.stale || runtime.robot?.stale !== false) return '机械臂状态已经过期';
   if (!runtime.robot?.connected) {
     return runtime.controlMode === 'REAL'
-      ? 'backend reports the Real robot disconnected'
-      : 'Dry Run robot is disconnected';
+      ? '后端报告真机机械臂未连接'
+      : '仿真机械臂未连接';
   }
-  if (runtime.pendingAction !== null) return 'robot lifecycle action is pending';
-  if (motion.robot_variant !== runtime.robot.variant) return 'robot variant mismatch';
+  if (runtime.pendingAction !== null) return '机械臂连接状态正在切换';
+  if (motion.robot_variant !== runtime.robot.variant) return '机械臂型号不匹配';
   if (!runtime.profile || runtime.profile.profile.variant !== runtime.robot.variant) {
-    return 'active profile is unavailable';
+    return '当前机械臂配置不可用';
   }
   return null;
 }
@@ -171,7 +171,7 @@ function closestPlaybackRate(value: number): number {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Library request failed';
+  return error instanceof Error ? error.message : '资源库请求失败';
 }
 
 function isRevisionConflict(error: unknown): error is ApiError {
@@ -345,7 +345,7 @@ export function LibraryPage() {
           generation !== playbackPollGeneration.current ||
           request !== playbackStatusRequest.current
         ) return;
-        setPlaybackPollError(`Playback status unavailable: ${errorMessage(error)}`);
+        setPlaybackPollError(`无法获取播放状态：${errorMessage(error)}`);
       } finally {
         inFlight = false;
       }
@@ -413,7 +413,7 @@ export function LibraryPage() {
 
   function capture(request: CapturePoseRequest): Promise<boolean> {
     return mutate('capture-pose', () => capturePose(request), (pose) => {
-      setActionMessage(`Captured Pose “${pose.name}” · revision ${pose.revision}.`);
+      setActionMessage(`已捕获机位“${pose.name}” · 版本 ${pose.revision}。`);
     });
   }
 
@@ -432,7 +432,7 @@ export function LibraryPage() {
           throw new ApiError({
             status: 409,
             code: 'REVISION_CONFLICT',
-            message: 'A selected Pose changed after the source list was loaded.',
+            message: '所选机位在资源列表加载后发生了变化。',
             details: {
               start_expected: draft.start_pose_revision,
               start_actual: start.revision,
@@ -442,13 +442,13 @@ export function LibraryPage() {
           });
         }
         if (start.snapshot.robot_variant !== end.snapshot.robot_variant) {
-          throw new Error('Selected Pose details no longer use the same robot variant.');
+          throw new Error('所选机位不再使用相同的机械臂型号。');
         }
         if (
           start.snapshot.hardware_snapshot !== null ||
           end.snapshot.hardware_snapshot !== null
         ) {
-          throw new Error('Motion creation cannot embed hardware snapshots in the Stage 4 Dry Run library.');
+          throw new Error('Stage 4 仿真资源库创建运动时不能内嵌硬件快照。');
         }
         return createMotion({
           name: draft.name,
@@ -456,14 +456,14 @@ export function LibraryPage() {
           robot_variant: start.snapshot.robot_variant,
           keyframes: [
             {
-              label: 'Start',
+              label: '起点',
               pose_snapshot: start.snapshot,
               source_pose_id: start.id,
               hold_s: 0,
               incoming_transition: null,
             },
             {
-              label: 'End',
+              label: '终点',
               pose_snapshot: end.snapshot,
               source_pose_id: end.id,
               hold_s: 0,
@@ -479,7 +479,7 @@ export function LibraryPage() {
         });
       },
       (motion) => {
-        setActionMessage(`Created Motion “${motion.name}” with ${motion.keyframes.length} embedded keyframes.`);
+        setActionMessage(`已创建运动“${motion.name}”，包含 ${motion.keyframes.length} 个内嵌关键帧。`);
       },
     );
   }
@@ -488,7 +488,7 @@ export function LibraryPage() {
     void mutate(
       `duplicate-pose-${pose.id}`,
       () => duplicatePose(pose.id, { expected_revision: pose.revision }),
-      (duplicate) => setActionMessage(`Duplicated Pose as “${duplicate.name}”.`),
+      (duplicate) => setActionMessage(`已将机位复制为“${duplicate.name}”。`),
     );
   }
 
@@ -496,7 +496,7 @@ export function LibraryPage() {
     void mutate(
       `delete-pose-${pose.id}`,
       () => deletePose(pose.id, pose.revision),
-      () => setActionMessage(`Deleted Pose “${pose.name}”. Embedded Motion snapshots are unchanged.`),
+      () => setActionMessage(`已删除机位“${pose.name}”。已有运动中的内嵌快照不受影响。`),
     );
   }
 
@@ -511,7 +511,7 @@ export function LibraryPage() {
       }),
       (submission) => {
         setGotoResult({ poseName: pose.name, submission });
-        setActionMessage(`Goto submitted for “${pose.name}”; command state is ${submission.command.state}.`);
+        setActionMessage(`已提交前往“${pose.name}”；命令状态为 ${submission.command.state}。`);
       },
     );
   }
@@ -520,7 +520,7 @@ export function LibraryPage() {
     void mutate(
       `duplicate-motion-${motion.id}`,
       () => duplicateMotion(motion.id, { expected_revision: motion.revision }),
-      (duplicate) => setActionMessage(`Duplicated Motion as “${duplicate.name}”.`),
+      (duplicate) => setActionMessage(`已将运动复制为“${duplicate.name}”。`),
     );
   }
 
@@ -528,7 +528,7 @@ export function LibraryPage() {
     void mutate(
       `delete-motion-${motion.id}`,
       () => deleteMotion(motion.id, motion.revision),
-      () => setActionMessage(`Deleted Motion “${motion.name}”.`),
+      () => setActionMessage(`已删除运动“${motion.name}”。`),
     );
   }
 
@@ -598,12 +598,12 @@ export function LibraryPage() {
           const preview = await getTrajectoryPreview(report.digest, controller.signal);
           if (generation !== preflightGeneration.current || controller.signal.aborted) return;
           if (preview.motion_id !== motion.id || preview.digest !== report.digest) {
-            throw new TypeError('Trajectory preview does not match the prepared Motion');
+            throw new TypeError('轨迹预览与已准备的运动不匹配');
           }
           setTrajectoryPreview(preview);
         } catch (error) {
           if (generation !== preflightGeneration.current || controller.signal.aborted) return;
-          setPreflightError(`Preview unavailable: ${errorMessage(error)}`);
+          setPreflightError(`轨迹预览不可用：${errorMessage(error)}`);
         } finally {
           if (generation === preflightGeneration.current) setPreviewLoading(false);
         }
@@ -749,22 +749,22 @@ export function LibraryPage() {
   return (
     <div className="page library-page">
       <PageIntro
-        title="Library"
-        description={`Capture immutable Pose snapshots, preflight compiled trajectories, and control ${runtime.controlMode === 'REAL' ? 'authorized Real' : 'Dry Run'} Motion playback.`}
+        title="资源库"
+        description={`保存不可变的机位快照、预检编译轨迹，并控制${runtime.controlMode === 'REAL' ? '已授权真机' : '仿真'}运动播放。`}
         detail={runtime.controlMode === 'REAL'
-          ? 'Goto and playback require the matching backend-derived capability and active Operator Session.'
-          : 'Goto and Motion playback pass through the reviewed Dry Run safety gateway; hardware access remains disabled.'}
+          ? '前往机位和播放都需要后端授予对应能力，并保持有效的操作员会话。'
+          : '前往机位和运动播放会经过已审核的仿真安全入口，实体硬件访问保持禁用。'}
       />
 
       <div className="library-stage-banner">
         <Archive aria-hidden="true" />
         <div>
-          <strong>Stage 5 · Compiled {runtime.controlMode === 'REAL' ? 'Real capability' : 'Dry Run'} playback</strong>
-          <span>Digest-bound trajectories · live status · {runtime.controlMode === 'REAL' ? 'backend capability required' : 'hardware access disabled'}</span>
+          <strong>Stage 5 · 已编译的{runtime.controlMode === 'REAL' ? '真机授权' : '仿真'}播放</strong>
+          <span>轨迹摘要绑定 · 实时状态 · {runtime.controlMode === 'REAL' ? '需要后端能力授权' : '实体硬件访问已禁用'}</span>
         </div>
       </div>
 
-      <div aria-label="Library entity type" className="library-tabs" role="tablist">
+      <div aria-label="资源类型" className="library-tabs" role="tablist">
         <button
           aria-controls="poses-panel"
           aria-selected={tab === 'poses'}
@@ -779,7 +779,7 @@ export function LibraryPage() {
           role="tab"
           type="button"
         >
-          POSES
+          机位
         </button>
         <button
           aria-controls="motions-panel"
@@ -795,7 +795,7 @@ export function LibraryPage() {
           role="tab"
           type="button"
         >
-          MOTIONS
+          运动
         </button>
       </div>
 
@@ -816,7 +816,7 @@ export function LibraryPage() {
               runtime.pendingAction !== null
             }
             onCapture={capture}
-            robotLabel={runtime.robot ? `${runtime.robot.robot_id} · ${runtime.robot.variant}` : 'Robot unavailable'}
+            robotLabel={runtime.robot ? `${runtime.robot.robot_id} · ${runtime.robot.variant}` : '机械臂不可用'}
           />
         ) : (
           <MotionCreateForm
@@ -831,10 +831,10 @@ export function LibraryPage() {
         <section aria-labelledby="saved-library-heading" className="saved-library">
           <header className="saved-library__heading">
             <div>
-              <p className="section-kicker">Stored entities</p>
-              <h2 id="saved-library-heading">Saved {tab === 'poses' ? 'Poses' : 'Motions'}</h2>
+              <p className="section-kicker">已保存资源</p>
+              <h2 id="saved-library-heading">已保存的{tab === 'poses' ? '机位' : '运动'}</h2>
             </div>
-            <span>{activePage.total} total</span>
+            <span>共 {activePage.total} 项</span>
           </header>
 
           <LibraryToolbar disabled={!online} filters={filters} onChange={changeFilters} />
@@ -843,12 +843,12 @@ export function LibraryPage() {
             <div className="library-notice library-notice--offline" role="status">
               <WifiOff aria-hidden="true" />
               <div>
-                <strong>Library offline</strong>
-                <span>Stored entities cannot be refreshed or changed until the backend returns.</span>
+                <strong>资源库离线</strong>
+                <span>后端恢复前，无法刷新或修改已保存资源。</span>
               </div>
               <button className="command-button" onClick={() => void runtime.refresh()} type="button">
                 <RefreshCw aria-hidden="true" />
-                Retry
+                重试
               </button>
             </div>
           ) : null}
@@ -857,12 +857,12 @@ export function LibraryPage() {
             <div className="library-notice library-notice--error" role="alert">
               <TriangleAlert aria-hidden="true" />
               <div>
-                <strong>Library request failed</strong>
+                <strong>资源库请求失败</strong>
                 <span>{loadError}</span>
               </div>
               <button className="command-button" onClick={reload} type="button">
                 <RefreshCw aria-hidden="true" />
-                Retry
+                重试
               </button>
             </div>
           ) : null}
@@ -871,14 +871,14 @@ export function LibraryPage() {
             <div className={actionError.conflict ? 'library-notice library-notice--conflict' : 'library-notice library-notice--error'} role="alert">
               <TriangleAlert aria-hidden="true" />
               <div>
-                <strong>{actionError.conflict ? 'Revision conflict' : 'Library action failed'}</strong>
+                <strong>{actionError.conflict ? '版本冲突' : '资源库操作失败'}</strong>
                 <span>{actionError.message}</span>
-                {actionError.conflict ? <span>Your draft or pending selection was kept. Reload before retrying.</span> : null}
+                {actionError.conflict ? <span>草稿或待处理选择已保留，请重新加载后再试。</span> : null}
               </div>
               {actionError.conflict ? (
                 <button className="command-button" onClick={reload} type="button">
                   <RefreshCw aria-hidden="true" />
-                  Reload
+                  重新加载
                 </button>
               ) : null}
             </div>
@@ -888,16 +888,16 @@ export function LibraryPage() {
 
           {gotoResult ? (
             <div className="goto-result" role="status">
-              <strong>Goto · {gotoResult.poseName} · {gotoResult.submission.command.state}</strong>
+              <strong>前往 · {gotoResult.poseName} · {gotoResult.submission.command.state}</strong>
               <code>{gotoResult.submission.command_id}</code>
               <span>
-                Preflight {gotoResult.submission.preflight?.accepted === false ? 'rejected' : 'accepted'}
+                预检{gotoResult.submission.preflight?.accepted === false ? '未通过' : '已接受'}
               </span>
               {gotoResult.submission.preflight?.checks?.length ? (
                 <ul>
                   {gotoResult.submission.preflight.checks.map((check, index) => (
                     <li key={`${check.name}-${index}`}>
-                      {check.passed ? 'PASS' : 'FAIL'} · {check.name} · {check.detail}
+                      {check.passed ? '通过' : '失败'} · {check.name} · {check.detail}
                     </li>
                   ))}
                 </ul>
@@ -913,55 +913,55 @@ export function LibraryPage() {
             >
               <header>
                 <div>
-                  <p className="section-kicker">Validated entity detail</p>
+                  <p className="section-kicker">已校验资源详情</p>
                   <h3 id="library-detail-heading">
                     {detail.status === 'ready'
                       ? detail.entity.name
-                      : `${detail.kind === 'pose' ? 'Pose' : 'Motion'} details`}
+                      : `${detail.kind === 'pose' ? '机位' : '运动'}详情`}
                   </h3>
                 </div>
-                <button className="command-button" onClick={closeDetail} type="button">Close details</button>
+                <button className="command-button" onClick={closeDetail} type="button">关闭详情</button>
               </header>
-              {detail.status === 'loading' ? <p role="status">Loading UUID {detail.id}…</p> : null}
+              {detail.status === 'loading' ? <p role="status">正在加载 UUID {detail.id}…</p> : null}
               {detail.status === 'error' ? (
                 <div className="library-notice library-notice--error" role="alert">
                   <TriangleAlert aria-hidden="true" />
                   <div>
-                    <strong>Detail request failed</strong>
+                    <strong>详情请求失败</strong>
                     <span>{detail.message}</span>
                   </div>
-                  <button className="command-button" onClick={() => void viewEntity(detail.kind, detail.id)} type="button">Retry</button>
+                  <button className="command-button" onClick={() => void viewEntity(detail.kind, detail.id)} type="button">重试</button>
                 </div>
               ) : null}
               {detail.status === 'ready' && detail.kind === 'pose' ? (
                 <dl className="library-detail__facts">
                   <div><dt>UUID</dt><dd><code>{detail.entity.id}</code></dd></div>
-                  <div><dt>Schema / revision</dt><dd>{detail.entity.schema_version} · rev {detail.entity.revision}</dd></div>
-                  <div><dt>Profile fingerprint</dt><dd><code>{detail.entity.snapshot.profile_fingerprint}</code></dd></div>
-                  <div><dt>Kinematics fingerprint</dt><dd><code>{detail.entity.snapshot.kinematics_fingerprint}</code></dd></div>
-                  <div><dt>State sequence</dt><dd>{detail.entity.snapshot.state_sequence ?? 'Imported · unavailable'}</dd></div>
-                  <div><dt>Captured at</dt><dd>{detail.entity.snapshot.captured_at}</dd></div>
+                  <div><dt>数据结构 / 版本</dt><dd>{detail.entity.schema_version} · 版本 {detail.entity.revision}</dd></div>
+                  <div><dt>配置指纹</dt><dd><code>{detail.entity.snapshot.profile_fingerprint}</code></dd></div>
+                  <div><dt>运动学指纹</dt><dd><code>{detail.entity.snapshot.kinematics_fingerprint}</code></dd></div>
+                  <div><dt>状态序号</dt><dd>{detail.entity.snapshot.state_sequence ?? '导入数据 · 不可用'}</dd></div>
+                  <div><dt>捕获时间</dt><dd>{detail.entity.snapshot.captured_at}</dd></div>
                 </dl>
               ) : null}
               {detail.status === 'ready' && detail.kind === 'motion' ? (
                 <>
                   <dl className="library-detail__facts">
                     <div><dt>UUID</dt><dd><code>{detail.entity.id}</code></dd></div>
-                    <div><dt>Schema / revision</dt><dd>{detail.entity.schema_version} · rev {detail.entity.revision}</dd></div>
-                    <div><dt>Robot variant</dt><dd>{detail.entity.robot_variant}</dd></div>
-                    <div><dt>Playback defaults</dt><dd>{detail.entity.playback_defaults.speed_multiplier}× · {detail.entity.playback_defaults.loop ? 'loop' : 'no loop'}</dd></div>
+                    <div><dt>数据结构 / 版本</dt><dd>{detail.entity.schema_version} · 版本 {detail.entity.revision}</dd></div>
+                    <div><dt>机械臂型号</dt><dd>{detail.entity.robot_variant}</dd></div>
+                    <div><dt>默认播放参数</dt><dd>{detail.entity.playback_defaults.speed_multiplier}× · {detail.entity.playback_defaults.loop ? '循环' : '不循环'}</dd></div>
                   </dl>
                   <ol className="motion-detail-keyframes">
                     {detail.entity.keyframes.map((keyframe, index) => (
                       <li key={keyframe.id}>
                         <strong>{index + 1}. {keyframe.label}</strong>
-                        <span>{keyframe.pose_snapshot.robot_variant} · hold {keyframe.hold_s.toFixed(2)} s</span>
+                        <span>{keyframe.pose_snapshot.robot_variant} · 停留 {keyframe.hold_s.toFixed(2)} 秒</span>
                         <span>
                           {keyframe.incoming_transition
                             ? `${keyframe.incoming_transition.motion_mode} · ${keyframe.incoming_transition.duration_s.toFixed(2)} s · ${keyframe.incoming_transition.easing}`
-                            : 'Start keyframe · no incoming transition'}
+                            : '起始关键帧 · 无进入过渡'}
                         </span>
-                        <code>source {keyframe.source_pose_id ?? 'none (embedded snapshot)'}</code>
+                        <code>来源 {keyframe.source_pose_id ?? '无（内嵌快照）'}</code>
                       </li>
                     ))}
                   </ol>
@@ -987,7 +987,7 @@ export function LibraryPage() {
                     runtimeMode={runtime.controlMode}
                     stopDisabled={!online}
                   />
-                  <p className="stage-boundary-note">Playback uses immutable embedded snapshots. Timeline authoring remains in the separate Studio workspace.</p>
+                  <p className="stage-boundary-note">播放使用不可变的内嵌快照；时间轴编排请在独立的“编排”工作区完成。</p>
                 </>
               ) : null}
             </section>
@@ -996,27 +996,27 @@ export function LibraryPage() {
           {loadState === 'loading' && activePage.items.length === 0 ? (
             <div aria-live="polite" className="library-loading" role="status">
               <RefreshCw aria-hidden="true" />
-              Loading {tab}…
+              正在加载{tab === 'poses' ? '机位' : '运动'}…
             </div>
           ) : null}
 
           {loadState !== 'loading' && activePage.items.length === 0 && loadState === 'ready' ? (
             <div className="library-empty-state">
               <Archive aria-hidden="true" />
-              <strong>{hasFilters ? `No ${tab} match these filters` : `No saved ${tab} yet`}</strong>
+              <strong>{hasFilters ? `没有${tab === 'poses' ? '机位' : '运动'}符合筛选条件` : `尚未保存${tab === 'poses' ? '机位' : '运动'}`}</strong>
               <span>
                 {hasFilters
-                  ? 'Try a different search or tag filter.'
+                  ? '请尝试其他搜索词或标签筛选。'
                   : tab === 'poses'
-                    ? 'Capture the current backend robot state to create the first Pose.'
-                    : 'Select two compatible Poses above to create the first Motion.'}
+                    ? '捕获当前后端机械臂状态，以创建第一个机位。'
+                    : '在上方选择两个兼容机位，以创建第一个运动。'}
               </span>
             </div>
           ) : null}
 
           {activePage.items.length > 0 ? (
             <>
-              {loadState === 'loading' ? <p className="library-refreshing" role="status">Refreshing results…</p> : null}
+              {loadState === 'loading' ? <p className="library-refreshing" role="status">正在刷新结果…</p> : null}
               <div className="library-card-grid">
                 {tab === 'poses'
                   ? posePage.items.map((pose) => (
@@ -1066,23 +1066,23 @@ export function LibraryPage() {
           ) : null}
 
           {activePage.total > activePage.page_size ? (
-            <nav aria-label={`${tab} pages`} className="library-pagination">
+            <nav aria-label={`${tab === 'poses' ? '机位' : '运动'}分页`} className="library-pagination">
               <button
                 className="command-button"
                 disabled={pageNumber <= 1 || loadState === 'loading'}
                 onClick={() => setPageNumber((current) => Math.max(1, current - 1))}
                 type="button"
               >
-                Previous
+                上一页
               </button>
-              <span>Page {pageNumber} of {totalPages}</span>
+              <span>第 {pageNumber} / {totalPages} 页</span>
               <button
                 className="command-button"
                 disabled={pageNumber >= totalPages || loadState === 'loading'}
                 onClick={() => setPageNumber((current) => Math.min(totalPages, current + 1))}
                 type="button"
               >
-                Next
+                下一页
               </button>
             </nav>
           ) : null}

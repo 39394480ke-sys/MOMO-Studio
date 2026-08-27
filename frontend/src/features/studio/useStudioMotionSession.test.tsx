@@ -307,7 +307,7 @@ describe('useStudioMotionSession', () => {
     expect(result.current.studioCommand).toBeNull();
     expect(result.current.action).toBeNull();
     expect(onMessage).toHaveBeenCalledWith(
-      'Priority Stop was accepted by the active Dry Run motion path.',
+      '当前仿真运动链路已接受优先停止请求。',
     );
     expect(playMotion).not.toHaveBeenCalled();
     expect(pausePlayback).not.toHaveBeenCalled();

@@ -50,30 +50,30 @@ describe('LanSecuritySessionPanel', () => {
     vi.mocked(revokeLanSecuritySession).mockResolvedValue();
     render(<LanSecuritySessionPanel />);
 
-    const input = screen.getByLabelText('LAN bearer token');
+    const input = screen.getByLabelText('局域网 Bearer Token');
     fireEvent.change(input, { target: { value: bearer } });
-    fireEvent.click(screen.getByRole('button', { name: /Create LAN browser session/ }));
+    fireEvent.click(screen.getByRole('button', { name: /创建局域网浏览器会话/ }));
 
     await waitFor(() => expect(createLanSecuritySession).toHaveBeenCalledWith(bearer));
-    expect(await screen.findByText('HttpOnly session active')).toBeVisible();
-    expect(screen.getByText(/Expires/)).toBeVisible();
-    expect(screen.getByText(/token unavailable to JavaScript/)).toBeVisible();
+    expect(await screen.findByText('HttpOnly 会话已生效')).toBeVisible();
+    expect(screen.getByText(/到期时间/)).toBeVisible();
+    expect(screen.getByText(/JavaScript 无法读取/)).toBeVisible();
     expect(screen.queryByDisplayValue(bearer)).not.toBeInTheDocument();
     expect(window.localStorage.setItem).not.toHaveBeenCalled();
     expect(window.sessionStorage.setItem).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Revoke browser session/ }));
+    fireEvent.click(screen.getByRole('button', { name: /撤销浏览器会话/ }));
     await waitFor(() => expect(revokeLanSecuritySession).toHaveBeenCalledTimes(1));
-    expect(await screen.findByLabelText('LAN bearer token')).toHaveValue('');
+    expect(await screen.findByLabelText('局域网 Bearer Token')).toHaveValue('');
   });
 
   it('clears a rejected bearer and renders only the safe error', async () => {
     vi.mocked(createLanSecuritySession).mockRejectedValue(new Error('Invalid LAN credential'));
     render(<LanSecuritySessionPanel />);
 
-    const input = screen.getByLabelText('LAN bearer token');
+    const input = screen.getByLabelText('局域网 Bearer Token');
     fireEvent.change(input, { target: { value: bearer } });
-    fireEvent.click(screen.getByRole('button', { name: /Create LAN browser session/ }));
+    fireEvent.click(screen.getByRole('button', { name: /创建局域网浏览器会话/ }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid LAN credential');
     expect(input).toHaveValue('');

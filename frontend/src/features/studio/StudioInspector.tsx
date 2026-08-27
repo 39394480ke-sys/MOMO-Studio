@@ -122,11 +122,11 @@ export function StudioInspector({
     >
       <header className="studio-panel-heading">
         <div>
-          <p className="section-kicker">Keyframe details</p>
-          <h2 id="studio-inspector-heading">Inspector</h2>
+          <p className="section-kicker">关键帧详情</p>
+          <h2 id="studio-inspector-heading">检查器</h2>
         </div>
         <button
-          aria-label="Close Inspector"
+          aria-label="关闭检查器"
           className="mini-command studio-inspector__close"
           onClick={onCloseMobile}
           type="button"
@@ -136,13 +136,13 @@ export function StudioInspector({
       </header>
 
       {!frame ? (
-        <p className="studio-inspector-empty">Select a keyframe to inspect and edit its immutable snapshot metadata.</p>
+        <p className="studio-inspector-empty">选择一个关键帧，以查看和编辑其不可变快照的元数据。</p>
       ) : (
         <div className="studio-inspector__body">
           <label className="studio-field">
-            <span>Keyframe label</span>
+            <span>关键帧名称</span>
             <input
-              aria-label="Keyframe label"
+              aria-label="关键帧名称"
               disabled={busy}
               maxLength={200}
               onChange={(event) => onLabelChange(frame.id, event.target.value)}
@@ -152,10 +152,10 @@ export function StudioInspector({
 
           <div className="studio-field-grid">
             <label className="studio-field">
-              <span>Hold</span>
+              <span>停留时长</span>
               <span className="studio-number-field">
                 <input
-                  aria-label="Keyframe hold seconds"
+                  aria-label="关键帧停留秒数"
                   disabled={busy}
                   max="600"
                   min="0"
@@ -168,11 +168,11 @@ export function StudioInspector({
               </span>
             </label>
             <label className="studio-field">
-              <span>Incoming duration</span>
+              <span>进入过渡时长</span>
               <span className="studio-number-field">
                 <input
                   aria-describedby={!transition ? 'first-frame-transition-note' : undefined}
-                  aria-label="Incoming transition duration seconds"
+                  aria-label="进入过渡时长（秒）"
                   disabled={busy || !transition}
                   max="600"
                   min="0.05"
@@ -187,34 +187,34 @@ export function StudioInspector({
           </div>
           {!transition ? (
             <p className="studio-field-note" id="first-frame-transition-note">
-              The first keyframe has no incoming transition.
+              第一个关键帧没有进入过渡。
             </p>
           ) : null}
 
           <div className="studio-field-grid">
             <label className="studio-field">
-              <span>Motion mode</span>
+              <span>运动模式</span>
               <select
-                aria-label="Incoming transition motion mode"
+                aria-label="进入过渡的运动模式"
                 disabled={busy || !transition}
                 onChange={(event) => onModeChange(frame.id, event.target.value as MotionMode)}
                 value={transition?.motion_mode ?? 'JOINT'}
               >
-                <option value="JOINT">Joint</option>
-                <option value="CARTESIAN_LINEAR">Cartesian Linear</option>
+                <option value="JOINT">关节插值（JOINT）</option>
+                <option value="CARTESIAN_LINEAR">笛卡尔直线（CARTESIAN LINEAR）</option>
               </select>
             </label>
             <label className="studio-field">
-              <span>Easing</span>
+              <span>缓动</span>
               <select
-                aria-label="Incoming transition easing"
+                aria-label="进入过渡的缓动方式"
                 disabled={busy || !transition}
                 onChange={(event) => onEasingChange(frame.id, event.target.value as MotionEasing)}
                 value={transition?.easing ?? 'SMOOTHSTEP'}
               >
-                <option value="LINEAR">Linear</option>
-                <option value="SMOOTHSTEP">Smoothstep</option>
-                <option value="EASE_IN_OUT">Ease in/out</option>
+                <option value="LINEAR">线性</option>
+                <option value="SMOOTHSTEP">平滑步进</option>
+                <option value="EASE_IN_OUT">缓入缓出</option>
               </select>
             </label>
           </div>
@@ -229,7 +229,7 @@ export function StudioInspector({
               <div><dt>Y</dt><dd>{finite(position?.y ?? Number.NaN)} mm</dd></div>
               <div><dt>Z</dt><dd>{finite(position?.z ?? Number.NaN)} mm</dd></div>
               <div className="studio-snapshot__wide">
-                <dt>Quaternion XYZW</dt>
+                <dt>四元数 XYZW</dt>
                 <dd>
                   {finite(orientation?.x ?? Number.NaN)}, {finite(orientation?.y ?? Number.NaN)}, {finite(orientation?.z ?? Number.NaN)}, {finite(orientation?.w ?? Number.NaN)}
                 </dd>
@@ -239,8 +239,8 @@ export function StudioInspector({
 
           <section className="studio-snapshot" aria-labelledby="studio-joints-heading">
             <header>
-              <strong id="studio-joints-heading">Joint snapshot</strong>
-              <span>{Object.keys(frame.pose_snapshot.joint_state.positions).length} enabled</span>
+              <strong id="studio-joints-heading">关节快照</strong>
+              <span>启用 {Object.keys(frame.pose_snapshot.joint_state.positions).length} 个关节</span>
             </header>
             <dl>
               {Object.entries(frame.pose_snapshot.joint_state.positions).map(([jointId, value]) => (
@@ -254,60 +254,60 @@ export function StudioInspector({
 
           <dl className="studio-provenance">
             <div>
-              <dt>Source Pose</dt>
-              <dd>{frame.source_pose_id ?? 'Captured / embedded'}</dd>
+              <dt>来源机位</dt>
+              <dd>{frame.source_pose_id ?? '现场捕获 / 内嵌快照'}</dd>
             </div>
             <div>
-              <dt>Captured</dt>
+              <dt>捕获时间</dt>
               <dd>{frame.pose_snapshot.captured_at}</dd>
             </div>
             <div>
-              <dt>Profile</dt>
+              <dt>配置指纹</dt>
               <dd>{frame.pose_snapshot.profile_fingerprint}</dd>
             </div>
           </dl>
 
           <div className="studio-inspector__actions">
             <button className="command-button" disabled={busy || frameLimitReached} onClick={() => onAddBefore(frame.id)} type="button">
-              <ArrowUpToLine aria-hidden="true" /> Add before
+              <ArrowUpToLine aria-hidden="true" /> 插入到前面
             </button>
             <button className="command-button" disabled={busy || frameLimitReached} onClick={() => onAddAfter(frame.id)} type="button">
-              <ArrowDownToLine aria-hidden="true" /> Add after
+              <ArrowDownToLine aria-hidden="true" /> 插入到后面
             </button>
             <button className="command-button" disabled={busy || frameLimitReached} onClick={() => onDuplicate(frame.id)} type="button">
-              <Copy aria-hidden="true" /> Duplicate
+              <Copy aria-hidden="true" /> 复制
             </button>
             <button className="command-button" disabled={busy || frameLimitReached || motionDisabledReason !== null} onClick={() => onCaptureBefore(frame.id)} type="button">
-              <Radio aria-hidden="true" /> Capture before
+              <Radio aria-hidden="true" /> 捕获到前面
             </button>
             <button className="command-button" disabled={busy || frameLimitReached || motionDisabledReason !== null} onClick={() => onCaptureAfter(frame.id)} type="button">
-              <Radio aria-hidden="true" /> Capture after
+              <Radio aria-hidden="true" /> 捕获到后面
             </button>
             <button
               className="command-button command-button--primary"
               disabled={busy || motionDisabledReason !== null}
               onClick={() => onGoto(frame.id)}
-              title={motionDisabledReason ?? `Send this snapshot through the ${runtimeMode === 'REAL' ? 'Real capability' : 'Dry Run'} gateway`}
+              title={motionDisabledReason ?? `通过${runtimeMode === 'REAL' ? '真机能力' : '仿真'}安全入口前往此快照`}
               type="button"
             >
-              <LocateFixed aria-hidden="true" /> {runtimeMode === 'REAL' ? 'Real' : 'Dry Run'} Goto
+              <LocateFixed aria-hidden="true" /> {runtimeMode === 'REAL' ? '真机' : '仿真'}前往
             </button>
             <button
               className="command-button"
               disabled={busy || motionDisabledReason !== null}
               onClick={() => onReplace(frame.id)}
-              title={motionDisabledReason ?? `Replace with a coherent current ${runtimeMode} snapshot`}
+              title={motionDisabledReason ?? `使用当前${runtimeMode === 'REAL' ? '真机' : '仿真'}完整快照替换`}
               type="button"
             >
-              <RefreshCcw aria-hidden="true" /> Replace current
+              <RefreshCcw aria-hidden="true" /> 替换为当前状态
             </button>
             <button className="command-button command-button--danger" disabled={busy} onClick={() => onDelete(frame.id)} type="button">
-              <Trash2 aria-hidden="true" /> Delete
+              <Trash2 aria-hidden="true" /> 删除
             </button>
           </div>
-          <p className="studio-field-note">Keyframe {frameIndex + 1} · snapshot data remains embedded and independent of its source Pose.</p>
-          {motionDisabledReason ? <p className="studio-field-note">Robot actions unavailable · {motionDisabledReason}</p> : null}
-          {frameLimitReached ? <p className="studio-field-note">Insert and duplicate unavailable · 1000-keyframe draft limit reached.</p> : null}
+          <p className="studio-field-note">关键帧 {frameIndex + 1} · 快照数据已内嵌，不会随来源机位改变。</p>
+          {motionDisabledReason ? <p className="studio-field-note">机械臂操作不可用 · {motionDisabledReason}</p> : null}
+          {frameLimitReached ? <p className="studio-field-note">不能继续插入或复制 · 已达到 1000 个关键帧上限。</p> : null}
         </div>
       )}
     </aside>

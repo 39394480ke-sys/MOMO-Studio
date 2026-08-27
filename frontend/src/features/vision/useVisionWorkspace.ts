@@ -43,7 +43,7 @@ export const DEFAULT_FOLLOW_CONFIGURATION: VisionFollowConfiguration = {
 };
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Vision operation failed.';
+  return error instanceof Error ? error.message : '视觉操作失败。';
 }
 
 function followMapping(runtime: RuntimeStatus): VisionFollowMapping | null {
@@ -98,12 +98,12 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     ? realVisionCapability.allowed
     : dryRunFollowAllowed;
   const followBlockedReason = readOnlyLiveCamera
-    ? 'Live camera is read-only; tracking and Follow are disabled'
+    ? '实时相机为只读模式；跟踪和视觉跟随已禁用'
     : runtime.controlMode === 'REAL'
     ? realVisionCapability.reason
     : dryRunFollowAllowed
       ? null
-      : 'Dry Run hardware isolation is unavailable';
+      : '仿真运行的硬件隔离不可用';
 
   const refreshStatus = useCallback(async (signal?: AbortSignal) => {
     const generation = requestGenerationRef.current;
@@ -194,7 +194,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
         setStatus(response.status);
       } catch (caught) {
         if (!mountedRef.current || epoch !== priorityEpochRef.current) return;
-        setError(`Follow heartbeat failed: ${errorMessage(caught)}`);
+        setError(`视觉跟随心跳失败：${errorMessage(caught)}`);
         void refreshStatus().catch(() => undefined);
       } finally {
         scheduleHeartbeat();
@@ -212,7 +212,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
     box: NormalizedBoundingBox,
   ) => {
     if (!frameId) {
-      setError('Wait for a current Synthetic frame before selecting a target.');
+      setError('请等待当前合成画面后再选择目标。');
       return;
     }
     setBusy('selection');
@@ -250,7 +250,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
   const detect = useCallback(async (detector: 'person' | 'face') => {
     const frameId = statusRef.current?.latest_frame?.frame_id;
     if (!frameId) {
-      setError('Wait for a current Synthetic frame before running detection.');
+      setError('请等待当前合成画面后再运行检测。');
       return;
     }
     setBusy(`detect-${detector}`);
@@ -260,12 +260,12 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
       if (!mountedRef.current) return;
       setDetections(result.detections);
       if (!result.capability.available) {
-        setError(result.capability.reason ?? `${detector} detector is unavailable.`);
+        setError(result.capability.reason ?? `${detector === 'person' ? '人体' : '人脸'}检测器不可用。`);
         return;
       }
       const first = result.detections[0];
       if (!first) {
-        setError(`No ${detector} target was detected in the current frame.`);
+        setError(`当前画面中未检测到${detector === 'person' ? '人体' : '人脸'}目标。`);
         return;
       }
       const next = await selectVisionTarget(first.frame_id, first.bounding_box);
@@ -326,18 +326,18 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
 
   const startFollow = useCallback(async () => {
     if (!followAllowed) {
-      setError(followBlockedReason ?? 'Vision Follow is not authorized by the backend.');
+      setError(followBlockedReason ?? '后端尚未授权视觉跟随。');
       return;
     }
     if (runtime.controlMode === 'REAL' && !capabilities?.real_follow_allowed) {
       setError(
         capabilities?.real_follow_blocked_reason ??
-        'The Vision backend has not enabled Real Follow for this provider.',
+        '视觉后端尚未为此检测器启用真机跟随。',
       );
       return;
     }
     if (!mapping) {
-      setError('The active Profile does not provide two enabled angular joints for Follow mapping.');
+      setError('当前机械臂配置没有提供两个可用于跟随映射的旋转关节。');
       return;
     }
     const epoch = priorityEpochRef.current;
@@ -350,7 +350,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
           await stopVisionFollow(response.lease_id);
         } catch (caught) {
           if (mountedRef.current) {
-            setError(`Compensating Follow Stop failed: ${errorMessage(caught)}`);
+            setError(`补偿性的跟随停止失败：${errorMessage(caught)}`);
           }
         }
         return;
@@ -378,7 +378,7 @@ export function useVisionWorkspace(runtime: RuntimeStatus) {
         await refreshStatus();
       }
     } catch (caught) {
-      if (mountedRef.current) setError(`Follow Stop failed: ${errorMessage(caught)}`);
+      if (mountedRef.current) setError(`停止视觉跟随失败：${errorMessage(caught)}`);
     } finally {
       if (mountedRef.current) setBusy((current) => current === 'stop-follow' ? null : current);
     }

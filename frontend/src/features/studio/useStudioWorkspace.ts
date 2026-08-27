@@ -38,13 +38,13 @@ function id(): string {
 }
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : 'The Studio operation failed.';
+  return error instanceof Error ? error.message : '编排操作失败。';
 }
 
 export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
   const [editor, dispatch] = useReducer(
     studioEditorReducer,
-    createStudioEditorState(createEmptyStudioDocument({ robotVariant: 'V2', name: 'Untitled Motion' })),
+    createStudioEditorState(createEmptyStudioDocument({ robotVariant: 'V2', name: '未命名运动' })),
   );
   const [playheadS, setPlayheadS] = useState(0);
   const [timelineZoom, setTimelineZoom] = useState(1);
@@ -98,7 +98,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
     anchorFrameId: string | null = editorRef.current.selectedFrameId,
   ) => {
     if (editorRef.current.document.frames.length >= MAX_STUDIO_FRAMES) {
-      setError(`A Studio draft supports at most ${MAX_STUDIO_FRAMES} keyframes.`);
+      setError(`编排草稿最多支持 ${MAX_STUDIO_FRAMES} 个关键帧。`);
       return;
     }
     setAction('capture');
@@ -176,12 +176,12 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
     [editor.document.edges],
   );
   const validation = validatePlayableStudioDocument(editor.document);
-  const saveDisabledReason = validation.valid ? null : validation.errors[0] ?? 'Draft is invalid.';
+  const saveDisabledReason = validation.valid ? null : validation.errors[0] ?? '草稿无效。';
   const validateDisabledReason = runtime.backend !== 'connected'
-    ? 'backend unavailable'
-    : draftSession.draft === null ? 'draft is not ready' : null;
+    ? '后端不可用'
+    : draftSession.draft === null ? '草稿尚未就绪' : null;
   const compileDisabledReason = runtime.backend !== 'connected'
-    ? 'backend unavailable'
+    ? '后端不可用'
     : saveDisabledReason;
 
   return {

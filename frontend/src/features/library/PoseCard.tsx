@@ -51,17 +51,17 @@ export function PoseCard({
     <article aria-labelledby={titleId} className="library-card library-card--pose">
       <header className="library-card__header">
         <div>
-          <span className="entity-kind">Pose · {pose.robot_variant}</span>
+          <span className="entity-kind">机位 · {pose.robot_variant}</span>
           <h3 id={titleId}>{pose.name}</h3>
         </div>
-        <span className="entity-revision">rev {pose.revision}</span>
+        <span className="entity-revision">版本 {pose.revision}</span>
       </header>
 
       {pose.description ? <p className="library-card__description">{pose.description}</p> : null}
 
       <dl className="entity-facts">
         <div>
-          <dt>Captured</dt>
+          <dt>捕获时间</dt>
           <dd>{formatEntityDate(pose.created_at)}</dd>
         </div>
         <div>
@@ -71,7 +71,7 @@ export function PoseCard({
           </dd>
         </div>
         <div className="entity-facts__wide">
-          <dt>Joints</dt>
+          <dt>关节</dt>
           <dd className="entity-joints">
             {joints.map(([jointId, value]) => (
               <span key={jointId}>
@@ -82,7 +82,7 @@ export function PoseCard({
         </div>
       </dl>
 
-      <div aria-label={`${pose.name} tags`} className="entity-tags">
+      <div aria-label={`${pose.name} 的标签`} className="entity-tags">
         {pose.tags.length > 0 ? (
           pose.tags.map((tag) => (
             <button key={tag} onClick={() => onTagSelect(tag)} type="button">
@@ -90,7 +90,7 @@ export function PoseCard({
             </button>
           ))
         ) : (
-          <span>No tags</span>
+          <span>无标签</span>
         )}
       </div>
 
@@ -98,17 +98,17 @@ export function PoseCard({
 
       <div className="library-card__actions">
         <button className="command-button" disabled={busy} onClick={() => onView(pose)} type="button">
-          View details
+          查看详情
         </button>
         <button
           className="command-button command-button--primary"
           disabled={busy || gotoDisabledReason !== null}
           onClick={() => onGotoRequest(pose)}
-          title={gotoDisabledReason ?? `Send this snapshot through the reviewed ${runtimeMode === 'REAL' ? 'Real capability' : 'Dry Run'} gateway`}
+          title={gotoDisabledReason ?? `通过已审核的${runtimeMode === 'REAL' ? '真机能力' : '仿真'}入口提交此快照`}
           type="button"
         >
           <Navigation aria-hidden="true" />
-          Goto
+          前往
         </button>
         <Link
           aria-disabled={busy}
@@ -120,7 +120,7 @@ export function PoseCard({
           to={`/studio?pose=${encodeURIComponent(pose.id)}`}
         >
           <Plus aria-hidden="true" />
-          Add to Studio
+          添加到编排
         </Link>
         <button
           className="command-button"
@@ -129,7 +129,7 @@ export function PoseCard({
           type="button"
         >
           <Copy aria-hidden="true" />
-          Duplicate
+          复制
         </button>
         <button
           className="command-button command-button--danger"
@@ -138,23 +138,23 @@ export function PoseCard({
           type="button"
         >
           <Trash2 aria-hidden="true" />
-          Delete
+          删除
         </button>
       </div>
 
-      {gotoDisabledReason ? <p className="stage-boundary-note">Goto unavailable · {gotoDisabledReason}</p> : null}
+      {gotoDisabledReason ? <p className="stage-boundary-note">暂时无法前往 · {gotoDisabledReason}</p> : null}
 
       {gotoPending ? (
         <div aria-labelledby={`goto-pose-${pose.id}`} className="goto-confirmation" role="alertdialog">
-          <strong id={`goto-pose-${pose.id}`}>Goto “{pose.name}”?</strong>
+          <strong id={`goto-pose-${pose.id}`}>前往“{pose.name}”？</strong>
           <p>
             {runtimeMode === 'REAL'
-              ? 'Submit a Joint Motion through the backend-authorized Real Joint Motion gateway.'
-              : 'Submit a Joint Motion through the single Dry Run safety gateway. No real hardware is enabled.'}
+              ? '通过后端授权的真机关节运动入口提交关节运动。'
+              : '通过唯一的仿真安全入口提交关节运动；不会启用实体硬件。'}
           </p>
           <div>
             <button className="command-button" disabled={busy} onClick={onGotoCancel} type="button">
-              Cancel
+              取消
             </button>
             <button
               className="command-button command-button--primary"
@@ -162,7 +162,7 @@ export function PoseCard({
               onClick={() => onGotoConfirm(pose)}
               type="button"
             >
-              Confirm {runtimeMode === 'REAL' ? 'Real' : 'Dry Run'} Goto
+              确认{runtimeMode === 'REAL' ? '真机' : '仿真'}前往
             </button>
           </div>
         </div>
@@ -170,11 +170,11 @@ export function PoseCard({
 
       {deletePending ? (
         <div aria-labelledby={`delete-pose-${pose.id}`} className="delete-confirmation" role="alertdialog">
-          <strong id={`delete-pose-${pose.id}`}>Delete “{pose.name}”?</strong>
-          <p>Existing motions keep their embedded snapshots. This named Pose will be removed.</p>
+          <strong id={`delete-pose-${pose.id}`}>删除“{pose.name}”？</strong>
+          <p>已有运动会保留其内嵌快照；这里只删除这个命名机位。</p>
           <div>
             <button className="command-button" disabled={busy} onClick={onDeleteCancel} type="button">
-              Cancel
+              取消
             </button>
             <button
               className="command-button command-button--danger-solid"
@@ -182,7 +182,7 @@ export function PoseCard({
               onClick={() => onDeleteConfirm(pose)}
               type="button"
             >
-              Confirm delete
+              确认删除
             </button>
           </div>
         </div>

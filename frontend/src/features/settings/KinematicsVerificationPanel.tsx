@@ -41,23 +41,23 @@ const EMPTY_MEASUREMENT: MeasurementFields = {
 };
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : 'Kinematics verification request failed.';
+  return error instanceof Error ? error.message : '运动学验证请求失败。';
 }
 
 function numeric(value: string, label: string): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw new TypeError(`${label} must be a finite number.`);
+  if (!Number.isFinite(parsed)) throw new TypeError(`${label}必须是有限数值。`);
   return parsed;
 }
 
 function thresholds(position: string, orientation: string) {
-  const maxPosition = numeric(position, 'Maximum position error');
-  const maxOrientation = numeric(orientation, 'Maximum orientation error');
+  const maxPosition = numeric(position, '最大位置误差');
+  const maxOrientation = numeric(orientation, '最大姿态误差');
   if (maxPosition <= 0 || maxPosition > 25) {
-    throw new RangeError('Maximum position error must be greater than 0 and at most 25 mm.');
+    throw new RangeError('最大位置误差必须大于 0 且不超过 25 mm。');
   }
   if (maxOrientation <= 0 || maxOrientation > 15) {
-    throw new RangeError('Maximum orientation error must be greater than 0 and at most 15°');
+    throw new RangeError('最大姿态误差必须大于 0 且不超过 15°。');
   }
   return {
     max_position_error_mm: maxPosition,
@@ -68,26 +68,26 @@ function thresholds(position: string, orientation: string) {
 function measuredTcp(fields: MeasurementFields): TcpPose {
   const frame = fields.frame.trim();
   if (!frame || frame.length > 128) {
-    throw new TypeError('Measured TCP frame must contain 1–128 characters.');
+    throw new TypeError('实测 TCP 坐标系名称必须包含 1–128 个字符。');
   }
   const orientation = {
-    x: numeric(fields.qx, 'Quaternion X'),
-    y: numeric(fields.qy, 'Quaternion Y'),
-    z: numeric(fields.qz, 'Quaternion Z'),
-    w: numeric(fields.qw, 'Quaternion W'),
+    x: numeric(fields.qx, '四元数 X'),
+    y: numeric(fields.qy, '四元数 Y'),
+    z: numeric(fields.qz, '四元数 Z'),
+    w: numeric(fields.qw, '四元数 W'),
   };
   if (
     orientation.x ** 2 + orientation.y ** 2 + orientation.z ** 2 + orientation.w ** 2 <
     1e-24
   ) {
-    throw new TypeError('Measured TCP quaternion must be non-zero.');
+    throw new TypeError('实测 TCP 四元数不能为零。');
   }
   return {
     frame,
     position_mm: {
-      x: numeric(fields.x, 'Measured TCP X'),
-      y: numeric(fields.y, 'Measured TCP Y'),
-      z: numeric(fields.z, 'Measured TCP Z'),
+      x: numeric(fields.x, '实测 TCP X'),
+      y: numeric(fields.y, '实测 TCP Y'),
+      z: numeric(fields.z, '实测 TCP Z'),
     },
     orientation_quaternion_xyzw: orientation,
   };
@@ -105,7 +105,7 @@ function jointStateSummary(
     const unit = point.joint_state.units?.[jointId] ?? '';
     return `${jointId}: ${value} ${unit}`.trim();
   }).join(' · ');
-  return `Sequence ${point.joint_state_sequence} · captured ${point.joint_state_captured_at} · ${positions}`;
+  return `序列 ${point.joint_state_sequence} · 采集于 ${point.joint_state_captured_at} · ${positions}`;
 }
 
 export function KinematicsVerificationPanel({
@@ -151,7 +151,7 @@ export function KinematicsVerificationPanel({
   useEffect(() => {
     if (draft && draft.operator_session_id !== summary.session?.session_id) {
       setDraft(null);
-      setError('The Operator Session changed. Start a new measured-TCP draft.');
+      setError('操作员会话已变化，请重新创建实测 TCP 草稿。');
     }
   }, [draft, summary.session?.session_id]);
 
@@ -164,7 +164,7 @@ export function KinematicsVerificationPanel({
         thresholds(positionThreshold, orientationThreshold),
       );
       if (next.operator_session_id !== summary.session?.session_id) {
-        throw new Error('Backend returned a Kinematics draft for another Operator Session.');
+        throw new Error('后端返回了属于其他操作员会话的运动学草稿。');
       }
       setDraft(next);
     } catch (caught) {
@@ -179,7 +179,7 @@ export function KinematicsVerificationPanel({
     if (!draft || !sessionAuthorized) return;
     const label = measurement.label.trim();
     if (!label || label.length > 128) {
-      setError('Measurement label must contain 1–128 characters.');
+      setError('测量点名称必须包含 1–128 个字符。');
       return;
     }
     setPending('measurement');
@@ -190,7 +190,7 @@ export function KinematicsVerificationPanel({
         measured_tcp: measuredTcp(measurement),
       });
       if (next.operator_session_id !== summary.session?.session_id) {
-        throw new Error('Backend returned a measurement for another Operator Session.');
+        throw new Error('后端返回了属于其他操作员会话的测量结果。');
       }
       setDraft(next);
       setMeasurement(EMPTY_MEASUREMENT);
@@ -230,43 +230,43 @@ export function KinematicsVerificationPanel({
       <header>
         <Crosshair aria-hidden="true" />
         <div>
-          <p className="section-kicker">MEASURED FIELD EVIDENCE</p>
-          <h4 id="kinematics-verification-title">Kinematics Verification</h4>
-          <p>Compare backend-predicted TCP poses with independently measured TCP poses at three or more distinct joint states.</p>
+          <p className="section-kicker">实测现场证据</p>
+          <h4 id="kinematics-verification-title">运动学验证</h4>
+          <p>在至少三个不同关节状态下，将后端预测的 TCP 位姿与独立实测的 TCP 位姿进行对比。</p>
         </div>
       </header>
 
       <dl className="kinematics-verification__status">
-        <div><dt>Persisted evidence</dt><dd>{status?.state ?? 'Loading'}</dd></div>
-        <div><dt>Persisted points</dt><dd>{status?.point_count ?? '—'}</dd></div>
-        <div><dt>Draft points</dt><dd>{draft?.points.length ?? 0}</dd></div>
-        <div><dt>Robot unit</dt><dd><code>{draft?.robot_unit_id ?? fieldProgress?.robot_unit_id ?? 'Required'}</code></dd></div>
+        <div><dt>已保存证据</dt><dd>{status?.state ?? '加载中'}</dd></div>
+        <div><dt>已保存测量点</dt><dd>{status?.point_count ?? '—'}</dd></div>
+        <div><dt>草稿测量点</dt><dd>{draft?.points.length ?? 0}</dd></div>
+        <div><dt>机器人单元</dt><dd><code>{draft?.robot_unit_id ?? fieldProgress?.robot_unit_id ?? '必填'}</code></dd></div>
       </dl>
 
       {status?.stale_fields.length ? (
         <div className="commissioning-motion__blocked" role="status">
           <CircleAlert aria-hidden="true" />
           <div>
-            <strong>Existing Kinematics evidence is stale</strong>
+            <strong>已有运动学证据已过期</strong>
             <ul>{status.stale_fields.map((field) => <li key={field}>{field}</li>)}</ul>
           </div>
         </div>
       ) : null}
 
       {!jointAcceptanceComplete && (
-        <p className="real-inline-note">Accept persisted single-joint motion evidence before starting measured-TCP verification.</p>
+        <p className="real-inline-note">开始实测 TCP 验证前，请先确认已保存的单关节运动证据。</p>
       )}
       {!sessionAuthorized && (
         <div className="commissioning-motion__blocked" role="status">
           <CircleAlert aria-hidden="true" />
           <div>
-            <strong>Measured-TCP writes require an active REAL_MOTION session with REAL_JOINT_MOTION authorization.</strong>
+            <strong>写入实测 TCP 数据需要一个已授权 REAL_JOINT_MOTION 的有效 REAL_MOTION 会话。</strong>
             <ul>
               {summary.capabilityDetails.real_joint_motion.blocked_reasons.map((reason) => (
                 <li key={reason}>{reason}</li>
               ))}
               {summary.capabilityDetails.real_joint_motion.required_evidence.map((item) => (
-                <li key={item}>Required evidence: {item}</li>
+                <li key={item}>所需证据：{item}</li>
               ))}
             </ul>
           </div>
@@ -276,7 +276,7 @@ export function KinematicsVerificationPanel({
       {!draft && (
         <div className="kinematics-verification__start">
           <label>
-            Max position error (mm)
+            最大位置误差（mm）
             <input
               max="25"
               min="0.001"
@@ -287,7 +287,7 @@ export function KinematicsVerificationPanel({
             />
           </label>
           <label>
-            Max orientation error (deg)
+            最大姿态误差（deg）
             <input
               max="15"
               min="0.001"
@@ -303,7 +303,7 @@ export function KinematicsVerificationPanel({
             onClick={() => void startDraft()}
             type="button"
           >
-            <Ruler aria-hidden="true" /> {pending === 'draft' ? 'Starting draft…' : 'Start measured-TCP draft'}
+            <Ruler aria-hidden="true" /> {pending === 'draft' ? '正在创建草稿…' : '创建实测 TCP 草稿'}
           </button>
         </div>
       )}
@@ -311,31 +311,31 @@ export function KinematicsVerificationPanel({
       {draft && (
         <>
           <div className="kinematics-verification__draft-facts">
-            <strong>Draft bound to current Operator Session</strong>
-            <span>Checklist: {draft.verification_checklist_version}</span>
-            <span>Software: <code>{draft.software_commit}</code></span>
-            <span>Device: <code>{draft.device_fingerprint}</code></span>
-            <span>Position threshold ≤ {draft.thresholds.max_position_error_mm} mm</span>
-            <span>Orientation threshold ≤ {draft.thresholds.max_orientation_error_deg}°</span>
+            <strong>草稿已绑定当前操作员会话</strong>
+            <span>检查表：{draft.verification_checklist_version}</span>
+            <span>软件：<code>{draft.software_commit}</code></span>
+            <span>设备：<code>{draft.device_fingerprint}</code></span>
+            <span>位置阈值 ≤ {draft.thresholds.max_position_error_mm} mm</span>
+            <span>姿态阈值 ≤ {draft.thresholds.max_orientation_error_deg}°</span>
           </div>
 
           <form className="kinematics-measurement" onSubmit={(event) => void addMeasurement(event)}>
             <div className="kinematics-measurement__snapshot">
-              <strong>Server-owned joint snapshot</strong>
-              <p>The backend captures and validates a fresh hardware readback when this measurement is submitted. Browser state is never accepted as joint evidence.</p>
+              <strong>由服务器采集的关节快照</strong>
+              <p>提交测量点时，后端会采集并验证最新硬件读数；浏览器中的状态不会被用作关节证据。</p>
             </div>
             <label className="kinematics-measurement__wide">
-              Measurement label
+              测量点名称
               <input
                 maxLength={128}
                 onChange={(event) => setMeasurement((current) => ({ ...current, label: event.target.value }))}
-                placeholder="e.g. front-low gauge point"
+                placeholder="例如：前侧低位测量点"
                 required
                 value={measurement.label}
               />
             </label>
             <label>
-              Frame
+              坐标系
               <input
                 maxLength={128}
                 onChange={(event) => setMeasurement((current) => ({ ...current, frame: event.target.value }))}
@@ -345,7 +345,7 @@ export function KinematicsVerificationPanel({
             </label>
             {(['x', 'y', 'z'] as const).map((axis) => (
               <label key={axis}>
-                Measured {axis.toUpperCase()} (mm)
+                实测 {axis.toUpperCase()}（mm）
                 <input
                   onChange={(event) => setMeasurement((current) => ({ ...current, [axis]: event.target.value }))}
                   required
@@ -368,14 +368,14 @@ export function KinematicsVerificationPanel({
               </label>
             ))}
             <p className="kinematics-measurement__note">
-              Enter independent physical measurements. The backend binds its own fresh joint snapshot; MOMO Studio does not use a model label as evidence.
+              请输入独立取得的实体测量值。后端会绑定自己采集的最新关节快照；MOMO Studio 不会把模型标签当作证据。
             </p>
             <button
               className="command-button"
               disabled={!sessionAuthorized || pending !== null}
               type="submit"
             >
-              {pending === 'measurement' ? 'Computing backend residuals…' : 'Add measured point'}
+              {pending === 'measurement' ? '后端正在计算残差…' : '添加实测点'}
             </button>
           </form>
 
@@ -384,19 +384,19 @@ export function KinematicsVerificationPanel({
               <table className="diagnostics-table">
                 <thead>
                   <tr>
-                    <th>Label</th>
-                    <th>Backend joint snapshot</th>
-                    <th>Predicted TCP</th>
-                    <th>Measured TCP</th>
-                    <th>Position error</th>
-                    <th>Orientation error</th>
+                    <th>名称</th>
+                    <th>后端关节快照</th>
+                    <th>预测 TCP</th>
+                    <th>实测 TCP</th>
+                    <th>位置误差</th>
+                    <th>姿态误差</th>
                   </tr>
                 </thead>
                 <tbody>
                   {draft.points.map((point) => (
                     <tr key={point.point_id}>
                       <td>{point.label}</td>
-                      <td title={`Operator Session ${point.snapshot_session_id}`}>
+                      <td title={`操作员会话 ${point.snapshot_session_id}`}>
                         {jointStateSummary(point)}
                       </td>
                       <td>{tcpSummary(point.predicted_tcp)}</td>
@@ -416,10 +416,10 @@ export function KinematicsVerificationPanel({
             onClick={() => void commitDraft()}
             type="button"
           >
-            {pending === 'commit' ? 'Committing measured evidence…' : 'Commit measured Kinematics evidence'}
+            {pending === 'commit' ? '正在保存实测证据…' : '保存运动学实测证据'}
           </button>
           {draft.points.length < 3 && (
-            <p className="real-inline-note">At least three backend-evaluated points are required. The backend also requires distinct joint states and passing residuals.</p>
+            <p className="real-inline-note">至少需要三个经后端评估的测量点；各点必须使用不同关节状态，且残差需要通过阈值检查。</p>
           )}
         </>
       )}

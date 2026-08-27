@@ -28,6 +28,7 @@ import type {
 } from '../../api/types';
 import { useRealSession } from '../../components/realSessionContext';
 import { useRuntimeStatus } from '../../components/runtimeStatusContext';
+import { zhBackendMessage, zhStatus } from '../../i18n/zh';
 import { KinematicsVerificationPanel } from './KinematicsVerificationPanel';
 
 const HEARTBEAT_INTERVAL_MS = 150;
@@ -42,7 +43,7 @@ interface ActiveHold {
 }
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : 'Commissioning Motion Test request failed.';
+  return error instanceof Error ? zhBackendMessage(error.message) : '调试运动测试请求失败。';
 }
 
 function requestId(): string {
@@ -287,7 +288,7 @@ export function CommissioningMotionPanel({
         void heartbeatCommissioningMotionTest().then((next) => {
           if (mounted.current && activeHold.current?.epoch === holdEpoch) setStatus(next);
         }).catch((caught) => {
-          if (mounted.current) setError(`Deadman heartbeat failed: ${message(caught)}`);
+          if (mounted.current) setError(`安全保持心跳失败：${message(caught)}`);
           void requestStop('HEARTBEAT_FAILED');
         });
       }, HEARTBEAT_INTERVAL_MS);
@@ -353,45 +354,45 @@ export function CommissioningMotionPanel({
       <div className="commissioning-motion__warning">
         <ShieldAlert aria-hidden="true" />
         <div>
-          <p className="section-kicker">COMMISSIONING</p>
-          <h3 id="commissioning-motion-title">COMMISSIONING MOTION TEST</h3>
-          <strong>REAL HARDWARE · LOW-SPEED SINGLE-JOINT TEST ONLY</strong>
-          <p>This is not normal robot operation. Physical E-stop must be ready.</p>
+          <p className="section-kicker">现场调试</p>
+          <h3 id="commissioning-motion-title">调试运动测试</h3>
+          <strong>真实硬件 · 仅限低速单关节测试</strong>
+          <p>这不是常规机械臂操作，物理急停必须保持可用。</p>
         </div>
       </div>
 
-      <div className="commissioning-progress" aria-label="Commissioning progress">
-        <h4>Commissioning progress</h4>
+      <div className="commissioning-progress" aria-label="现场验收进度">
+        <h4>现场验收进度</h4>
         <ol>
-          <li><span>Device Identity</span><strong>{progress?.robot_unit_id ? '✓' : 'Pending'}</strong></li>
-          <li><span>Read-only Diagnostics</span><strong>{summary.capabilityDetails.commissioning_read_only.ready ? '✓' : 'Pending'}</strong></li>
-          <li><span>Calibration</span><strong>{summary.readiness?.calibration_configured ? '✓' : 'Pending'}</strong></li>
-          <li><span>Pre-motion Checks</span><strong>{progress?.pre_motion_checks_complete ? '✓' : 'Pending'}</strong></li>
+          <li><span>设备身份</span><strong>{progress?.robot_unit_id ? '✓' : '待完成'}</strong></li>
+          <li><span>只读诊断</span><strong>{summary.capabilityDetails.commissioning_read_only.ready ? '✓' : '待完成'}</strong></li>
+          <li><span>标定</span><strong>{summary.readiness?.calibration_configured ? '✓' : '待完成'}</strong></li>
+          <li><span>运动前检查</span><strong>{progress?.pre_motion_checks_complete ? '✓' : '待完成'}</strong></li>
           <li>
-            <span>Joint Motion Tests</span>
+            <span>关节运动测试</span>
             <strong>{progress ? `${progress.completed_joint_directions} / ${progress.required_joint_directions}` : '—'}</strong>
           </li>
-          <li><span>Joint Motion Acceptance</span><strong>{progress?.joint_motion_accepted ? '✓' : 'Pending'}</strong></li>
-          <li><span>Kinematics Verification</span><strong>{kinematicsEvidenceRecorded ? 'Evidence recorded' : 'Pending'}</strong></li>
-          <li><span>Cartesian Acceptance</span><strong>{progress?.valid_capabilities.includes('CARTESIAN') ? '✓' : 'Pending'}</strong></li>
-          <li><span>Playback Acceptance</span><strong>{progress?.valid_capabilities.includes('PLAYBACK') ? '✓' : 'Pending'}</strong></li>
-          <li><span>Vision Follow Acceptance</span><strong>{progress?.valid_capabilities.includes('VISION_FOLLOW') ? '✓' : 'Pending'}</strong></li>
+          <li><span>关节运动验收</span><strong>{progress?.joint_motion_accepted ? '✓' : '待完成'}</strong></li>
+          <li><span>运动学验证</span><strong>{kinematicsEvidenceRecorded ? '证据已记录' : '待完成'}</strong></li>
+          <li><span>笛卡尔运动验收</span><strong>{progress?.valid_capabilities.includes('CARTESIAN') ? '✓' : '待完成'}</strong></li>
+          <li><span>回放验收</span><strong>{progress?.valid_capabilities.includes('PLAYBACK') ? '✓' : '待完成'}</strong></li>
+          <li><span>视觉跟随验收</span><strong>{progress?.valid_capabilities.includes('VISION_FOLLOW') ? '✓' : '待完成'}</strong></li>
         </ol>
       </div>
 
       <dl className="commissioning-motion__facts">
-        <div><dt>Robot unit ID</dt><dd><code>{progress?.robot_unit_id ?? summary.readiness?.confirmation.robot_unit_id ?? 'Required'}</code></dd></div>
-        <div><dt>Acceptance state</dt><dd>{progress?.state ?? 'Loading'}</dd></div>
-        <div><dt>Checklist</dt><dd>{progress?.checklist_version ?? '—'}</dd></div>
-        <div><dt>Session state</dt><dd>{status?.state ?? (sessionAuthorized ? 'Not bound' : 'Not authorized')}</dd></div>
-        <div><dt>Commands</dt><dd>{status?.command_count ?? 0}</dd></div>
-        <div><dt>Physical stop verification</dt><dd>{progress?.physical_stop_verification ?? status?.physical_stop_verification ?? 'PENDING'}</dd></div>
+        <div><dt>机器人单元 ID</dt><dd><code>{progress?.robot_unit_id ?? summary.readiness?.confirmation.robot_unit_id ?? '必填'}</code></dd></div>
+        <div><dt>验收状态</dt><dd>{zhStatus(progress?.state ?? 'LOADING')}</dd></div>
+        <div><dt>检查表</dt><dd>{progress?.checklist_version ?? '—'}</dd></div>
+        <div><dt>会话状态</dt><dd>{zhStatus(status?.state ?? (sessionAuthorized ? 'NOT_BOUND' : 'NOT_AUTHORIZED'))}</dd></div>
+        <div><dt>命令数</dt><dd>{status?.command_count ?? 0}</dd></div>
+        <div><dt>实体停止验证</dt><dd>{zhStatus(progress?.physical_stop_verification ?? status?.physical_stop_verification ?? 'PENDING')}</dd></div>
       </dl>
 
-      <div className="commissioning-acceptance-actions" aria-label="Persisted acceptance actions">
+      <div className="commissioning-acceptance-actions" aria-label="验收证据保存操作">
         <div>
-          <strong>Pre-motion checklist</strong>
-          <p>Records a fresh backend diagnostics snapshot. A connected read-only commissioning session is required.</p>
+          <strong>运动前检查表</strong>
+          <p>记录一份最新的后端诊断快照；需要已连接的只读调试会话。</p>
           <button
             className="command-button"
             disabled={
@@ -401,12 +402,12 @@ export function CommissioningMotionPanel({
             onClick={() => void recordPreMotionChecks()}
             type="button"
           >
-            {pending === 'pre-motion' ? 'Recording pre-motion checks…' : 'Record pre-motion checks'}
+            {pending === 'pre-motion' ? '正在记录运动前检查…' : '记录运动前检查'}
           </button>
         </div>
         <div>
-          <strong>Persisted joint evidence</strong>
-          <p>Accepts only the backend-selected positive and negative evidence for every enabled joint.</p>
+          <strong>已保存的关节证据</strong>
+          <p>只接受后端为每个已启用关节选定的正、负方向证据。</p>
           <button
             className="command-button"
             disabled={
@@ -416,7 +417,7 @@ export function CommissioningMotionPanel({
             onClick={() => void acceptPersistedJointEvidence()}
             type="button"
           >
-            {pending === 'accept-joints' ? 'Accepting joint evidence…' : 'Accept persisted joint evidence'}
+            {pending === 'accept-joints' ? '正在确认关节证据…' : '确认已保存的关节证据'}
           </button>
         </div>
       </div>
@@ -425,11 +426,11 @@ export function CommissioningMotionPanel({
         <div className="commissioning-motion__blocked" role="status">
           <CircleAlert aria-hidden="true" />
           <div>
-            <strong>Commissioning Motion Test is blocked</strong>
+            <strong>调试运动测试已被阻止</strong>
             <ul>
-              {capability.blocked_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              {capability.blocked_reasons.map((reason) => <li key={reason}>{zhBackendMessage(reason)}</li>)}
               {capability.required_evidence.map((item) => (
-                <li key={item}>Required evidence: {item}</li>
+                <li key={item}>所需证据：{item}</li>
               ))}
             </ul>
           </div>
@@ -443,7 +444,7 @@ export function CommissioningMotionPanel({
           onClick={() => void bindSession()}
           type="button"
         >
-          {pending === 'bind' ? 'Binding watchdog…' : 'Bind authorized test session'}
+          {pending === 'bind' ? '正在绑定看门狗…' : '绑定已授权测试会话'}
         </button>
       )}
 
@@ -460,13 +461,13 @@ export function CommissioningMotionPanel({
               <header>
                 <div><strong>{jointId.toUpperCase()}</strong><span>{unit}</span></div>
                 <dl>
-                  <div><dt>Current</dt><dd>{record?.logical_value ?? '—'} {unit}</dd></div>
+                  <div><dt>当前值</dt><dd>{record?.logical_value ?? '—'} {unit}</dd></div>
                   <div><dt>Raw</dt><dd>{record?.present_raw ?? '—'}</dd></div>
                 </dl>
               </header>
               <p>
-                Delta request {requested.delta} {unit} · hard cap ≤ {requested.hardDelta} {unit}
-                <br />Speed request {requested.speed} {unit}/s · hard cap ≤ {requested.hardSpeed} {unit}/s
+                位移请求 {requested.delta} {unit} · 硬上限 ≤ {requested.hardDelta} {unit}
+                <br />速度请求 {requested.speed} {unit}/s · 硬上限 ≤ {requested.hardSpeed} {unit}/s
               </p>
               <div className="commissioning-joint__holds">
                 {([-1, 1] as const).map((direction) => {
@@ -474,30 +475,30 @@ export function CommissioningMotionPanel({
                   return (
                     <button
                       {...holdHandlers(jointId, unit, direction)}
-                      aria-label={`Hold ${jointId.toUpperCase()} ${direction < 0 ? 'negative' : 'positive'} commissioning test`}
+                      aria-label={`按住执行 ${jointId.toUpperCase()} ${direction < 0 ? '负方向' : '正方向'}调试测试`}
                       aria-pressed={active}
                       className={`command-button commissioning-hold${active ? ' commissioning-hold--active' : ''}`}
                       disabled={!testReady && !active}
                       key={direction}
                       type="button"
                     >
-                      <MoveHorizontal aria-hidden="true" /> Hold {direction < 0 ? '−' : '+'}
+                      <MoveHorizontal aria-hidden="true" /> 按住 {direction < 0 ? '−' : '+'}
                     </button>
                   );
                 })}
               </div>
               <dl className="commissioning-joint__results">
                 <div>
-                  <dt>Negative direction</dt>
-                  <dd>{persisted?.negative_evidence_id ? 'Recorded' : 'Pending'}</dd>
+                  <dt>负方向</dt>
+                  <dd>{persisted?.negative_evidence_id ? '已记录' : '待完成'}</dd>
                 </div>
                 <div>
-                  <dt>Positive direction</dt>
-                  <dd>{persisted?.positive_evidence_id ? 'Recorded' : 'Pending'}</dd>
+                  <dt>正方向</dt>
+                  <dd>{persisted?.positive_evidence_id ? '已记录' : '待完成'}</dd>
                 </div>
-                <div><dt>Backend pair</dt><dd>{persisted?.complete ? 'Complete' : 'Incomplete'}</dd></div>
-                <div><dt>Latest readback</dt><dd>{[latestNegative, latestPositive].filter(Boolean).at(-1)?.measured_or_observed_result ?? 'See persisted evidence'}</dd></div>
-                <div><dt>Latest divergence</dt><dd>{[latestNegative, latestPositive].filter(Boolean).at(-1)?.divergence ?? '—'}</dd></div>
+                <div><dt>后端证据对</dt><dd>{persisted?.complete ? '完整' : '不完整'}</dd></div>
+                <div><dt>最新回读</dt><dd>{[latestNegative, latestPositive].filter(Boolean).at(-1)?.measured_or_observed_result ?? '请查看已保存证据'}</dd></div>
+                <div><dt>最新偏差</dt><dd>{[latestNegative, latestPositive].filter(Boolean).at(-1)?.divergence ?? '—'}</dd></div>
               </dl>
             </article>
           );
@@ -514,21 +515,21 @@ export function CommissioningMotionPanel({
           }}
           type="button"
         >
-          <Square aria-hidden="true" /> STOP TEST
+          <Square aria-hidden="true" /> 停止测试
         </button>
         <div>
-          <strong>Physical E-stop must remain reachable.</strong>
-          <span>Software Stop physical behavior: NOT YET FIELD VERIFIED</span>
-          <span>Fake-bus software paths never prove physical stopping behavior.</span>
+          <strong>物理急停必须始终触手可及。</strong>
+          <span>软件停止的实体行为：尚未现场验证</span>
+          <span>模拟总线的软件链路不能证明实体停止行为。</span>
         </div>
       </div>
 
       <div className="commissioning-kinematics">
-        <strong>Kinematics Verification requires measured TCP evidence</strong>
-        <p>Tracked model labels cannot verify Kinematics. Only measured field points committed by the backend count.</p>
+        <strong>运动学验证需要实测 TCP 证据</strong>
+        <p>模型标签不能验证运动学；只有由后端保存的现场实测点才有效。</p>
         <ul>
-          {kinematicsReasons.blocked_reasons.map((reason) => <li key={reason}>{reason}</li>)}
-          {kinematicsReasons.required_evidence.map((item) => <li key={item}>Required evidence: {item}</li>)}
+          {kinematicsReasons.blocked_reasons.map((reason) => <li key={reason}>{zhBackendMessage(reason)}</li>)}
+          {kinematicsReasons.required_evidence.map((item) => <li key={item}>所需证据：{item}</li>)}
         </ul>
       </div>
 

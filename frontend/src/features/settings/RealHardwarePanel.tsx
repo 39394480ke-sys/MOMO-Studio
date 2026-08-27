@@ -16,6 +16,7 @@ import type {
   OperatorSessionPurpose,
 } from '../../api/types';
 import { useRealSession } from '../../components/realSessionContext';
+import { zhBackendMessage, zhStatus } from '../../i18n/zh';
 import { CalibrationWizard } from './CalibrationWizard';
 import { CommissioningMotionPanel } from './CommissioningMotionPanel';
 import { OperatorSessionDialog } from './OperatorSessionDialog';
@@ -32,18 +33,18 @@ const HARDWARE_DISABLED_STATES = new Set([
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiError || error instanceof Error) return error.message;
-  return 'The device request failed.';
+  return '设备请求失败。';
 }
 
 function maskedList(values: string[]): string {
-  return values.length > 0 ? values.join(', ') : 'Not configured';
+  return values.length > 0 ? values.join(', ') : '未配置';
 }
 
 function purposeLabel(purpose: OperatorSessionPurpose): string {
-  if (purpose === 'COMMISSIONING_READ_ONLY') return 'READ ONLY';
-  if (purpose === 'COMMISSIONING_MOTION_TEST') return 'COMMISSIONING MOTION TEST';
-  if (purpose === 'RAW_DIRECTION_TEST') return 'RAW DIRECTION TEST';
-  return 'REAL MOTION';
+  if (purpose === 'COMMISSIONING_READ_ONLY') return '只读验收';
+  if (purpose === 'COMMISSIONING_MOTION_TEST') return '现场运动测试';
+  if (purpose === 'RAW_DIRECTION_TEST') return 'Raw 方向测试';
+  return '真机运动';
 }
 
 function EvidenceStatus({ label, value }: { label: string; value: DeviceDiagnostics['profile'] }) {
@@ -51,9 +52,9 @@ function EvidenceStatus({ label, value }: { label: string; value: DeviceDiagnost
     <div>
       <dt>{label}</dt>
       <dd>
-        <strong>{value.ready_for_real ? 'Ready' : 'Blocked'}</strong>
-        <span>{value.verification_status ?? 'Not verified'}</span>
-        <code>{value.fingerprint ?? 'No fingerprint'}</code>
+        <strong>{value.ready_for_real ? '已就绪' : '已阻止'}</strong>
+        <span>{zhStatus(value.verification_status, '未验证')}</span>
+        <code>{value.fingerprint ?? '无指纹'}</code>
       </dd>
     </div>
   );
@@ -107,7 +108,7 @@ export function RealHardwarePanel() {
   const sessionLabel = useMemo(() => {
     if (!session) return null;
     const expiry = new Date(session.expires_at);
-    return Number.isNaN(expiry.valueOf()) ? session.expires_at : expiry.toLocaleTimeString();
+    return Number.isNaN(expiry.valueOf()) ? session.expires_at : expiry.toLocaleTimeString('zh-CN');
   }, [session]);
 
   const runProtected = useCallback(async (
@@ -134,7 +135,7 @@ export function RealHardwarePanel() {
     workspaceClearConfirmed: boolean,
   ) => {
     if (!selectedPurpose) {
-      setDialogError('The backend did not provide a purpose-specific authorization request.');
+      setDialogError('后端没有提供与当前用途匹配的授权请求。');
       return;
     }
     setDialogError(null);
@@ -176,7 +177,7 @@ export function RealHardwarePanel() {
     }
   };
 
-  const blockedReasons = readiness?.blocking_reasons ?? ['Readiness has not been loaded.'];
+  const blockedReasons = readiness?.blocking_reasons ?? ['尚未加载就绪状态。'];
   const hasSession = session !== null;
   const commissioningSession = session?.purpose === 'COMMISSIONING_READ_ONLY' &&
     summary.capabilityDetails.commissioning_read_only.authorized;
@@ -201,12 +202,12 @@ export function RealHardwarePanel() {
   const calibrationConfigured =
     calibrationUiState === 'CONFIGURED' || readiness?.calibration_configured === true;
   const calibrationLabel = calibrationUiState === 'DRAFT'
-    ? 'Draft'
+    ? '草稿'
     : calibrationConfigured
       ? fieldAcceptance?.effective_status === 'PASSED'
-        ? 'Calibration configured'
-        : 'Calibration configured · Field acceptance pending'
-      : 'Not configured';
+        ? '标定已配置'
+        : '标定已配置 · 等待现场验收'
+      : '未配置';
   const fieldAcceptanceStale = fieldAcceptance?.state === 'STALE' ||
     fieldAcceptance?.state === 'STALE_LEGACY_EVIDENCE';
   const fieldAcceptanceLabel = fieldAcceptanceStale
@@ -224,7 +225,7 @@ export function RealHardwarePanel() {
       ? readiness?.ready
         ? '实体运动已授权'
         : '实体运动未开放'
-      : 'DRY RUN · 实体未启用';
+      : '仿真运行 · 实体未启用';
   const selectedAuthorization = summary.authorizationOptions.find(
     (option) => option.purpose === selectedPurpose,
   ) ?? null;
@@ -305,26 +306,26 @@ export function RealHardwarePanel() {
         <div className="real-gate-card">
           <Shield aria-hidden="true" />
           <div>
-            <span>Hardware Disabled</span>
-            <strong>{accessMode === 'DISABLED' ? 'ACTIVE' : 'INACTIVE'}</strong>
+            <span>硬件已禁用</span>
+            <strong>{accessMode === 'DISABLED' ? '当前生效' : '未生效'}</strong>
           </div>
         </div>
         <div className="real-gate-card">
           <Gauge aria-hidden="true" />
           <div>
-            <span>Commissioning / Read-only</span>
+            <span>现场验收 / 只读</span>
             <strong>{commissioningAvailable
-              ? 'AVAILABLE'
+              ? '可用'
               : accessMode === 'COMMISSIONING'
-                ? 'BLOCKED'
-                : 'UNAVAILABLE'}</strong>
+                ? '已阻止'
+                : '不可用'}</strong>
           </div>
         </div>
         <div className="real-gate-card">
           <Shield aria-hidden="true" />
           <div>
-            <span>Real Motion</span>
-            <strong>{readiness?.ready ? 'AUTHORIZED' : motionPrerequisitesAvailable ? 'SESSION REQUIRED' : 'BLOCKED'}</strong>
+            <span>真机运动</span>
+            <strong>{readiness?.ready ? '已授权' : motionPrerequisitesAvailable ? '需要会话' : '已阻止'}</strong>
           </div>
         </div>
       </div>
@@ -332,15 +333,15 @@ export function RealHardwarePanel() {
       <div className="real-gate-grid">
         <div className="real-gate-card">
           {readiness?.connected ? <Link2 aria-hidden="true" /> : <Link2Off aria-hidden="true" />}
-          <div><span>Connection</span><strong>{readiness?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
+          <div><span>连接</span><strong>{readiness?.connected ? '已连接' : '未连接'}</strong></div>
         </div>
         <div className="real-gate-card">
           <Gauge aria-hidden="true" />
-          <div><span>Calibration</span><strong>{calibrationLabel}</strong></div>
+          <div><span>标定</span><strong>{calibrationLabel}</strong></div>
         </div>
         <div className="real-gate-card">
           <Shield aria-hidden="true" />
-          <div><span>Field acceptance</span><strong>{fieldAcceptanceLabel}</strong></div>
+          <div><span>现场验收</span><strong>{zhStatus(fieldAcceptanceLabel)}</strong></div>
         </div>
       </div>
 
@@ -348,7 +349,7 @@ export function RealHardwarePanel() {
         <div className="readiness-block real-blockers" role="status">
           <CircleAlert aria-hidden="true" />
           <div>
-            <strong>Field Acceptance evidence is stale · Real Motion blocked</strong>
+            <strong>现场验收证据已经过期 · 真机运动已阻止</strong>
             <ul>{fieldAcceptance.stale_fields.map((field) => <li key={field}>{field}</li>)}</ul>
           </div>
         </div>
@@ -359,38 +360,38 @@ export function RealHardwarePanel() {
           <Shield aria-hidden="true" />
           <div>
             <strong>{commissioningAvailable
-              ? 'Real motion remains blocked; read-only commissioning is available'
-              : 'Real hardware access remains blocked'}</strong>
-            <ul>{blockedReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+              ? '真机运动保持禁用；只读现场验收可用'
+              : '真实硬件访问保持禁用'}</strong>
+            <ul>{blockedReasons.map((reason) => <li key={reason}>{zhBackendMessage(reason)}</li>)}</ul>
           </div>
         </div>
       )}
 
       {readiness && (
-        <div className="real-capabilities" aria-label="Real capability readiness">
+        <div className="real-capabilities" aria-label="真机能力就绪状态">
           {([
-            ['Commissioning read-only', 'commissioning_read_only'],
-            ['Commissioning motion test', 'commissioning_motion_test'],
-            ['Raw ± direction test', 'raw_direction_test'],
-            ['Joint motion', 'real_joint_motion'],
-            ['Cartesian motion', 'real_cartesian_motion'],
-            ['Playback', 'real_playback'],
-            ['Vision Follow', 'real_vision_follow'],
+            ['只读现场验收', 'commissioning_read_only'],
+            ['现场运动测试', 'commissioning_motion_test'],
+            ['Raw ± 方向测试', 'raw_direction_test'],
+            ['关节运动', 'real_joint_motion'],
+            ['笛卡尔运动', 'real_cartesian_motion'],
+            ['运动播放', 'real_playback'],
+            ['视觉跟随', 'real_vision_follow'],
           ] as const).map(([label, key]) => {
             const detail = summary.capabilityDetails[key];
             return (
             <div className="real-capability real-capability--detailed" key={label}>
               <span>{label}</span>
               <strong>{detail.ready && detail.authorized
-                ? 'AUTHORIZED'
+                ? '已授权'
                 : detail.ready
-                  ? 'SESSION REQUIRED'
-                  : 'BLOCKED'}</strong>
+                  ? '需要会话'
+                  : '已阻止'}</strong>
               {(detail.blocked_reasons.length > 0 || detail.required_evidence.length > 0) && (
                 <ul>
-                  {detail.blocked_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                  {detail.blocked_reasons.map((reason) => <li key={reason}>{zhBackendMessage(reason)}</li>)}
                   {detail.required_evidence.map((evidence) => (
-                    <li key={`evidence-${evidence}`}>Required evidence: {evidence}</li>
+                    <li key={`evidence-${evidence}`}>需要验收证据：{evidence}</li>
                   ))}
                 </ul>
               )}
@@ -402,23 +403,23 @@ export function RealHardwarePanel() {
 
       {readiness && (
         <dl className="real-evidence-grid real-evidence-grid--panel">
-          <div><dt>Robot unit ID</dt><dd><code>{readiness.confirmation.robot_unit_id ?? 'Not configured'}</code></dd></div>
-          <div><dt>Variant</dt><dd>{readiness.confirmation.variant ?? 'Not configured'}</dd></div>
-          <div><dt>Serial</dt><dd><code>{readiness.confirmation.masked_serial_port ?? 'Not configured'}</code></dd></div>
-          <div><dt>Servo IDs</dt><dd>{maskedList(readiness.confirmation.masked_servo_ids)}</dd></div>
-          <div><dt>Protocol</dt><dd>{readiness.confirmation.protocol ?? 'Not configured'}</dd></div>
-          <div><dt>Profile fingerprint</dt><dd><code>{readiness.confirmation.profile_fingerprint ?? 'Not configured'}</code></dd></div>
-          <div><dt>Calibration fingerprint</dt><dd><code>{readiness.confirmation.calibration_fingerprint ?? 'Not configured'}</code></dd></div>
+          <div><dt>机械臂单元 ID</dt><dd><code>{readiness.confirmation.robot_unit_id ?? '未配置'}</code></dd></div>
+          <div><dt>型号</dt><dd>{readiness.confirmation.variant ?? '未配置'}</dd></div>
+          <div><dt>串口</dt><dd><code>{readiness.confirmation.masked_serial_port ?? '未配置'}</code></dd></div>
+          <div><dt>舵机 ID</dt><dd>{maskedList(readiness.confirmation.masked_servo_ids)}</dd></div>
+          <div><dt>协议</dt><dd>{readiness.confirmation.protocol ?? '未配置'}</dd></div>
+          <div><dt>配置指纹</dt><dd><code>{readiness.confirmation.profile_fingerprint ?? '未配置'}</code></dd></div>
+          <div><dt>标定指纹</dt><dd><code>{readiness.confirmation.calibration_fingerprint ?? '未配置'}</code></dd></div>
         </dl>
       )}
 
       <div className="real-session-bar">
         <div>
-          <span>Operator Session</span>
+          <span>操作员会话</span>
           <strong>{session
-            ? `${purposeLabel(session.purpose)} · Expires at ${sessionLabel}`
-            : 'No active cookie-backed session'}</strong>
-          <small>The HttpOnly authorization cookie is never exposed to JavaScript.</small>
+            ? `${purposeLabel(session.purpose)} · ${sessionLabel} 到期`
+            : '当前没有有效的 Cookie 授权会话'}</strong>
+          <small>JavaScript 永远无法读取 HttpOnly 授权 Cookie。</small>
         </div>
         <div className="real-actions">
           {summary.authorizationOptions
@@ -439,12 +440,12 @@ export function RealHardwarePanel() {
               type="button"
             >
               {option.purpose === 'COMMISSIONING_READ_ONLY'
-                ? 'Authorize READ ONLY'
+                ? '授权只读验收'
                 : option.purpose === 'COMMISSIONING_MOTION_TEST'
-                  ? 'Authorize Motion Test'
+                  ? '授权运动测试'
                   : option.purpose === 'RAW_DIRECTION_TEST'
-                    ? 'Authorize Raw ± Test'
-                    : 'Authorize Real Motion'}
+                    ? '授权 Raw ± 测试'
+                    : '授权真机运动'}
             </button>
           ))}
           <button
@@ -453,7 +454,7 @@ export function RealHardwarePanel() {
             onClick={() => void endSession()}
             type="button"
           >
-            End session
+            结束会话
           </button>
         </div>
       </div>
@@ -465,7 +466,7 @@ export function RealHardwarePanel() {
           onClick={() => void runProtected('connect', connectRealDevice)}
           type="button"
         >
-          <Link2 aria-hidden="true" /> Connect Read-Only
+          <Link2 aria-hidden="true" /> 只读连接
         </button>
         <button
           className="command-button"
@@ -473,7 +474,7 @@ export function RealHardwarePanel() {
           onClick={() => void runProtected('diagnostics', runDeviceDiagnostics)}
           type="button"
         >
-          <RefreshCw aria-hidden="true" /> Diagnostics
+          <RefreshCw aria-hidden="true" /> 运行诊断
         </button>
         <button
           className="command-button"
@@ -481,7 +482,7 @@ export function RealHardwarePanel() {
           onClick={() => void runProtected('disconnect', disconnectRealDevice)}
           type="button"
         >
-          <Link2Off aria-hidden="true" /> Disconnect
+          <Link2Off aria-hidden="true" /> 断开连接
         </button>
         <button
           className="command-button command-button--stop"
@@ -489,7 +490,7 @@ export function RealHardwarePanel() {
           onClick={() => void stop()}
           type="button"
         >
-          <Square aria-hidden="true" /> Real Motion software Stop
+          <Square aria-hidden="true" /> 真机运动软件停止
         </button>
       </div>
 
@@ -497,7 +498,7 @@ export function RealHardwarePanel() {
         <div className="real-stop-result" role="status">
           <strong>{stopResult.result}</strong>
           <span>{stopResult.detail}</span>
-          {stopResult.physical_estop_required && <b>Use the physical E-stop.</b>}
+          {stopResult.physical_estop_required && <b>请使用物理急停。</b>}
         </div>
       )}
 
@@ -505,35 +506,35 @@ export function RealHardwarePanel() {
         <div className="real-diagnostics">
           <div className="settings-section__heading settings-section__heading--inline">
             <div>
-              <p className="section-kicker">Explicit read only</p>
-              <h3>Device Diagnostics</h3>
+              <p className="section-kicker">明确只读</p>
+              <h3>设备诊断</h3>
             </div>
             <span>{diagnostics.captured_at}</span>
           </div>
           <dl className="real-evidence-grid real-evidence-grid--panel">
-            <div><dt>Dependency</dt><dd>{diagnostics.dependency.state}<small>{diagnostics.dependency.notice}</small></dd></div>
-            <div><dt>Hardware policy</dt><dd>{diagnostics.hardware_policy}</dd></div>
-            <div><dt>Readiness</dt><dd>{diagnostics.readiness}</dd></div>
-            <EvidenceStatus label="Profile" value={diagnostics.profile} />
-            <EvidenceStatus label="Calibration" value={diagnostics.calibration} />
-            <EvidenceStatus label="Kinematics" value={diagnostics.kinematics} />
+            <div><dt>依赖</dt><dd>{zhStatus(diagnostics.dependency.state)}<small>{zhBackendMessage(diagnostics.dependency.notice)}</small></dd></div>
+            <div><dt>硬件策略</dt><dd>{zhStatus(diagnostics.hardware_policy)}</dd></div>
+            <div><dt>就绪状态</dt><dd>{zhStatus(diagnostics.readiness)}</dd></div>
+            <EvidenceStatus label="机械臂配置" value={diagnostics.profile} />
+            <EvidenceStatus label="标定" value={diagnostics.calibration} />
+            <EvidenceStatus label="运动学" value={diagnostics.kinematics} />
           </dl>
           {diagnostics.last_error && <p className="real-inline-error">{diagnostics.last_error}</p>}
           <div className="real-table-wrap">
             <table className="real-diagnostics-table">
-              <caption>Explicit configured Servo diagnostics</caption>
-              <thead><tr><th>Joint</th><th>Servo</th><th>Ping</th><th>Mode</th><th>Present raw</th><th>Logical</th><th>Raw bounds</th><th>Torque</th></tr></thead>
+              <caption>已明确配置的舵机诊断</caption>
+              <thead><tr><th>关节</th><th>舵机</th><th>通信</th><th>模式</th><th>当前 Raw</th><th>逻辑值</th><th>Raw 范围</th><th>扭矩</th></tr></thead>
               <tbody>
                 {diagnostics.records.map((record) => (
                   <tr key={record.joint_id}>
                     <th scope="row">{record.joint_id.toUpperCase()}</th>
                     <td>{record.masked_servo_id}</td>
-                    <td>{record.ping_responded ? 'Yes' : 'No'}</td>
-                    <td>{record.operating_mode ?? 'Unknown'}</td>
+                    <td>{record.ping_responded ? '正常' : '失败'}</td>
+                    <td>{record.operating_mode ?? '未知'}</td>
                     <td>{record.present_raw ?? '—'}</td>
                     <td>{record.logical_value ?? '—'}</td>
                     <td>{record.raw_bounds?.join('…') ?? '—'}</td>
-                    <td>{record.torque_enabled === null ? 'Unknown' : record.torque_enabled ? 'On' : 'Off'}</td>
+                    <td>{record.torque_enabled === null ? '未知' : record.torque_enabled ? '开启' : '关闭'}</td>
                   </tr>
                 ))}
               </tbody>

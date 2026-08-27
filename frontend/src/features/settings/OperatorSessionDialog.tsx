@@ -16,7 +16,7 @@ interface OperatorSessionDialogProps {
 }
 
 function EvidenceValue({ value }: { value: string | null }) {
-  return <code>{value ?? 'Not configured'}</code>;
+  return <code>{value ?? '未配置'}</code>;
 }
 
 export function OperatorSessionDialog({
@@ -57,20 +57,20 @@ export function OperatorSessionDialog({
         <div className="real-dialog__header">
           <div>
             <p className="section-kicker">
-              {rawDirection ? '一次确认 · 约 15 分钟连续验收' : `Short-lived authorization · ${evidence.session_purpose}`}
+              {rawDirection ? '一次确认 · 约 15 分钟连续验收' : `短期授权 · ${evidence.session_purpose}`}
             </p>
             <h2 id="operator-session-title">
               {commissioning
-                ? 'Open READ ONLY Commissioning Session'
+                ? '开启只读现场验收会话'
                 : commissioningMotion
-                  ? 'Open Commissioning Motion Test Session'
+                  ? '开启现场运动测试会话'
                   : rawDirection
                     ? '开始六轴 Raw ± 方向验收'
-                  : 'Open Real Motion Session'}
+                  : '开启真机运动会话'}
             </h2>
           </div>
           <button
-            aria-label="Close Operator Session dialog"
+            aria-label="关闭操作员会话对话框"
             className="icon-button"
             disabled={pending}
             onClick={onCancel}
@@ -84,12 +84,12 @@ export function OperatorSessionDialog({
           <ShieldAlert aria-hidden="true" />
           <p>
             {commissioning
-              ? 'This session can read only the configured Servo IDs for diagnostics and calibration. It cannot move, Home, scan, change torque, or write registers.'
+              ? '此会话只能读取已配置的舵机 ID，用于诊断和标定；不能运动、回零、扫描、修改扭矩或写寄存器。'
               : commissioningMotion
-                ? 'This session permits only backend-bounded, low-speed, single-joint commissioning tests. It cannot Home, move multiple joints, run Cartesian motion, Playback, or Vision Follow.'
+                ? '此会话只允许执行由后端限制的低速单关节现场测试；不能回零、多关节运动、笛卡尔运动、播放或视觉跟随。'
                 : rawDirection
                   ? '确认一次后，系统会在同一会话中读取六轴零点并依次验收 J10–J15。每次只允许一个关节在零点附近小步运动，松手立即停止。'
-                : 'This is software motion authorization, not a physical emergency stop. Keep the physical E-stop reachable and the robot workspace clear.'}
+                : '这是软件运动授权，不能替代物理急停。请确保急停可触达，并清空机械臂工作空间。'}
           </p>
         </div>
 
@@ -116,29 +116,29 @@ export function OperatorSessionDialog({
             <details className="raw-technical-details">
               <summary>查看技术身份</summary>
               <dl className="real-evidence-grid">
-                <div><dt>Profile</dt><dd><EvidenceValue value={evidence.profile_fingerprint} /></dd></div>
-                <div><dt>Serial</dt><dd><EvidenceValue value={evidence.masked_serial_port} /></dd></div>
-                <div><dt>Purpose</dt><dd>{evidence.session_purpose}</dd></div>
-                <div><dt>Confirmation</dt><dd><code>{evidence.required_confirmation_text}</code></dd></div>
+                <div><dt>配置指纹</dt><dd><EvidenceValue value={evidence.profile_fingerprint} /></dd></div>
+                <div><dt>串口</dt><dd><EvidenceValue value={evidence.masked_serial_port} /></dd></div>
+                <div><dt>用途</dt><dd>{evidence.session_purpose}</dd></div>
+                <div><dt>确认文本</dt><dd><code>{evidence.required_confirmation_text}</code></dd></div>
               </dl>
             </details>
           </>
         ) : (
           <>
             <dl className="real-evidence-grid">
-              <div><dt>Robot</dt><dd><EvidenceValue value={evidence.robot_id} /></dd></div>
-              <div><dt>Robot unit</dt><dd><EvidenceValue value={evidence.robot_unit_id ?? null} /></dd></div>
-              <div><dt>Purpose</dt><dd>{evidence.session_purpose}</dd></div>
-              <div><dt>Variant</dt><dd>{evidence.variant ?? 'Not configured'}</dd></div>
-              <div><dt>Profile</dt><dd><EvidenceValue value={evidence.profile_fingerprint} /></dd></div>
-              <div><dt>Calibration</dt><dd><EvidenceValue value={evidence.calibration_fingerprint} /></dd></div>
-              <div><dt>Kinematics</dt><dd><EvidenceValue value={evidence.kinematics_fingerprint} /></dd></div>
-              <div><dt>Serial</dt><dd><EvidenceValue value={evidence.masked_serial_port} /></dd></div>
-              <div><dt>Servo IDs</dt><dd>{evidence.masked_servo_ids.join(', ') || 'Not configured'}</dd></div>
-              <div><dt>Protocol</dt><dd><EvidenceValue value={evidence.protocol} /></dd></div>
+              <div><dt>机械臂</dt><dd><EvidenceValue value={evidence.robot_id} /></dd></div>
+              <div><dt>机械臂单元</dt><dd><EvidenceValue value={evidence.robot_unit_id ?? null} /></dd></div>
+              <div><dt>用途</dt><dd>{evidence.session_purpose}</dd></div>
+              <div><dt>型号</dt><dd>{evidence.variant ?? '未配置'}</dd></div>
+              <div><dt>配置指纹</dt><dd><EvidenceValue value={evidence.profile_fingerprint} /></dd></div>
+              <div><dt>标定指纹</dt><dd><EvidenceValue value={evidence.calibration_fingerprint} /></dd></div>
+              <div><dt>运动学指纹</dt><dd><EvidenceValue value={evidence.kinematics_fingerprint} /></dd></div>
+              <div><dt>串口</dt><dd><EvidenceValue value={evidence.masked_serial_port} /></dd></div>
+              <div><dt>舵机 ID</dt><dd>{evidence.masked_servo_ids.join(', ') || '未配置'}</dd></div>
+              <div><dt>协议</dt><dd><EvidenceValue value={evidence.protocol} /></dd></div>
             </dl>
             <label className="real-confirmation-field">
-              <span>Type the exact confirmation text</span>
+              <span>请输入完全一致的确认文本</span>
               <code>{evidence.required_confirmation_text}</code>
               <input
                 autoComplete="off"
@@ -156,7 +156,7 @@ export function OperatorSessionDialog({
                 onChange={(event) => setPhysicalEstopConfirmed(event.target.checked)}
                 type="checkbox"
               />
-              <span>I confirm a tested physical E-stop is present and reachable.</span>
+              <span>我确认已经测试过的物理急停存在且可以触达。</span>
             </label>
           </>
         )}
@@ -169,7 +169,7 @@ export function OperatorSessionDialog({
               onChange={(event) => setWorkspaceClearConfirmed(event.target.checked)}
               type="checkbox"
             />
-            <span>I confirm the robot workspace is clear and guarded for this test.</span>
+            <span>我确认机械臂工作空间已清空，并已为本次测试做好防护。</span>
           </label>
         )}
 
@@ -177,7 +177,7 @@ export function OperatorSessionDialog({
 
         <div className="real-dialog__actions">
           <button className="command-button" disabled={pending} onClick={onCancel} type="button">
-            Cancel
+            取消
           </button>
           <button
             className="command-button command-button--danger-solid"
@@ -190,14 +190,14 @@ export function OperatorSessionDialog({
             type="button"
           >
             {pending
-              ? 'Authorizing…'
+              ? '正在授权…'
               : commissioning
-                ? 'Authorize READ ONLY session'
+                ? '授权只读会话'
                 : commissioningMotion
-                  ? 'Authorize Motion Test session'
+                  ? '授权运动测试会话'
                   : rawDirection
                     ? '开始方向验收'
-                  : 'Authorize Real Motion session'}
+                  : '授权真机运动会话'}
           </button>
         </div>
       </section>

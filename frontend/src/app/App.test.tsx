@@ -22,10 +22,10 @@ afterEach(() => {
 describe('MOMO Studio Stage 8 release-candidate shell', () => {
   it.each([
     ['/control', '控制'],
-    ['/studio', 'Studio'],
-    ['/library', 'Library'],
-    ['/vision', 'Vision'],
-    ['/settings', 'Settings'],
+    ['/studio', '编排'],
+    ['/library', '资源库'],
+    ['/vision', '视觉'],
+    ['/settings', '设置'],
   ])('provides the %s route', async (path, heading) => {
     mockStage3Backend();
     renderRoute(path);
@@ -38,20 +38,20 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
   it('opens the active Studio timeline authoring workspace', async () => {
     mockStage3Backend();
     const view = renderRoute('/library');
-    expect(await screen.findByText(/Stage 5 · Compiled Dry Run playback/)).toBeVisible();
+    expect(await screen.findByText(/Stage 5 · 已编译的仿真播放/)).toBeVisible();
     view.unmount();
     renderRoute('/studio');
-    expect(await screen.findByText('Blank Motion draft')).toBeVisible();
-    expect(screen.getByRole('button', { name: /Capture current/ })).toBeVisible();
+    expect(await screen.findByText('空白运动草稿')).toBeVisible();
+    expect(screen.getByRole('button', { name: /捕获当前状态/ })).toBeVisible();
   });
 
   it('switches to V1 in Settings and exposes exactly the enabled joint set', async () => {
     const user = userEvent.setup();
     mockStage3Backend({ connected: false });
     renderRoute('/settings');
-    expect(await screen.findByText('V2 · Linear rail plus five revolute joints')).toBeVisible();
+    expect(await screen.findByText('V2 · 一条直线导轨 + 五个旋转关节')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'V1' }));
-    expect(await screen.findByText('V1 · Five revolute joints · No linear rail')).toBeVisible();
+    expect(await screen.findByText('V1 · 五个旋转关节 · 无直线导轨')).toBeVisible();
     expect(await screen.findByText('J11, J12, J13, J14, J15')).toBeVisible();
     expect(screen.queryByText('J10')).not.toBeInTheDocument();
   });

@@ -17,7 +17,7 @@ import { useRealSession } from '../../components/realSessionContext';
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError || error instanceof Error) return error.message;
-  return 'Raw direction request failed.';
+  return 'Raw 方向请求失败。';
 }
 
 function errorDetails(error: ApiError): Record<string, unknown> {
@@ -289,7 +289,7 @@ export function RawDirectionPanel() {
                   const tested = currentTestedDirections.has(direction);
                   return (
                     <button
-                      aria-label={`Test ${currentJointId.toUpperCase()} ${direction}`}
+                      aria-label={`测试 ${currentJointId.toUpperCase()} ${direction === 'RAW_MINUS' ? '负方向' : '正方向'}`}
                       className={`raw-direction-button${held === key ? ' is-held' : ''}${tested ? ' is-tested' : ''}`}
                       disabled={busy}
                       key={direction}

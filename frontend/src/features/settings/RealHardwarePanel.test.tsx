@@ -417,13 +417,13 @@ describe('RealHardwarePanel', () => {
     expect((await screen.findAllByText('MOMO-V2-UNIT-001')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('KINEMATICS_FIELD_VERIFICATION_PENDING').length)
       .toBeGreaterThan(0);
-    expect(screen.getAllByText(/Required evidence: KINEMATICS_FIELD_EVIDENCE/).length)
+    expect(screen.getAllByText(/所需证据：KINEMATICS_FIELD_EVIDENCE/).length)
       .toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { name: 'COMMISSIONING MOTION TEST' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Commissioning progress' })).toBeVisible();
-    expect(screen.getByText('Physical E-stop must remain reachable.')).toBeVisible();
-    expect(screen.getByText('Software Stop physical behavior: NOT YET FIELD VERIFIED')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Authorize Motion Test' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: '调试运动测试' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '现场验收进度' })).toBeVisible();
+    expect(screen.getByText('物理急停必须始终触手可及。')).toBeVisible();
+    expect(screen.getByText('软件停止的实体行为：尚未现场验证')).toBeVisible();
+    expect(screen.getByRole('button', { name: '授权运动测试' })).toBeEnabled();
     expect(screen.queryByText(/session_token|raw token/i)).not.toBeInTheDocument();
   });
 
@@ -438,15 +438,15 @@ describe('RealHardwarePanel', () => {
     }));
     renderPanel({ authorize });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Authorize Motion Test' }));
+    fireEvent.click(await screen.findByRole('button', { name: '授权运动测试' }));
     expect(screen.getAllByText('MOMO-V2-UNIT-001').length).toBeGreaterThan(0);
-    const confirmButton = screen.getByRole('button', { name: 'Authorize Motion Test session' });
-    fireEvent.change(screen.getByLabelText(/Type the exact confirmation text/), {
+    const confirmButton = screen.getByRole('button', { name: '授权运动测试会话' });
+    fireEvent.change(screen.getByLabelText(/请输入完全一致的确认文本/), {
       target: { value: MOTION_TEST_CONFIRMATION },
     });
-    fireEvent.click(screen.getByLabelText(/tested physical E-stop/));
+    fireEvent.click(screen.getByLabelText(/测试过的物理急停/));
     expect(confirmButton).toBeDisabled();
-    fireEvent.click(screen.getByLabelText(/workspace is clear and guarded/));
+    fireEvent.click(screen.getByLabelText(/工作空间已清空/));
     fireEvent.click(confirmButton);
 
     await waitFor(() => expect(authorize).toHaveBeenCalledWith(
@@ -463,10 +463,10 @@ describe('RealHardwarePanel', () => {
     renderPanel({ session: readOnlySession, connected: true });
     openAdvancedDiagnostics();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }));
+    fireEvent.click(await screen.findByRole('button', { name: '运行诊断' }));
     await waitFor(() => expect(runDeviceDiagnostics).toHaveBeenCalledWith());
     expect(await screen.findByRole('cell', { name: '2048' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+    fireEvent.click(screen.getByRole('button', { name: '断开连接' }));
     await waitFor(() => expect(disconnectRealDevice).toHaveBeenCalledWith());
     expect(connectRealDevice).not.toHaveBeenCalled();
   });
@@ -477,7 +477,7 @@ describe('RealHardwarePanel', () => {
     );
     renderPanel({ session: readOnlySession, connected: true });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }));
+    fireEvent.click(await screen.findByRole('button', { name: '运行诊断' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Backend returned an invalid device diagnostic error',
@@ -496,7 +496,7 @@ describe('RealHardwarePanel', () => {
     vi.mocked(completeFieldPreMotionChecks).mockResolvedValue(progressFixture);
     renderPanel({ session: readOnlySession, connected: true });
 
-    const action = await screen.findByRole('button', { name: 'Record pre-motion checks' });
+    const action = await screen.findByRole('button', { name: '记录运动前检查' });
     await waitFor(() => expect(action).toBeEnabled());
     fireEvent.click(action);
 
@@ -510,7 +510,7 @@ describe('RealHardwarePanel', () => {
     renderPanel({ session: motionTestSession, connected: true });
 
     const action = await screen.findByRole('button', {
-      name: 'Accept persisted joint evidence',
+      name: '确认已保存的关节证据',
     });
     await waitFor(() => expect(action).toBeEnabled());
     fireEvent.click(action);
@@ -552,7 +552,7 @@ describe('RealHardwarePanel', () => {
     openAdvancedDiagnostics();
     await waitFor(() => expect(getKinematicsVerificationStatus).toHaveBeenCalledTimes(1));
 
-    const start = await screen.findByRole('button', { name: 'Start measured-TCP draft' });
+    const start = await screen.findByRole('button', { name: '创建实测 TCP 草稿' });
     await waitFor(() => expect(start).toBeEnabled());
     fireEvent.click(start);
     await waitFor(() => expect(startKinematicsVerificationDraft).toHaveBeenCalledWith({
@@ -560,13 +560,13 @@ describe('RealHardwarePanel', () => {
       max_orientation_error_deg: 5,
     }));
 
-    fireEvent.change(screen.getByLabelText('Measurement label'), {
+    fireEvent.change(screen.getByLabelText('测量点名称'), {
       target: { value: 'front-low gauge' },
     });
-    fireEvent.change(screen.getByLabelText('Measured X (mm)'), { target: { value: '100' } });
-    fireEvent.change(screen.getByLabelText('Measured Y (mm)'), { target: { value: '200' } });
-    fireEvent.change(screen.getByLabelText('Measured Z (mm)'), { target: { value: '300' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add measured point' }));
+    fireEvent.change(screen.getByLabelText('实测 X（mm）'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('实测 Y（mm）'), { target: { value: '200' } });
+    fireEvent.change(screen.getByLabelText('实测 Z（mm）'), { target: { value: '300' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加实测点' }));
 
     await waitFor(() => expect(addKinematicsVerificationMeasurement).toHaveBeenCalledWith(
       kinematicsDraft.draft_id,
@@ -575,13 +575,13 @@ describe('RealHardwarePanel', () => {
         measured_tcp: tcp,
       },
     ));
-    expect(screen.getByText(/backend captures and validates a fresh hardware readback/i))
+    expect(screen.getByText(/后端会采集并验证最新硬件读数/))
       .toBeVisible();
     expect(await screen.findByText(
-      /Sequence 7.*captured 2026-08-25T01:59:59Z.*j10: 0 mm.*j11: 0 deg/,
-    )).toHaveAttribute('title', `Operator Session ${SESSION_ID}`);
+      /序列 7.*采集于 2026-08-25T01:59:59Z.*j10: 0 mm.*j11: 0 deg/,
+    )).toHaveAttribute('title', `操作员会话 ${SESSION_ID}`);
     expect(screen.getByRole('button', {
-      name: 'Commit measured Kinematics evidence',
+      name: '保存运动学实测证据',
     })).toBeDisabled();
     expect(screen.queryByText(/mark.*kinematics.*verified/i)).not.toBeInTheDocument();
   });
@@ -609,7 +609,7 @@ describe('RealHardwarePanel', () => {
       await Promise.resolve();
     });
     const hold = screen.getByRole('button', {
-      name: 'Hold J11 positive commissioning test',
+      name: '按住执行 J11 正方向调试测试',
     });
     expect(hold).toBeEnabled();
     const pointerDown = new Event('pointerdown', { bubbles: true, cancelable: true });
@@ -644,7 +644,7 @@ describe('RealHardwarePanel', () => {
     });
     expect(stopCommissioningMotionTest).toHaveBeenCalledWith('POINTER_RELEASE');
 
-    fireEvent.click(screen.getByRole('button', { name: 'STOP TEST' }));
+    fireEvent.click(screen.getByRole('button', { name: '停止测试' }));
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();

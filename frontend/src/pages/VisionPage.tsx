@@ -8,37 +8,37 @@ export function VisionPage() {
   const runtime = useRuntimeStatus();
   const workspace = useVisionWorkspace(runtime);
   const sourceMode = workspace.capabilities?.camera_access_policy === 'DISABLED'
-    ? 'SOURCE DISABLED'
+    ? '图像源已禁用'
     : workspace.capabilities?.source.provider_id.toLowerCase().includes('synthetic')
-      ? 'SYNTHETIC'
+      ? '合成画面'
       : workspace.capabilities
-        ? 'LIVE'
-        : 'SOURCE PENDING';
+        ? '实时相机'
+        : '等待图像源';
 
   return (
     <div className="page vision-page">
       <PageIntro
-        title="Vision"
+        title="视觉"
         description={workspace.readOnlyLiveCamera
-          ? 'Preview one explicitly configured local camera without recording or robot motion.'
-          : 'Track an explicit target and drive lease-bound Follow through backend capability gates.'}
+          ? '预览明确配置的本地相机；不会录像，也不会驱动机械臂。'
+          : '选择并跟踪目标，通过后端能力门控执行视觉跟随。'}
         detail={workspace.readOnlyLiveCamera
-          ? 'The camera opens only after operator action; selection, detection, tracking, and Follow remain disabled.'
-          : 'Frame identity, provider capability, target freshness, and the Motion Safety Gateway remain visible at every step.'}
+          ? '只有你主动操作后才会打开相机；目标选择、检测、跟踪和跟随保持禁用。'
+          : '画面身份、检测器能力、目标新鲜度和运动安全入口会在每一步保持可见。'}
       />
       <div className="vision-safety-strip" role="status">
         <span>{sourceMode}</span>
-        <span>{workspace.capabilities?.camera_access_policy ?? 'POLICY PENDING'}</span>
+        <span>相机策略：{workspace.capabilities?.camera_access_policy ?? '待加载'}</span>
         <span>{workspace.readOnlyLiveCamera
-          ? 'READ ONLY CAMERA'
+          ? '只读相机'
           : workspace.runtimePolicy === 'READ_ONLY'
-            ? 'READ ONLY'
+            ? '只读'
             : workspace.runtimeMode}</span>
         <span>{workspace.runtimeMode === 'REAL'
           ? workspace.realVisionCapability.allowed
-            ? 'REAL FOLLOW AUTHORIZED'
-            : `REAL FOLLOW BLOCKED · ${workspace.realVisionCapability.reason}`
-          : 'REAL FOLLOW BLOCKED'}</span>
+            ? '真机跟随已授权'
+            : `真机跟随已阻止 · ${workspace.realVisionCapability.reason}`
+          : '真机跟随已阻止'}</span>
       </div>
       <div className="vision-workspace">
         <VisionCanvas workspace={workspace} />

@@ -108,12 +108,12 @@ describe('studio editor construction and invariants', () => {
     expect(validatePlayableStudioDocument(document)).toEqual({
       valid: false,
       errors: [
-        'Motion name is required.',
-        'A playable Motion requires at least two keyframes.',
+        '必须填写运动名称。',
+        '可播放的运动至少需要两个关键帧。',
       ],
     });
     expect(() => studioDocumentToMotionKeyframes(document)).toThrow(
-      'A playable Motion requires at least two keyframes',
+      '可播放的运动至少需要两个关键帧。',
     );
   });
 
@@ -656,7 +656,7 @@ describe('backend and formal Motion boundary conversion', () => {
   it('never emits an ambiguous later draft keyframe from a malformed editor document', () => {
     const malformed = { ...buildDocument(['a', 'b']), edges: [] };
     expect(() => studioDocumentToDraftKeyframes(malformed)).toThrow(
-      'Keyframe 2 is missing its incoming transition edge',
+      '关键帧 2 缺少进入过渡边。',
     );
   });
 
@@ -718,15 +718,15 @@ describe('backend and formal Motion boundary conversion', () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors).toEqual(expect.arrayContaining([
-      'Motion name is required.',
-      'Keyframe 1 requires a label.',
-      'Keyframe 1 hold must be between 0 and 600 seconds.',
-      'Keyframe 1 robot variant does not match the draft.',
-      'Keyframe 2 has a duplicate ID.',
-      'Keyframe 2 robot variant does not match the draft.',
-      'Transition 1 duration must be greater than 0 and at most 600 seconds.',
-      'Keyframe 2 profile fingerprint does not match the Motion.',
-      'Keyframe 2 kinematics fingerprint does not match the Motion.',
+      '必须填写运动名称。',
+      '关键帧 1 必须填写名称。',
+      '关键帧 1 的停留时长必须在 0 到 600 秒之间。',
+      '关键帧 1 的机械臂型号与草稿不匹配。',
+      '关键帧 2 的 ID 重复。',
+      '关键帧 2 的机械臂型号与草稿不匹配。',
+      '第 1 段过渡时长必须大于 0 且不超过 600 秒。',
+      '关键帧 2 的配置指纹与当前运动不匹配。',
+      '关键帧 2 的运动学指纹与当前运动不匹配。',
     ]));
     expect(() => studioDocumentToMotionKeyframes(invalid)).toThrow();
   });
@@ -742,7 +742,7 @@ describe('backend and formal Motion boundary conversion', () => {
     expect(studioDocumentToDraftKeyframes(state.document)).toHaveLength(1);
     expect(validatePlayableStudioDocument(state.document)).toMatchObject({ valid: false });
     expect(() => studioDocumentToMotionKeyframes(state.document)).toThrow(
-      'A playable Motion requires at least two keyframes',
+      '可播放的运动至少需要两个关键帧。',
     );
   });
 });

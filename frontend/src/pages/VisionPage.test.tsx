@@ -44,9 +44,9 @@ describe('Stage 7 Vision workspace', () => {
     backend.selectDefaultTarget();
     renderVision();
 
-    expect((await screen.findAllByText('READ ONLY')).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Start Real Follow' })).toBeDisabled();
-    expect((await screen.findAllByText(/Commissioning READ ONLY · 禁止运动/)).length)
+    expect((await screen.findAllByText('只读')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '启动真机跟随' })).toBeDisabled();
+    expect((await screen.findAllByText(/只读 · 禁止运动/)).length)
       .toBeGreaterThan(0);
     expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
   });
@@ -61,7 +61,7 @@ describe('Stage 7 Vision workspace', () => {
     backend.selectDefaultTarget();
     renderVision();
 
-    const start = await screen.findByRole('button', { name: 'Start Real Follow' });
+    const start = await screen.findByRole('button', { name: '启动真机跟随' });
     await waitFor(() => expect(start).toBeDisabled());
     expect((await screen.findAllByText(/Real Follow requires Stage 8 field acceptance/)).length)
       .toBeGreaterThan(0);
@@ -76,10 +76,10 @@ describe('Stage 7 Vision workspace', () => {
     expect(screen.getAllByText('synthetic-frame-source').length).toBeGreaterThan(0);
     expect(screen.getByText('opencv-haar-face')).toBeVisible();
     expect(screen.getByText('Optional OpenCV provider is not installed.')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Face detect' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
-    expect(screen.getByText('REAL FOLLOW BLOCKED')).toBeVisible();
-    expect(screen.getByText('Not configured')).toBeVisible();
+    expect(screen.getByRole('button', { name: '检测人脸' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '启动仿真跟随' })).toBeDisabled();
+    expect(screen.getByText('真机跟随已阻止')).toBeVisible();
+    expect(screen.getByText('未配置')).toBeVisible();
     expect(screen.queryByRole('button', { name: /photo|record|material|gesture|cinematic/i })).not.toBeInTheDocument();
     expect(view.container.querySelector('.vision-workspace')).toBeInTheDocument();
     expect(view.container.querySelector('.vision-controls')).toBeInTheDocument();
@@ -90,27 +90,27 @@ describe('Stage 7 Vision workspace', () => {
     const backend = mockStage7Backend({ cameraAccessPolicy: 'LIVE_CAMERA_ALLOWED' });
     const view = renderVision();
 
-    expect(await screen.findByText('READ ONLY CAMERA')).toBeVisible();
-    expect(screen.getByText('Live camera closed')).toBeVisible();
-    expect(screen.getByRole('button', { name: /Open live camera/ })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /Close live camera/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
-    expect(screen.queryByRole('img', { name: 'Live vision stream' })).not.toBeInTheDocument();
+    expect(await screen.findByText('只读相机')).toBeVisible();
+    expect(screen.getByText('实时相机已关闭')).toBeVisible();
+    expect(screen.getByRole('button', { name: /打开实时相机/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /关闭实时相机/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '启动仿真跟随' })).toBeDisabled();
+    expect(screen.queryByRole('img', { name: '实时视觉视频流' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Open live camera/ }));
+    await user.click(screen.getByRole('button', { name: /打开实时相机/ }));
     await waitFor(() => expect(backend.requestsFor('/vision/camera/open')).toHaveLength(1));
     expect(backend.lastBody('/vision/camera/open')).toEqual({ confirm_read_only_open: true });
-    expect(await screen.findByRole('img', { name: 'Live vision stream' })).toBeVisible();
-    expect(screen.getByText('Open · read only')).toBeVisible();
+    expect(await screen.findByRole('img', { name: '实时视觉视频流' })).toBeVisible();
+    expect(screen.getByText('已打开 · 只读')).toBeVisible();
     expect(screen.queryByLabelText('Follow dead zone')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Person detect' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '检测人体' })).toBeDisabled();
     expect(backend.requestsFor('/vision/selection')).toHaveLength(0);
     expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
 
-    await user.click(screen.getByRole('button', { name: /Close live camera/ }));
+    await user.click(screen.getByRole('button', { name: /关闭实时相机/ }));
     await waitFor(() => expect(backend.requestsFor('/vision/camera/close')).toHaveLength(1));
-    expect(await screen.findByText('Live camera closed')).toBeVisible();
-    expect(screen.queryByRole('img', { name: 'Live vision stream' })).not.toBeInTheDocument();
+    expect(await screen.findByText('实时相机已关闭')).toBeVisible();
+    expect(screen.queryByRole('img', { name: '实时视觉视频流' })).not.toBeInTheDocument();
     expect(view.container.querySelector('.vision-crosshair')).not.toBeInTheDocument();
   });
 
@@ -119,7 +119,7 @@ describe('Stage 7 Vision workspace', () => {
     const backend = mockStage7Backend();
     renderVision();
     expect(await screen.findByText('synthetic-primary')).toBeVisible();
-    const surface = await screen.findByRole('region', { name: 'Synthetic frame target selection surface' });
+    const surface = await screen.findByRole('region', { name: '合成画面目标选择区域' });
     vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 500,
       width: 1000, height: 500, toJSON: () => ({}),
@@ -139,9 +139,9 @@ describe('Stage 7 Vision workspace', () => {
     expect(selectionBody.bounding_box.y).toBeCloseTo(0.2);
     expect(selectionBody.bounding_box.width).toBeCloseTo(0.4);
     expect(selectionBody.bounding_box.height).toBeCloseTo(0.4);
-    expect((await screen.findAllByText('LOCKED')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('已锁定')).length).toBeGreaterThan(0);
 
-    const start = screen.getByRole('button', { name: 'Start Dry Run Follow' });
+    const start = screen.getByRole('button', { name: '启动仿真跟随' });
     expect(start).toBeEnabled();
     await user.click(start);
     await waitFor(() => expect(backend.requestsFor('/vision/follow/start')).toHaveLength(1));
@@ -160,19 +160,19 @@ describe('Stage 7 Vision workspace', () => {
         max_step: 2,
       }),
     }));
-    expect(await screen.findByText('ACTIVE')).toBeVisible();
+    expect(await screen.findByText('运行中')).toBeVisible();
     expect(screen.getByText('0.160 / -0.080')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: /Stop Follow/ }));
+    await user.click(screen.getByRole('button', { name: /停止跟随/ }));
     await waitFor(() => expect(backend.requestsFor(`/vision/follow/${stage7Ids.leaseId}/stop`)).toHaveLength(1));
-    expect(await screen.findByText('Last stop · OPERATOR_STOP')).toBeVisible();
+    expect(await screen.findByText('上次停止原因 · OPERATOR_STOP')).toBeVisible();
   });
 
   it('maps overlays to a configurable frame aspect and keeps ROI bound to pointer-down frame identity', async () => {
     const backend = mockStage7Backend({ frameWidthPx: 800, frameHeightPx: 600 });
     renderVision();
     await screen.findByText('synthetic-primary');
-    const surface = await screen.findByRole('region', { name: 'Synthetic frame target selection surface' });
+    const surface = await screen.findByRole('region', { name: '合成画面目标选择区域' });
     expect((surface as HTMLElement).style.aspectRatio).toBe('800 / 600');
     vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 800, bottom: 600,
@@ -202,12 +202,12 @@ describe('Stage 7 Vision workspace', () => {
     const backend = mockStage7Backend();
     renderVision();
 
-    await user.click(await screen.findByRole('button', { name: 'Person detect' }));
+    await user.click(await screen.findByRole('button', { name: '检测人体' }));
     await waitFor(() => expect(backend.requestsFor('/vision/detect/person')).toHaveLength(1));
     expect(backend.lastBody('/vision/detect/person')).toEqual({ frame_id: stage7Ids.frameId });
     await waitFor(() => expect(backend.requestsFor('/vision/selection')).toHaveLength(1));
-    expect(await screen.findByLabelText('Tracked target bounding box')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeEnabled();
+    expect(await screen.findByLabelText('跟踪目标边界框')).toBeVisible();
+    expect(screen.getByRole('button', { name: '启动仿真跟随' })).toBeEnabled();
   });
 
   it('lets priority Stop supersede an in-flight Follow start and compensates a late lease', async () => {
@@ -218,17 +218,17 @@ describe('Stage 7 Vision workspace', () => {
     backend.selectDefaultTarget();
     renderVision();
 
-    const start = await screen.findByRole('button', { name: 'Start Dry Run Follow' });
+    const start = await screen.findByRole('button', { name: '启动仿真跟随' });
     expect(start).toBeEnabled();
     await user.click(start);
-    expect(screen.getByRole('button', { name: /Stop Follow/ })).toBeEnabled();
-    await user.click(screen.getByRole('button', { name: /Stop Follow/ }));
+    expect(screen.getByRole('button', { name: /停止跟随/ })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: /停止跟随/ }));
     await act(async () => releaseStart());
 
     await waitFor(() => expect(
       backend.requestsFor(`/vision/follow/${stage7Ids.leaseId}/stop`),
     ).toHaveLength(1));
-    expect(screen.queryByText('ACTIVE')).not.toBeInTheDocument();
+    expect(screen.queryByText('运行中')).not.toBeInTheDocument();
   });
 
   it('compensates a Follow lease that arrives after the Vision page unmounts', async () => {
@@ -239,7 +239,7 @@ describe('Stage 7 Vision workspace', () => {
     backend.selectDefaultTarget();
     const view = renderVision();
 
-    await user.click(await screen.findByRole('button', { name: 'Start Dry Run Follow' }));
+    await user.click(await screen.findByRole('button', { name: '启动仿真跟随' }));
     await waitFor(() => expect(backend.requestsFor('/vision/follow/start')).toHaveLength(1));
     view.unmount();
     await act(async () => releaseStart());
@@ -257,16 +257,16 @@ describe('Stage 7 Vision workspace', () => {
     backend.selectDefaultTarget();
     renderVision();
 
-    await user.click(await screen.findByRole('button', { name: 'Start Dry Run Follow' }));
+    await user.click(await screen.findByRole('button', { name: '启动仿真跟随' }));
     await waitFor(() => expect(backend.requestsFor('/vision/follow/start')).toHaveLength(1));
     backend.goOffline();
-    await screen.findByText('Vision backend offline', {}, { timeout: 2500 });
+    await screen.findByText('视觉后端离线', {}, { timeout: 2500 });
     await act(async () => releaseStart());
 
     await waitFor(() => expect(
       backend.requestsFor(`/vision/follow/${stage7Ids.leaseId}/stop`),
     ).toHaveLength(1));
-    expect(screen.queryByText('ACTIVE')).not.toBeInTheDocument();
+    expect(screen.queryByText('运行中')).not.toBeInTheDocument();
   });
 
   it('serializes slow status polls so a stalled backend cannot accumulate requests', async () => {
@@ -290,57 +290,57 @@ describe('Stage 7 Vision workspace', () => {
     const backend = mockStage7Backend();
     backend.selectDefaultTarget();
     renderVision();
-    expect((await screen.findAllByText('LOCKED')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('已锁定')).length).toBeGreaterThan(0);
 
     backend.setTrackingState('LOST');
-    expect((await screen.findAllByText('LOST')).length).toBeGreaterThan(0);
-    expect(screen.queryByLabelText('Tracked target bounding box')).not.toBeInTheDocument();
-    expect(screen.getByText('Last stop · TARGET_LOST')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
+    expect((await screen.findAllByText('目标丢失')).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText('跟踪目标边界框')).not.toBeInTheDocument();
+    expect(screen.getByText('上次停止原因 · TARGET_LOST')).toBeVisible();
+    expect(screen.getByRole('button', { name: '启动仿真跟随' })).toBeDisabled();
 
     backend.setTrackingState('STALE');
-    expect((await screen.findAllByText('STALE')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Last stop · TARGET_STALE')).toBeVisible();
+    expect((await screen.findAllByText('已过期')).length).toBeGreaterThan(0);
+    expect(screen.getByText('上次停止原因 · TARGET_STALE')).toBeVisible();
   });
 
   it('fails closed on a disconnected Vision source or a broken stream image', async () => {
     const backend = mockStage7Backend();
     backend.selectDefaultTarget();
     renderVision();
-    const start = await screen.findByRole('button', { name: 'Start Dry Run Follow' });
+    const start = await screen.findByRole('button', { name: '启动仿真跟随' });
     expect(start).toBeEnabled();
 
-    const stream = screen.getByRole('img', { name: /Synthetic vision stream/ });
+    const stream = screen.getByRole('img', { name: /合成视觉视频流/ });
     fireEvent.error(stream);
-    expect(await screen.findByText('Vision stream disconnected')).toBeVisible();
+    expect(await screen.findByText('视觉视频流已断开')).toBeVisible();
     expect(start).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Person detect' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '检测人体' })).toBeDisabled();
     fireEvent.load(stream);
-    expect(start).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Person detect' })).toBeEnabled();
+    await waitFor(() => expect(start).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: '检测人体' })).toBeEnabled());
 
     backend.setSourceState('DISCONNECTED');
-    expect(await screen.findByText('Vision source disconnected')).toBeVisible();
+    expect(await screen.findByText('视觉图像源：未连接')).toBeVisible();
     expect(start).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Person detect' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '检测人体' })).toBeDisabled();
   });
 
   it('fails closed while Vision status polling is unavailable and recovers on a fresh status', async () => {
     const backend = mockStage7Backend();
     backend.selectDefaultTarget();
     renderVision();
-    const start = await screen.findByRole('button', { name: 'Start Dry Run Follow' });
+    const start = await screen.findByRole('button', { name: '启动仿真跟随' });
     expect(start).toBeEnabled();
 
     backend.setVisionStatusAvailable(false);
-    expect(await screen.findByText('Vision status unavailable', {
+    expect(await screen.findByText('视觉状态不可用', {
       selector: '.vision-canvas__offline strong',
     })).toBeVisible();
     expect(start).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Person detect' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '检测人体' })).toBeDisabled();
 
     backend.setVisionStatusAvailable(true);
-    await waitFor(() => expect(screen.queryByText('Vision status unavailable', {
+    await waitFor(() => expect(screen.queryByText('视觉状态不可用', {
       selector: '.vision-canvas__offline strong',
     })).not.toBeInTheDocument());
     expect(start).toBeEnabled();
@@ -352,8 +352,8 @@ describe('Stage 7 Vision workspace', () => {
     expect((await screen.findAllByText('SYNTHETIC_ONLY')).length).toBeGreaterThan(0);
     backend.goOffline();
 
-    expect(await screen.findByText('Vision backend offline', {}, { timeout: 2500 })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Start Dry Run Follow' })).toBeDisabled();
-    expect(screen.getByText('POLICY PENDING')).toBeVisible();
+    expect(await screen.findByText('视觉后端离线', {}, { timeout: 2500 })).toBeVisible();
+    expect(screen.getByRole('button', { name: '启动仿真跟随' })).toBeDisabled();
+    expect(screen.getByText(/相机策略：待加载/)).toBeVisible();
   });
 });

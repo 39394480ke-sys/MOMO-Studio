@@ -53,7 +53,7 @@ function id(): string {
 }
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : 'The Studio operation failed.';
+  return error instanceof Error ? error.message : '编排操作失败。';
 }
 
 function motionDisabledReason(
@@ -61,20 +61,20 @@ function motionDisabledReason(
   realSession: RealSessionSummary,
   capability: 'real_joint_motion' | 'real_playback',
 ): string | null {
-  if (runtime.backend !== 'connected') return 'backend unavailable';
+  if (runtime.backend !== 'connected') return '后端不可用';
   if (!runtime.robot?.connected) {
     return runtime.controlMode === 'REAL'
-      ? 'backend reports the Real robot disconnected'
-      : 'connect the Dry Run robot';
+      ? '后端显示真机尚未连接'
+      : '请先连接仿真机械臂';
   }
-  if (runtime.robot.stale || runtime.stale) return 'robot state is stale';
-  if (!runtime.profile) return 'robot profile unavailable';
+  if (runtime.robot.stale || runtime.stale) return '机械臂状态已经过期';
+  if (!runtime.profile) return '机械臂配置不可用';
   if (runtime.controlMode === 'REAL') {
     const availability = realCapabilityAvailability(realSession, capability);
     return availability.allowed ? null : availability.reason;
   }
   if (runtime.hardwareAccessPolicy !== 'DISABLED' || runtime.realMotionEnabled !== false) {
-    return 'Dry Run hardware isolation is unavailable';
+    return '仿真运行的硬件隔离不可用';
   }
   return null;
 }
@@ -88,16 +88,16 @@ function draftMotionDisabledReason(
   const runtimeReason = motionDisabledReason(runtime, realSession, capability);
   if (runtimeReason) return runtimeReason;
   if (runtime.robot?.variant !== document.robotVariant) {
-    return `active robot is ${runtime.robot?.variant ?? 'unavailable'}, draft is ${document.robotVariant}`;
+    return `当前机械臂是 ${runtime.robot?.variant ?? '不可用'}，草稿型号是 ${document.robotVariant}`;
   }
   const reference = document.frames[0]?.poseSnapshot;
   if (!reference) return null;
-  if (reference.robot_variant !== document.robotVariant) return 'draft snapshot variant is inconsistent';
+  if (reference.robot_variant !== document.robotVariant) return '草稿快照中的机械臂型号不一致';
   if (reference.profile_fingerprint !== runtime.profile?.fingerprint) {
-    return 'active profile does not match the draft snapshots';
+    return '当前配置与草稿快照不匹配';
   }
   if (reference.kinematics_fingerprint !== runtime.profile?.kinematics_fingerprint) {
-    return 'active kinematics does not match the draft snapshots';
+    return '当前运动学模型与草稿快照不匹配';
   }
   const enabledJoints = runtime.profile?.profile.enabled_joints ?? [];
   const snapshotJoints = Object.keys(reference.joint_state.positions);
@@ -105,13 +105,13 @@ function draftMotionDisabledReason(
     enabledJoints.length !== snapshotJoints.length ||
     enabledJoints.some((jointId) => !Object.hasOwn(reference.joint_state.positions, jointId))
   ) {
-    return 'draft snapshot joint set does not match the active profile';
+    return '草稿快照的关节集合与当前配置不匹配';
   }
   const expectedUnits = new Map(
     runtime.profile?.profile.joint_definitions.map((joint) => [joint.joint_id, joint.domain_unit]),
   );
   if (enabledJoints.some((jointId) => reference.joint_state.units[jointId] !== expectedUnits.get(jointId))) {
-    return 'draft snapshot units do not match the active profile';
+    return '草稿快照的单位与当前配置不匹配';
   }
   return null;
 }
@@ -302,7 +302,7 @@ export function useStudioMotionSession({
       if (studioCommandEpochRef.current !== epoch) return;
       setStudioCommand(submission.command);
       setStudioCommandPollGeneration(epoch);
-      onMessage(`Submitted “${frame.label}” through the reviewed motion gateway.`);
+      onMessage(`已通过审核后的运动入口提交“${frame.label}”。`);
     })();
     studioGotoRequestRef.current = operation;
     try {
@@ -405,8 +405,8 @@ export function useStudioMotionSession({
       }
       if (firstError) throw firstError;
       onMessage(runtime.controlMode === 'REAL'
-        ? 'Priority Stop was accepted by the active Real motion path.'
-        : 'Priority Stop was accepted by the active Dry Run motion path.');
+        ? '当前真机运动链路已接受优先停止请求。'
+        : '当前仿真运动链路已接受优先停止请求。');
     } catch (caught) {
       if (
         playbackEpochRef.current === playbackEpoch &&

@@ -42,7 +42,7 @@ export function PoseCaptureForm({
     event.preventDefault();
     const normalizedName = name.trim();
     if (!normalizedName) {
-      setValidation('Name is required before capturing a Pose.');
+      setValidation('捕获机位前必须填写名称。');
       return;
     }
     const normalizedTags = parseTags(tags);
@@ -68,43 +68,43 @@ export function PoseCaptureForm({
     <section className="library-create-panel" aria-labelledby="capture-pose-heading">
       <header>
         <div>
-          <p className="section-kicker">Current state</p>
-          <h2 id="capture-pose-heading">Capture Pose</h2>
+          <p className="section-kicker">当前状态</p>
+          <h2 id="capture-pose-heading">捕获机位</h2>
         </div>
         <span>{robotLabel}</span>
       </header>
       <p>
-        Capture one coherent backend-owned joint/TCP snapshot from the active robot. Capture does not command motion.
+        从当前机械臂捕获一份由后端统一读取的关节/TCP 快照；捕获操作不会发出运动命令。
       </p>
       <form className="entity-form" onSubmit={submit}>
         <label>
-          <span>Name</span>
+          <span>名称</span>
           <input
             disabled={disabled || busy}
             maxLength={200}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Inspection pose"
+            placeholder="例如：产品正面"
             value={name}
           />
         </label>
         <label>
-          <span>Description</span>
+          <span>说明</span>
           <textarea
             disabled={disabled || busy}
             maxLength={5000}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="What this snapshot is for"
+            placeholder="说明这个机位的用途"
             rows={2}
             value={description}
           />
         </label>
         <label>
-          <span>Tags · comma separated</span>
+          <span>标签 · 用逗号分隔</span>
           <input
             disabled={disabled || busy}
             maxLength={2079}
             onChange={(event) => setTags(event.target.value)}
-            placeholder="demo, reach"
+            placeholder="产品, 正面"
             value={tags}
           />
         </label>
@@ -115,7 +115,7 @@ export function PoseCaptureForm({
           type="submit"
         >
           <Camera aria-hidden="true" />
-          {busy ? 'Capturing…' : 'Capture current pose'}
+          {busy ? '正在捕获…' : '捕获当前机位'}
         </button>
       </form>
     </section>
@@ -158,23 +158,23 @@ export function MotionCreateForm({
     const end = poseById.get(endId);
     const durationS = Number(duration);
     if (!normalizedName) {
-      setValidation('Name is required before creating a Motion.');
+      setValidation('创建运动前必须填写名称。');
       return;
     }
     if (!start || !end) {
-      setValidation('Choose a start Pose and an end Pose.');
+      setValidation('请选择起始机位和结束机位。');
       return;
     }
     if (start.id === end.id) {
-      setValidation('Start and end must use distinct Pose identities.');
+      setValidation('起始和结束必须使用两个不同的机位。');
       return;
     }
     if (start.robot_variant !== end.robot_variant) {
-      setValidation('Both snapshots must use the same robot variant.');
+      setValidation('两个快照必须使用相同的机械臂型号。');
       return;
     }
     if (!Number.isFinite(durationS) || durationS < 0.1 || durationS > 60) {
-      setValidation('Transition duration must be between 0.1 and 60 seconds.');
+      setValidation('过渡时长必须在 0.1 到 60 秒之间。');
       return;
     }
 
@@ -213,41 +213,41 @@ export function MotionCreateForm({
     <section className="library-create-panel" aria-labelledby="create-motion-heading">
       <header>
         <div>
-          <p className="section-kicker">Embedded snapshots</p>
-          <h2 id="create-motion-heading">Create Motion</h2>
+          <p className="section-kicker">内嵌快照</p>
+          <h2 id="create-motion-heading">创建运动</h2>
         </div>
-        <span>{poseTotal} Pose{poseTotal === 1 ? '' : 's'} available</span>
+        <span>可用机位 {poseTotal} 个</span>
       </header>
       <p>
-        Build a valid two-keyframe Motion. Each selected snapshot is embedded; its source ID is provenance only.
+        创建一个包含两个关键帧的有效运动。所选快照会被内嵌，来源 ID 只用于追溯。
       </p>
       {poseTotal > poses.length ? (
-        <p className="library-form-note">Showing the first {poses.length} Pose records from the bounded source list.</p>
+        <p className="library-form-note">当前显示受限来源列表中的前 {poses.length} 个机位。</p>
       ) : null}
       <form className="entity-form entity-form--motion" onSubmit={submit}>
         <label>
-          <span>Name</span>
+          <span>名称</span>
           <input
             disabled={disabled || busy || unavailable}
             maxLength={200}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Pick and place"
+            placeholder="例如：正面推到侧面"
             value={name}
           />
         </label>
         <label>
-          <span>Description</span>
+          <span>说明</span>
           <textarea
             disabled={disabled || busy || unavailable}
             maxLength={5000}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="Describe the stored sequence"
+            placeholder="说明这段运动的用途"
             rows={2}
             value={description}
           />
         </label>
         <label>
-          <span>Start Pose</span>
+          <span>起始机位</span>
           <select
             disabled={disabled || busy || unavailable}
             onChange={(event) => {
@@ -261,7 +261,7 @@ export function MotionCreateForm({
             }}
             value={startId}
           >
-            <option value="">Choose a Pose</option>
+            <option value="">选择一个机位</option>
             {poses.map((pose) => (
               <option key={pose.id} value={pose.id}>
                 {pose.name} · {pose.robot_variant} · {pose.id.slice(0, 8)}
@@ -270,13 +270,13 @@ export function MotionCreateForm({
           </select>
         </label>
         <label>
-          <span>End Pose</span>
+          <span>结束机位</span>
           <select
             disabled={disabled || busy || unavailable || !startPose}
             onChange={(event) => setEndId(event.target.value)}
             value={endId}
           >
-            <option value="">Choose a compatible Pose</option>
+            <option value="">选择兼容机位</option>
             {endOptions.map((pose) => (
               <option key={pose.id} value={pose.id}>
                 {pose.name} · {pose.robot_variant} · {pose.id.slice(0, 8)}
@@ -285,18 +285,18 @@ export function MotionCreateForm({
           </select>
         </label>
         <label>
-          <span>Transition type</span>
+          <span>过渡类型</span>
           <select
             disabled={disabled || busy || unavailable}
             onChange={(event) => setMotionMode(event.target.value as MotionMode)}
             value={motionMode}
           >
-            <option value="JOINT">Joint</option>
-            <option value="CARTESIAN_LINEAR">Cartesian linear</option>
+            <option value="JOINT">关节插值（JOINT）</option>
+            <option value="CARTESIAN_LINEAR">笛卡尔直线（CARTESIAN LINEAR）</option>
           </select>
         </label>
         <label>
-          <span>Duration · seconds</span>
+          <span>时长 · 秒</span>
           <input
             disabled={disabled || busy || unavailable}
             inputMode="decimal"
@@ -309,17 +309,17 @@ export function MotionCreateForm({
           />
         </label>
         <label>
-          <span>Tags · comma separated</span>
+          <span>标签 · 用逗号分隔</span>
           <input
             disabled={disabled || busy || unavailable}
             maxLength={2079}
             onChange={(event) => setTags(event.target.value)}
-            placeholder="demo, sequence"
+            placeholder="产品, 推镜头"
             value={tags}
           />
         </label>
         {unavailable ? (
-          <p className="form-validation" role="status">Capture at least two Poses to create a Motion.</p>
+          <p className="form-validation" role="status">至少捕获两个机位后才能创建运动。</p>
         ) : null}
         {validation ? <p className="form-validation" role="alert">{validation}</p> : null}
         <button
@@ -328,7 +328,7 @@ export function MotionCreateForm({
           type="submit"
         >
           <Plus aria-hidden="true" />
-          {busy ? 'Creating…' : 'Create motion'}
+          {busy ? '正在创建…' : '创建运动'}
         </button>
       </form>
     </section>

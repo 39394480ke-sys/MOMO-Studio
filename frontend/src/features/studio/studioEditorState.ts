@@ -706,7 +706,7 @@ export function studioDocumentToDraftKeyframes(
   return document.frames.map((frame, index) => {
     const edge = edgeForFrame(document, index);
     if (index > 0 && edge === null) {
-      throw new Error(`Keyframe ${index + 1} is missing its incoming transition edge.`);
+      throw new Error(`关键帧 ${index + 1} 缺少进入过渡边。`);
     }
     return {
       id: frame.id,
@@ -737,34 +737,34 @@ export function validatePlayableStudioDocument(
   document: StudioDraftDocument,
 ): PlayableStudioValidation {
   const errors: string[] = [];
-  if (document.name.trim().length === 0) errors.push('Motion name is required.');
-  if (document.frames.length < 2) errors.push('A playable Motion requires at least two keyframes.');
-  if (document.frames.length > 1000) errors.push('A Motion cannot contain more than 1000 keyframes.');
+  if (document.name.trim().length === 0) errors.push('必须填写运动名称。');
+  if (document.frames.length < 2) errors.push('可播放的运动至少需要两个关键帧。');
+  if (document.frames.length > 1000) errors.push('一个运动不能包含超过 1000 个关键帧。');
 
   const frameIds = new Set<string>();
   document.frames.forEach((frame, index) => {
-    if (frameIds.has(frame.id)) errors.push(`Keyframe ${index + 1} has a duplicate ID.`);
+    if (frameIds.has(frame.id)) errors.push(`关键帧 ${index + 1} 的 ID 重复。`);
     frameIds.add(frame.id);
-    if (frame.label.trim().length === 0) errors.push(`Keyframe ${index + 1} requires a label.`);
+    if (frame.label.trim().length === 0) errors.push(`关键帧 ${index + 1} 必须填写名称。`);
     if (!Number.isFinite(frame.holdS) || frame.holdS < 0 || frame.holdS > 600) {
-      errors.push(`Keyframe ${index + 1} hold must be between 0 and 600 seconds.`);
+      errors.push(`关键帧 ${index + 1} 的停留时长必须在 0 到 600 秒之间。`);
     }
     if (frame.poseSnapshot.robot_variant !== document.robotVariant) {
-      errors.push(`Keyframe ${index + 1} robot variant does not match the draft.`);
+      errors.push(`关键帧 ${index + 1} 的机械臂型号与草稿不匹配。`);
     }
   });
 
   if (document.edges.length !== Math.max(0, document.frames.length - 1)) {
-    errors.push('Every adjacent keyframe pair must have exactly one transition edge.');
+    errors.push('每一对相邻关键帧之间必须且只能有一条过渡边。');
   }
   for (let index = 1; index < document.frames.length; index += 1) {
     const edge = edgeForFrame(document, index);
     if (edge === null) {
-      errors.push(`Keyframe ${index + 1} is missing its incoming transition.`);
+      errors.push(`关键帧 ${index + 1} 缺少进入过渡。`);
       continue;
     }
     if (!Number.isFinite(edge.durationS) || edge.durationS <= 0 || edge.durationS > 600) {
-      errors.push(`Transition ${index} duration must be greater than 0 and at most 600 seconds.`);
+      errors.push(`第 ${index} 段过渡时长必须大于 0 且不超过 600 秒。`);
     }
   }
 
@@ -772,10 +772,10 @@ export function validatePlayableStudioDocument(
   if (firstSnapshot !== undefined) {
     document.frames.forEach((frame, index) => {
       if (frame.poseSnapshot.profile_fingerprint !== firstSnapshot.profile_fingerprint) {
-        errors.push(`Keyframe ${index + 1} profile fingerprint does not match the Motion.`);
+        errors.push(`关键帧 ${index + 1} 的配置指纹与当前运动不匹配。`);
       }
       if (frame.poseSnapshot.kinematics_fingerprint !== firstSnapshot.kinematics_fingerprint) {
-        errors.push(`Keyframe ${index + 1} kinematics fingerprint does not match the Motion.`);
+        errors.push(`关键帧 ${index + 1} 的运动学指纹与当前运动不匹配。`);
       }
     });
   }

@@ -476,23 +476,23 @@ describe('Stage 5 Library', () => {
         capabilities: {
           real_joint_motion: {
             blocked_reasons: [
-              'Commissioning READ ONLY permits diagnostics and calibration only',
+              '只读调试模式仅允许诊断和标定',
             ],
           },
           real_playback: {
-            blocked_reasons: ['Commissioning READ ONLY permits no playback'],
+            blocked_reasons: ['只读调试模式不允许播放'],
           },
         },
       }),
     );
 
-    expect((await screen.findAllByText(/Commissioning READ ONLY permits diagnostics and calibration only/)).length)
+    expect((await screen.findAllByText(/只读调试模式仅允许诊断和标定/)).length)
       .toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: 'Goto' })[0]).toBeDisabled();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    const play = await screen.findByRole('button', { name: 'Play' });
+    expect(screen.getAllByRole('button', { name: '前往' })[0]).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    const play = await screen.findByRole('button', { name: '播放' });
     expect(play).toBeDisabled();
-    expect(screen.getAllByText(/Commissioning READ ONLY permits no playback/).length)
+    expect(screen.getAllByText(/只读调试模式不允许播放/).length)
       .toBeGreaterThan(0);
     expect(backend.requestsMatching('/goto').filter((request) => request.method === 'POST')).toHaveLength(0);
     expect(
@@ -529,11 +529,11 @@ describe('Stage 5 Library', () => {
       }),
     );
 
-    const goto = (await screen.findAllByRole('button', { name: 'Goto' }))[0];
+    const goto = (await screen.findAllByRole('button', { name: '前往' }))[0];
     expect(goto).toBeEnabled();
     await user.click(goto!);
-    expect(screen.getByText(/backend-authorized Real Joint Motion gateway/)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Confirm Real Goto' }));
+    expect(screen.getByText(/后端授权的真机关节运动入口/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '确认真机前往' }));
     await waitFor(() => expect(
       backend.requestsMatching('/goto').filter((request) => request.method === 'POST'),
     ).toHaveLength(1));
@@ -545,20 +545,20 @@ describe('Stage 5 Library', () => {
     renderLibrary();
 
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
-    expect(screen.getAllByText('Pose · V2')[0]).toBeVisible();
+    expect(screen.getAllByText('机位 · V2')[0]).toBeVisible();
     expect(screen.getByText(/X 101.0 · Y 202.0 · Z 303.0 mm/)).toBeVisible();
     expect(screen.getByText(/J10 101.0 mm/)).toBeVisible();
     expect(screen.getAllByText(`ID ${START_ID}`)[0]).toBeVisible();
-    expect(screen.getAllByRole('link', { name: 'Add to Studio' })[0]).toHaveAttribute(
+    expect(screen.getAllByRole('link', { name: '添加到编排' })[0]).toHaveAttribute(
       'href',
       `/studio?pose=${START_ID}`,
     );
 
-    await user.click(screen.getAllByRole('button', { name: 'View details' })[0]);
+    await user.click(screen.getAllByRole('button', { name: '查看详情' })[0]);
     expect(await screen.findByRole('dialog', { name: 'Ready' })).toBeVisible();
     expect(screen.getByText(stage3Ids.profileFingerprint)).toBeVisible();
     expect(backend.requestsMatching(`/poses/${START_ID}`)).toHaveLength(1);
-    await user.click(screen.getByRole('button', { name: 'Close details' }));
+    await user.click(screen.getByRole('button', { name: '关闭详情' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -590,10 +590,10 @@ describe('Stage 5 Library', () => {
     renderLibrary();
 
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
-    await user.click(screen.getAllByRole('button', { name: 'View details' })[0]);
-    expect(screen.getByRole('dialog', { name: 'Pose details' })).toBeVisible();
+    await user.click(screen.getAllByRole('button', { name: '查看详情' })[0]);
+    expect(screen.getByRole('dialog', { name: '机位详情' })).toBeVisible();
 
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
     expect(await screen.findByRole('heading', { name: 'Pick and place' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
@@ -610,26 +610,26 @@ describe('Stage 5 Library', () => {
     renderLibrary();
     await screen.findByRole('heading', { name: 'Ready' });
 
-    await user.type(screen.getByLabelText('Name'), '  Inspection  ');
-    await user.type(screen.getByLabelText('Description'), 'A coherent snapshot');
-    await user.type(screen.getByLabelText(/Tags · comma separated/), ' demo, reach, demo ');
-    await user.click(screen.getByRole('button', { name: 'Capture current pose' }));
+    await user.type(screen.getByLabelText('名称'), '  Inspection  ');
+    await user.type(screen.getByLabelText('说明'), 'A coherent snapshot');
+    await user.type(screen.getByLabelText(/标签 · 用逗号分隔/), ' demo, reach, demo ');
+    await user.click(screen.getByRole('button', { name: '捕获当前机位' }));
 
-    expect(await screen.findByText(/Captured Pose “Inspection”/)).toBeVisible();
+    expect(await screen.findByText(/已捕获机位“Inspection”/)).toBeVisible();
     expect(backend.requestsMatching('/poses/capture')[0]?.body).toEqual({
       name: 'Inspection',
       description: 'A coherent snapshot',
       tags: ['demo', 'reach'],
     });
-    expect(screen.getByLabelText('Description')).toHaveAttribute('maxlength', '5000');
+    expect(screen.getByLabelText('说明')).toHaveAttribute('maxlength', '5000');
 
-    await user.type(screen.getByLabelText('Name'), 'Too many tags');
+    await user.type(screen.getByLabelText('名称'), 'Too many tags');
     await user.type(
-      screen.getByLabelText(/Tags · comma separated/),
+      screen.getByLabelText(/标签 · 用逗号分隔/),
       Array.from({ length: 33 }, (_, index) => `tag${index}`).join(','),
     );
-    await user.click(screen.getByRole('button', { name: 'Capture current pose' }));
-    expect(await screen.findByText('Use no more than 32 tags.')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '捕获当前机位' }));
+    expect(await screen.findByText('标签数量不能超过 32 个。')).toBeVisible();
     expect(backend.requestsMatching('/poses/capture')).toHaveLength(1);
   });
 
@@ -638,8 +638,8 @@ describe('Stage 5 Library', () => {
     renderLibrary(runtime({ pendingAction: 'connect' }));
 
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Capture current pose' })).toBeDisabled();
-    expect(screen.getByLabelText('Name')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '捕获当前机位' })).toBeDisabled();
+    expect(screen.getByLabelText('名称')).toBeDisabled();
   });
 
   it('locks every Library mutation form while one action is in flight', async () => {
@@ -658,14 +658,14 @@ describe('Stage 5 Library', () => {
     });
     renderLibrary();
 
-    await screen.findByText('No saved poses yet');
-    await user.type(screen.getByLabelText('Name'), 'Pending capture');
-    await user.click(screen.getByRole('button', { name: 'Capture current pose' }));
-    expect(screen.getByRole('button', { name: 'Capturing…' })).toBeDisabled();
+    await screen.findByText('尚未保存机位');
+    await user.type(screen.getByLabelText('名称'), 'Pending capture');
+    await user.click(screen.getByRole('button', { name: '捕获当前机位' }));
+    expect(screen.getByRole('button', { name: '正在捕获…' })).toBeDisabled();
 
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    expect(await screen.findByRole('button', { name: 'Creating…' })).toBeDisabled();
-    expect(screen.getByLabelText('Name')).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    expect(await screen.findByRole('button', { name: '正在创建…' })).toBeDisabled();
+    expect(screen.getByLabelText('名称')).toBeDisabled();
 
     await act(async () => {
       resolveCapture(jsonResponse({
@@ -675,7 +675,7 @@ describe('Stage 5 Library', () => {
       }, 201));
       await pendingCapture;
     });
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Creating…' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('button', { name: '正在创建…' })).not.toBeInTheDocument());
   });
 
   it('confirms Goto inline, submits revision intent, and shows command preflight evidence', async () => {
@@ -684,14 +684,14 @@ describe('Stage 5 Library', () => {
     renderLibrary();
     await screen.findByRole('heading', { name: 'Ready' });
 
-    await user.click(screen.getAllByRole('button', { name: 'Goto' })[0]);
-    expect(screen.getByRole('alertdialog', { name: 'Goto “Ready”?' })).toBeVisible();
+    await user.click(screen.getAllByRole('button', { name: '前往' })[0]);
+    expect(screen.getByRole('alertdialog', { name: '前往“Ready”？' })).toBeVisible();
     expect(backend.requestsMatching('/goto')).toHaveLength(0);
-    await user.click(screen.getByRole('button', { name: 'Confirm Dry Run Goto' }));
+    await user.click(screen.getByRole('button', { name: '确认仿真前往' }));
 
-    expect(await screen.findByText(/Goto submitted for “Ready”; command state is ACCEPTED/)).toBeVisible();
-    expect(screen.getByText('Preflight accepted')).toBeVisible();
-    expect(screen.getByText(/PASS · profile_fingerprint/)).toBeVisible();
+    expect(await screen.findByText(/已提交前往“Ready”；命令状态为 ACCEPTED/)).toBeVisible();
+    expect(screen.getByText('预检已接受')).toBeVisible();
+    expect(screen.getByText(/通过 · profile_fingerprint/)).toBeVisible();
     expect(backend.requestsMatching(`/poses/${START_ID}/goto`)[0]?.body).toEqual(
       expect.objectContaining({ expected_revision: 1, duration_s: 1, speed_scale: 0.5 }),
     );
@@ -703,14 +703,14 @@ describe('Stage 5 Library', () => {
     renderLibrary();
     await screen.findByRole('heading', { name: 'Ready' });
 
-    await user.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
-    expect(screen.getByRole('alertdialog', { name: 'Delete “Ready”?' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    expect(screen.getByRole('alertdialog', { name: '删除“Ready”？' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '取消' }));
     expect(backend.requestsMatching(`poses/${START_ID}?expected_revision`)).toHaveLength(0);
-    await user.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
-    await user.click(screen.getByRole('button', { name: 'Confirm delete' }));
+    await user.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    await user.click(screen.getByRole('button', { name: '确认删除' }));
 
-    expect(await screen.findByText(/Deleted Pose “Ready”/)).toBeVisible();
+    expect(await screen.findByText(/已删除机位“Ready”/)).toBeVisible();
     expect(backend.requestsMatching(`/poses/${START_ID}?expected_revision=1`)).toHaveLength(1);
   });
 
@@ -747,15 +747,15 @@ describe('Stage 5 Library', () => {
     renderLibrary();
 
     expect(await screen.findByRole('heading', { name: 'First page Pose 1' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(screen.getByRole('button', { name: '下一页' }));
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'First page Pose 1' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Delete' }));
-    await user.click(screen.getByRole('button', { name: 'Confirm delete' }));
+    await user.click(screen.getByRole('button', { name: '删除' }));
+    await user.click(screen.getByRole('button', { name: '确认删除' }));
 
     expect(await screen.findByRole('heading', { name: 'First page Pose 1' })).toBeVisible();
-    expect(screen.queryByText('No saved poses yet')).not.toBeInTheDocument();
+    expect(screen.queryByText('尚未保存机位')).not.toBeInTheDocument();
     await waitFor(() => expect(requestedPages).toEqual([1, 2, 2, 1]));
   });
 
@@ -763,20 +763,20 @@ describe('Stage 5 Library', () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend();
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
     expect(await screen.findByRole('heading', { name: 'Pick and place' })).toBeVisible();
 
-    await user.type(screen.getByLabelText('Name'), 'Transfer');
-    await user.type(screen.getByLabelText('Description'), 'Stored transfer');
-    await user.selectOptions(screen.getByLabelText('Start Pose'), START_ID);
-    await user.selectOptions(screen.getByLabelText('End Pose'), END_ID);
-    await user.selectOptions(screen.getByLabelText('Transition type'), 'CARTESIAN_LINEAR');
-    await user.clear(screen.getByLabelText(/Duration · seconds/));
-    await user.type(screen.getByLabelText(/Duration · seconds/), '3.5');
-    await user.type(screen.getByLabelText(/Tags · comma separated/), 'transfer, demo');
-    await user.click(screen.getByRole('button', { name: 'Create motion' }));
+    await user.type(screen.getByLabelText('名称'), 'Transfer');
+    await user.type(screen.getByLabelText('说明'), 'Stored transfer');
+    await user.selectOptions(screen.getByLabelText('起始机位'), START_ID);
+    await user.selectOptions(screen.getByLabelText('结束机位'), END_ID);
+    await user.selectOptions(screen.getByLabelText('过渡类型'), 'CARTESIAN_LINEAR');
+    await user.clear(screen.getByLabelText(/时长 · 秒/));
+    await user.type(screen.getByLabelText(/时长 · 秒/), '3.5');
+    await user.type(screen.getByLabelText(/标签 · 用逗号分隔/), 'transfer, demo');
+    await user.click(screen.getByRole('button', { name: '创建运动' }));
 
-    expect(await screen.findByText(/Created Motion “Transfer” with 2 embedded keyframes/)).toBeVisible();
+    expect(await screen.findByText(/已创建运动“Transfer”，包含 2 个内嵌关键帧/)).toBeVisible();
     const request = backend.requests.find((entry) => entry.path === '/motions' && entry.method === 'POST');
     expect(request?.body).toEqual(expect.objectContaining({
       name: 'Transfer',
@@ -803,22 +803,22 @@ describe('Stage 5 Library', () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend();
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    expect(await screen.findByText('2.25 s')).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    expect(await screen.findByText('2.25 秒')).toBeVisible();
     expect(screen.getByText('JOINT')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled();
-    expect(screen.getByRole('link', { name: 'Open in Studio' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '播放' })).toBeEnabled();
+    expect(screen.getByRole('link', { name: '在编排中打开' })).toHaveAttribute(
       'href',
       `/studio?motion=${MOTION_ID}`,
     );
 
     expect(backend.requestsMatching(`/motions/${MOTION_ID}`)).toHaveLength(0);
-    await user.click(screen.getByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('button', { name: '播放' }));
     expect(await screen.findByRole('dialog', { name: 'Pick and place' })).toBeVisible();
-    expect(screen.getByText(/Start keyframe · no incoming transition/)).toBeVisible();
+    expect(screen.getByText(/起始关键帧 · 无进入过渡/)).toBeVisible();
     expect(screen.getByText(/JOINT · 2.00 s · SMOOTHSTEP/)).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Preflight & playback' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Run preflight' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: '预检与播放' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '运行预检' })).toBeEnabled();
     expect(backend.requestsMatching(`/motions/${MOTION_ID}`)).toHaveLength(1);
   });
 
@@ -826,68 +826,68 @@ describe('Stage 5 Library', () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend();
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    await user.click(await screen.findByRole('button', { name: '播放' }));
     const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
     const controls = within(dialog);
 
-    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
-    expect(await controls.findByText('Preflight passed')).toBeVisible();
-    const report = controls.getByRole('region', { name: 'Preflight result' });
-    expect(within(report).getByText('2.25 s')).toBeVisible();
+    await user.click(controls.getByRole('button', { name: '运行预检' }));
+    expect(await controls.findByText('预检通过')).toBeVisible();
+    const report = controls.getByRole('region', { name: '预检结果' });
+    expect(within(report).getByText('2.25 秒')).toBeVisible();
     expect(within(report).getByText('46')).toBeVisible();
     expect(within(report).getByText('2')).toBeVisible();
     expect(within(report).getByText('20 Hz')).toBeVisible();
-    expect(await controls.findByRole('heading', { name: 'Trajectory preview' })).toBeVisible();
-    expect(controls.getByRole('img', { name: /Joint trajectory over 2.3 seconds/ })).toHaveAttribute(
+    expect(await controls.findByRole('heading', { name: '轨迹预览' })).toBeVisible();
+    expect(controls.getByRole('img', { name: /2.3 秒关节轨迹/ })).toHaveAttribute(
       'viewBox',
       '0 0 720 250',
     );
-    expect(controls.getByText('JOINT · segment 1')).toBeVisible();
-    expect(controls.getByText('HOLD · segment 2')).toBeVisible();
+    expect(controls.getByText('JOINT · 轨迹段 1')).toBeVisible();
+    expect(controls.getByText('HOLD · 轨迹段 2')).toBeVisible();
     expect(controls.getAllByText(/101.0–151.0 mm/).length).toBeGreaterThan(0);
     expect(controls.getByText(/303.0–318.0 mm/)).toBeVisible();
     expect(backend.requestsMatching(`/motions/${MOTION_ID}/preflight`)[0]?.body).toEqual({
       expected_revision: 4,
     });
-    await waitFor(() => expect(controls.getByRole('button', { name: 'Play' })).toBeEnabled());
+    await waitFor(() => expect(controls.getByRole('button', { name: '播放' })).toBeEnabled());
 
-    await user.selectOptions(controls.getByLabelText('Playback rate'), '1.5');
-    await user.click(controls.getByRole('checkbox', { name: 'Loop playback' }));
-    await user.click(controls.getByRole('button', { name: 'Play' }));
-    await waitFor(() => expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0));
+    await user.selectOptions(controls.getByLabelText('播放速度倍率'), '1.5');
+    await user.click(controls.getByRole('checkbox', { name: '循环播放' }));
+    await user.click(controls.getByRole('button', { name: '播放' }));
+    await waitFor(() => expect(controls.getAllByText('播放中').length).toBeGreaterThan(0));
     expect(backend.requestsMatching(`/motions/${MOTION_ID}/play`)[0]?.body).toEqual({
       expected_revision: 4,
       trajectory_digest: passedPreflight.digest,
       loop: true,
       rate: 1.5,
     });
-    expect(screen.getByLabelText('Name')).toBeDisabled();
-    expect(screen.getByRole('link', { name: 'Open in Studio' })).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByRole('button', { name: 'Duplicate' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(screen.getByLabelText('名称')).toBeDisabled();
+    expect(screen.getByRole('link', { name: '在编排中打开' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: '复制' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '删除' })).toBeDisabled();
 
-    await user.click(controls.getByRole('button', { name: 'Pause' }));
-    await waitFor(() => expect(controls.getAllByText('PAUSED').length).toBeGreaterThan(0));
-    expect(controls.getByRole('button', { name: 'Resume' })).toBeEnabled();
-    await user.click(controls.getByRole('button', { name: 'Resume' }));
-    await waitFor(() => expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0));
+    await user.click(controls.getByRole('button', { name: '暂停' }));
+    await waitFor(() => expect(controls.getAllByText('已暂停').length).toBeGreaterThan(0));
+    expect(controls.getByRole('button', { name: '继续' })).toBeEnabled();
+    await user.click(controls.getByRole('button', { name: '继续' }));
+    await waitFor(() => expect(controls.getAllByText('播放中').length).toBeGreaterThan(0));
 
-    await user.selectOptions(controls.getByLabelText('Playback rate'), '2');
+    await user.selectOptions(controls.getByLabelText('播放速度倍率'), '2');
     await waitFor(() => expect(
       backend.requests.filter(
         (request) => request.path === '/playback/rate' && request.method === 'PUT',
       ).at(-1)?.body,
     ).toEqual({ rate: 2 }));
-    await user.click(controls.getByRole('checkbox', { name: 'Loop playback' }));
+    await user.click(controls.getByRole('checkbox', { name: '循环播放' }));
     await waitFor(() => expect(
       backend.requests.filter(
         (request) => request.path === '/playback/loop' && request.method === 'PUT',
       ).at(-1)?.body,
     ).toEqual({ loop: false }));
 
-    await user.click(controls.getByRole('button', { name: 'Stop' }));
-    await waitFor(() => expect(controls.getAllByText('STOPPED').length).toBeGreaterThan(0));
+    await user.click(controls.getByRole('button', { name: '停止' }));
+    await waitFor(() => expect(controls.getAllByText('已停止').length).toBeGreaterThan(0));
     expect(backend.requests.some((request) => request.path === '/playback/pause')).toBe(true);
     expect(backend.requests.some((request) => request.path === '/playback/resume')).toBe(true);
     expect(backend.requests.some((request) => request.path === '/playback/stop')).toBe(true);
@@ -897,22 +897,22 @@ describe('Stage 5 Library', () => {
     const user = userEvent.setup();
     mockLibraryBackend({ preflightPassed: false });
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    await user.click(await screen.findByRole('button', { name: '播放' }));
     const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
     const controls = within(dialog);
 
-    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
-    expect(await controls.findByText('Preflight rejected')).toBeVisible();
+    await user.click(controls.getByRole('button', { name: '运行预检' }));
+    expect(await controls.findByText('预检未通过')).toBeVisible();
     expect(controls.getByText('JOINT_LIMIT')).toBeVisible();
     expect(controls.getByText(/deliberately long violation message/)).toBeVisible();
-    expect(controls.getByText(`Keyframe ${END_KEYFRAME_ID}`)).toBeVisible();
-    expect(controls.getByText('Segment 1')).toBeVisible();
-    expect(controls.getByText('Check joint_limits')).toBeVisible();
-    expect(controls.getByText('Sample 21')).toBeVisible();
-    expect(controls.getByText(/Joint j11 · actual 93 deg · limit 90 deg/)).toBeVisible();
-    expect(controls.getByRole('button', { name: 'Play' })).toBeDisabled();
-    expect(controls.queryByRole('heading', { name: 'Trajectory preview' })).not.toBeInTheDocument();
+    expect(controls.getByText(`关键帧 ${END_KEYFRAME_ID}`)).toBeVisible();
+    expect(controls.getByText('轨迹段 1')).toBeVisible();
+    expect(controls.getByText('检查项 joint_limits')).toBeVisible();
+    expect(controls.getByText('采样点 21')).toBeVisible();
+    expect(controls.getByText(/关节 j11 · 实际 93 deg · 限制 90 deg/)).toBeVisible();
+    expect(controls.getByRole('button', { name: '播放' })).toBeDisabled();
+    expect(controls.queryByRole('heading', { name: '轨迹预览' })).not.toBeInTheDocument();
   });
 
   it('shows polled progress and lets the active Motion reopen while other Library actions stay locked', async () => {
@@ -935,22 +935,22 @@ describe('Stage 5 Library', () => {
       },
     });
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    const cardPlay = await screen.findByRole('button', { name: 'Play' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Duplicate' })).toBeDisabled());
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    const cardPlay = await screen.findByRole('button', { name: '播放' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '复制' })).toBeDisabled());
     expect(cardPlay).toBeEnabled();
     await user.click(cardPlay);
     const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
     const controls = within(dialog);
 
     expect(controls.getByText('42%')).toBeVisible();
-    expect(controls.getByText('0.95 s / 2.25 s')).toBeVisible();
+    expect(controls.getByText('0.95 秒 / 2.25 秒')).toBeVisible();
     expect(controls.getByText('End')).toBeVisible();
     expect(controls.getByText('19')).toBeVisible();
-    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeChecked();
-    expect(controls.getByLabelText('Playback rate')).toHaveValue('1.5');
-    expect(controls.getByRole('button', { name: 'Stop' })).toBeEnabled();
-    expect(controls.getByRole('button', { name: 'Run preflight' })).toBeDisabled();
+    expect(controls.getByRole('checkbox', { name: '循环播放' })).toBeChecked();
+    expect(controls.getByLabelText('播放速度倍率')).toHaveValue('1.5');
+    expect(controls.getByRole('button', { name: '停止' })).toBeEnabled();
+    expect(controls.getByRole('button', { name: '运行预检' })).toBeDisabled();
   });
 
   it('keeps polling playback after switching to Poses so completed sessions release the Library lock', async () => {
@@ -966,12 +966,12 @@ describe('Stage 5 Library', () => {
     const backend = mockLibraryBackend({ playbackStatus: playing });
     renderLibrary();
 
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
     await screen.findByRole('heading', { name: 'Pick and place' });
-    await waitFor(() => expect(screen.getByLabelText('Name')).toBeDisabled());
-    await user.click(screen.getByRole('tab', { name: 'POSES' }));
+    await waitFor(() => expect(screen.getByLabelText('名称')).toBeDisabled());
+    await user.click(screen.getByRole('tab', { name: '机位' }));
     await screen.findByRole('heading', { name: 'Ready' });
-    expect(screen.getByLabelText('Name')).toBeDisabled();
+    expect(screen.getByLabelText('名称')).toBeDisabled();
 
     backend.setPlaybackStatus({
       ...playing,
@@ -981,10 +981,10 @@ describe('Stage 5 Library', () => {
     });
 
     await waitFor(
-      () => expect(screen.getByLabelText('Name')).toBeEnabled(),
+      () => expect(screen.getByLabelText('名称')).toBeEnabled(),
       { timeout: 2_000 },
     );
-    expect(screen.getByRole('button', { name: 'Capture current pose' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '捕获当前机位' })).toBeEnabled();
   });
 
   it('keeps a rejected playback command visible across healthy polls until it is dismissed', async () => {
@@ -1001,12 +1001,12 @@ describe('Stage 5 Library', () => {
       },
     });
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    await user.click(await screen.findByRole('button', { name: '播放' }));
     const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
-    await waitFor(() => expect(controls.getByRole('button', { name: 'Pause' })).toBeEnabled());
+    await waitFor(() => expect(controls.getByRole('button', { name: '暂停' })).toBeEnabled());
 
-    await user.click(controls.getByRole('button', { name: 'Pause' }));
+    await user.click(controls.getByRole('button', { name: '暂停' }));
     expect(await controls.findByText('Pause was rejected because the runner changed state')).toBeVisible();
     const pollsAfterError = backend.requests.filter(
       (request) => request.path === '/playback' && request.method === 'GET',
@@ -1016,7 +1016,7 @@ describe('Stage 5 Library', () => {
     ).length).toBeGreaterThan(pollsAfterError), { timeout: 2_000 });
     expect(controls.getByText('Pause was rejected because the runner changed state')).toBeVisible();
 
-    await user.click(controls.getByRole('button', { name: 'Dismiss playback error' }));
+    await user.click(controls.getByRole('button', { name: '关闭播放错误' }));
     expect(controls.queryByText('Pause was rejected because the runner changed state')).not.toBeInTheDocument();
   });
 
@@ -1029,37 +1029,37 @@ describe('Stage 5 Library', () => {
     };
     const backend = mockLibraryBackend({ playbackStatus: preflighting });
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    await user.click(await screen.findByRole('button', { name: '播放' }));
     const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
-    await waitFor(() => expect(controls.getAllByText('PREFLIGHTING').length).toBeGreaterThan(0));
+    await waitFor(() => expect(controls.getAllByText('预检中').length).toBeGreaterThan(0));
 
-    expect(controls.getByRole('button', { name: 'Run preflight' })).toBeDisabled();
-    expect(controls.getByRole('button', { name: 'Play' })).toBeDisabled();
-    expect(controls.getByRole('button', { name: 'Pause' })).toBeDisabled();
-    expect(controls.getByRole('button', { name: 'Resume' })).toBeDisabled();
-    expect(controls.getByRole('button', { name: 'Stop' })).toBeEnabled();
-    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
-    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '运行预检' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '播放' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '暂停' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '继续' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '停止' })).toBeEnabled();
+    expect(controls.getByLabelText('播放速度倍率')).toBeDisabled();
+    expect(controls.getByRole('checkbox', { name: '循环播放' })).toBeDisabled();
 
     backend.setPlaybackStatus({ ...preflighting, state: 'STOPPING' });
     await waitFor(
-      () => expect(controls.getAllByText('STOPPING').length).toBeGreaterThan(0),
+      () => expect(controls.getAllByText('停止中').length).toBeGreaterThan(0),
       { timeout: 2_000 },
     );
-    expect(controls.getByRole('button', { name: 'Stop' })).toBeDisabled();
-    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
-    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '停止' })).toBeDisabled();
+    expect(controls.getByLabelText('播放速度倍率')).toBeDisabled();
+    expect(controls.getByRole('checkbox', { name: '循环播放' })).toBeDisabled();
 
     backend.setPlaybackStatus({ ...preflighting, state: 'COMPLETED', progress: 1 });
     await waitFor(
-      () => expect(controls.getAllByText('COMPLETED').length).toBeGreaterThan(0),
+      () => expect(controls.getAllByText('已完成').length).toBeGreaterThan(0),
       { timeout: 2_000 },
     );
-    expect(controls.getByRole('button', { name: 'Play' })).toBeDisabled();
-    expect(controls.getByRole('button', { name: 'Stop' })).toBeDisabled();
-    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
-    expect(controls.getByRole('checkbox', { name: 'Loop playback' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '播放' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '停止' })).toBeDisabled();
+    expect(controls.getByLabelText('播放速度倍率')).toBeDisabled();
+    expect(controls.getByRole('checkbox', { name: '循环播放' })).toBeDisabled();
   });
 
   it('lets Stop supersede an in-flight preflight and ignores its late result', async () => {
@@ -1070,29 +1070,29 @@ describe('Stage 5 Library', () => {
     });
     const backend = mockLibraryBackend({ preflightResponse: pendingPreflight });
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    await user.click(await screen.findByRole('button', { name: '播放' }));
     const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
 
-    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
+    await user.click(controls.getByRole('button', { name: '运行预检' }));
     await waitFor(
-      () => expect(controls.getByRole('button', { name: 'Stop' })).toBeEnabled(),
+      () => expect(controls.getByRole('button', { name: '停止' })).toBeEnabled(),
       { timeout: 2_000 },
     );
-    expect(controls.getByRole('button', { name: 'Preflighting…' })).toBeDisabled();
-    expect(controls.getByLabelText('Playback rate')).toBeDisabled();
+    expect(controls.getByRole('button', { name: '正在预检…' })).toBeDisabled();
+    expect(controls.getByLabelText('播放速度倍率')).toBeDisabled();
 
-    await user.click(controls.getByRole('button', { name: 'Stop' }));
+    await user.click(controls.getByRole('button', { name: '停止' }));
     await waitFor(() => expect(backend.requestsMatching('/playback/stop')).toHaveLength(1));
-    await waitFor(() => expect(controls.getAllByText('STOPPED').length).toBeGreaterThan(0));
+    await waitFor(() => expect(controls.getAllByText('已停止').length).toBeGreaterThan(0));
 
     await act(async () => {
       resolvePreflight(jsonResponse(passedPreflight));
       await pendingPreflight;
     });
-    expect(controls.queryByText('Preflight passed')).not.toBeInTheDocument();
-    expect(controls.getAllByText('STOPPED').length).toBeGreaterThan(0);
-    expect(controls.getByRole('button', { name: 'Run preflight' })).toBeEnabled();
+    expect(controls.queryByText('预检通过')).not.toBeInTheDocument();
+    expect(controls.getAllByText('已停止').length).toBeGreaterThan(0);
+    expect(controls.getByRole('button', { name: '运行预检' })).toBeEnabled();
   });
 
   it('ignores an older playback poll that resolves after a Play command response', async () => {
@@ -1103,13 +1103,13 @@ describe('Stage 5 Library', () => {
     });
     const backend = mockLibraryBackend();
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    await user.click(await screen.findByRole('button', { name: '播放' }));
     const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
     const controls = within(dialog);
-    await user.click(controls.getByRole('button', { name: 'Run preflight' }));
-    await controls.findByText('Preflight passed');
-    await waitFor(() => expect(controls.getByRole('button', { name: 'Play' })).toBeEnabled());
+    await user.click(controls.getByRole('button', { name: '运行预检' }));
+    await controls.findByText('预检通过');
+    await waitFor(() => expect(controls.getByRole('button', { name: '播放' })).toBeEnabled());
     const pollsBeforeDelay = backend.requests.filter(
       (request) => request.path === '/playback' && request.method === 'GET',
     ).length;
@@ -1117,15 +1117,15 @@ describe('Stage 5 Library', () => {
     await waitFor(() => expect(backend.requests.filter(
       (request) => request.path === '/playback' && request.method === 'GET',
     ).length).toBeGreaterThan(pollsBeforeDelay), { timeout: 2_000 });
-    await user.click(controls.getByRole('button', { name: 'Play' }));
-    await waitFor(() => expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0));
+    await user.click(controls.getByRole('button', { name: '播放' }));
+    await waitFor(() => expect(controls.getAllByText('播放中').length).toBeGreaterThan(0));
 
     await act(async () => {
       resolveOldPoll(jsonResponse(idlePlayback));
       await oldPoll;
     });
-    expect(controls.getAllByText('PLAYING').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Duplicate' })).toBeDisabled();
+    expect(controls.getAllByText('播放中').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '复制' })).toBeDisabled();
   });
 
   it('disables preflight and card playback for offline-quality robot state', async () => {
@@ -1135,13 +1135,13 @@ describe('Stage 5 Library', () => {
       stale: true,
       robot: { ...robotFor('V2', true), stale: true } as NonNullable<RuntimeStatus['robot']>,
     }));
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    expect(await screen.findByRole('button', { name: 'Play' })).toBeDisabled();
-    expect(screen.getByText('Playback unavailable · robot state is stale')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'View details' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    expect(await screen.findByRole('button', { name: '播放' })).toBeDisabled();
+    expect(screen.getByText('暂时无法播放 · 机械臂状态已经过期')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '查看详情' }));
     const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    expect(within(dialog).getByRole('button', { name: 'Run preflight' })).toBeDisabled();
-    expect(within(dialog).getByText('Playback unavailable · robot state is stale')).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: '运行预检' })).toBeDisabled();
+    expect(within(dialog).getByText('暂时无法播放 · 机械臂状态已经过期')).toBeVisible();
   });
 
   it('ignores a late trajectory preview after Motion details close', async () => {
@@ -1152,20 +1152,20 @@ describe('Stage 5 Library', () => {
     });
     const backend = mockLibraryBackend({ previewResponse: pendingPreview });
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
-    await user.click(await screen.findByRole('button', { name: 'Play' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    await user.click(await screen.findByRole('button', { name: '播放' }));
     const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    await user.click(within(dialog).getByRole('button', { name: 'Run preflight' }));
-    expect(await within(dialog).findByText('Loading bounded trajectory preview…')).toBeVisible();
-    await user.click(within(dialog).getByRole('button', { name: 'Close details' }));
+    await user.click(within(dialog).getByRole('button', { name: '运行预检' }));
+    expect(await within(dialog).findByText('正在加载有边界的轨迹预览…')).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: '关闭详情' }));
 
     await act(async () => {
       resolvePreview(jsonResponse(trajectoryPreview));
       await pendingPreview;
     });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Trajectory preview' })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled());
+    expect(screen.queryByRole('heading', { name: '轨迹预览' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '播放' })).toBeEnabled());
     expect(backend.requestsMatching('/trajectory/')).toHaveLength(1);
   });
 
@@ -1173,20 +1173,20 @@ describe('Stage 5 Library', () => {
     const user = userEvent.setup();
     const backend = mockLibraryBackend({ changedSourceRevision: true });
     renderLibrary();
-    await user.click(screen.getByRole('tab', { name: 'MOTIONS' }));
+    await user.click(screen.getByRole('tab', { name: '运动' }));
     await screen.findByRole('heading', { name: 'Pick and place' });
 
-    await user.type(screen.getByLabelText('Name'), 'Draft survives');
-    await user.selectOptions(screen.getByLabelText('Start Pose'), START_ID);
-    await user.selectOptions(screen.getByLabelText('End Pose'), END_ID);
-    await user.click(screen.getByRole('button', { name: 'Create motion' }));
+    await user.type(screen.getByLabelText('名称'), 'Draft survives');
+    await user.selectOptions(screen.getByLabelText('起始机位'), START_ID);
+    await user.selectOptions(screen.getByLabelText('结束机位'), END_ID);
+    await user.click(screen.getByRole('button', { name: '创建运动' }));
 
-    expect(await screen.findByText('Revision conflict')).toBeVisible();
-    expect(screen.getByText(/selected Pose changed/)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Reload' })).toBeVisible();
-    expect(screen.getByLabelText('Name')).toHaveValue('Draft survives');
-    expect(screen.getByLabelText('Start Pose')).toHaveValue(START_ID);
-    expect(screen.getByLabelText('End Pose')).toHaveValue(END_ID);
+    expect(await screen.findByText('版本冲突')).toBeVisible();
+    expect(screen.getByText(/所选机位在资源列表加载后发生了变化/)).toBeVisible();
+    expect(screen.getByRole('button', { name: '重新加载' })).toBeVisible();
+    expect(screen.getByLabelText('名称')).toHaveValue('Draft survives');
+    expect(screen.getByLabelText('起始机位')).toHaveValue(START_ID);
+    expect(screen.getByLabelText('结束机位')).toHaveValue(END_ID);
     expect(backend.requests.filter((entry) => entry.path === '/motions' && entry.method === 'POST')).toHaveLength(0);
   });
 
@@ -1194,27 +1194,27 @@ describe('Stage 5 Library', () => {
     const user = userEvent.setup();
     mockLibraryBackend({ empty: true });
     const first = renderLibrary();
-    expect(await screen.findByText('No saved poses yet')).toBeVisible();
+    expect(await screen.findByText('尚未保存机位')).toBeVisible();
     first.unmount();
 
     mockLibraryBackend();
     const second = renderLibrary();
     await screen.findByRole('heading', { name: 'Ready' });
-    await user.type(screen.getByLabelText('Search'), 'missing');
-    expect(await screen.findByText('No poses match these filters')).toBeVisible();
+    await user.type(screen.getByLabelText('搜索'), 'missing');
+    expect(await screen.findByText('没有机位符合筛选条件')).toBeVisible();
     second.unmount();
 
     mockLibraryBackend({ listError: true });
     const third = renderLibrary();
-    expect(await screen.findByText('Library request failed')).toBeVisible();
+    expect(await screen.findByText('资源库请求失败')).toBeVisible();
     expect(screen.getByText('Repository index unavailable')).toBeVisible();
     third.unmount();
 
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     renderLibrary(runtime({ backend: 'unavailable', robot: null, profile: null }));
-    expect(screen.getByText('Library offline')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Capture current pose' })).toBeDisabled();
+    expect(screen.getByText('资源库离线')).toBeVisible();
+    expect(screen.getByRole('button', { name: '捕获当前机位' })).toBeDisabled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1237,11 +1237,11 @@ describe('Stage 5 Library', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Library offline')).toBeVisible();
-    expect(screen.getAllByRole('button', { name: 'Goto' })[0]).toBeDisabled();
-    expect(screen.getAllByText(/Goto unavailable · backend offline/)[0]).toBeVisible();
-    expect(screen.getAllByRole('button', { name: 'Duplicate' })[0]).toBeDisabled();
-    expect(screen.getAllByRole('button', { name: 'Delete' })[0]).toBeDisabled();
+    expect(await screen.findByText('资源库离线')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: '前往' })[0]).toBeDisabled();
+    expect(screen.getAllByText(/暂时无法前往 · 后端离线/)[0]).toBeVisible();
+    expect(screen.getAllByRole('button', { name: '复制' })[0]).toBeDisabled();
+    expect(screen.getAllByRole('button', { name: '删除' })[0]).toBeDisabled();
   });
 
   it('shows initial loading and ignores a late response from an aborted filter generation', async () => {
@@ -1264,16 +1264,16 @@ describe('Stage 5 Library', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderLibrary();
 
-    expect(screen.getByText('Loading poses…')).toBeVisible();
+    expect(screen.getByText('正在加载机位…')).toBeVisible();
     await act(async () => {
       resolveInitial(jsonResponse({ items: [poseSummary(startPose)], page: 1, page_size: 24, total: 1 }));
       await initial;
     });
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
 
-    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'slow' } });
+    fireEvent.change(screen.getByLabelText('搜索'), { target: { value: 'slow' } });
     await waitFor(() => expect(requestedSearches).toContain('slow'));
-    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'fast' } });
+    fireEvent.change(screen.getByLabelText('搜索'), { target: { value: 'fast' } });
     await waitFor(() => expect(requestedSearches).toContain('fast'));
 
     const fastResult = { ...poseSummary(endPose), name: 'Fast result' };

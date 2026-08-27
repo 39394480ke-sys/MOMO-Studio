@@ -55,7 +55,7 @@ export function StudioPage() {
   }, [entryKey, searchParams, setSearchParams, workspace.draft, workspace.initializing, workspace.loadedEntryKey]);
 
   const openSaveAs = () => {
-    setSaveAsName(`${workspace.editor.document.name || 'Untitled Motion'} copy`);
+    setSaveAsName(`${workspace.editor.document.name || '未命名运动'} 副本`);
     setSaveAsOpen(true);
   };
 
@@ -74,13 +74,13 @@ export function StudioPage() {
     return (
       <div className="page studio-page">
         <PageIntro
-          title="Studio"
-          description="Loading the autosaved timeline workspace."
-          detail="Draft recovery is bounded and never overwrites a formal Motion."
+          title="编排"
+          description="正在加载自动保存的时间轴工作区。"
+          detail="草稿恢复只处理当前草稿，不会覆盖已正式保存的运动。"
         />
         <div className="studio-initializing" role="status">
           <LoaderCircle aria-hidden="true" />
-          <strong>Opening Studio draft…</strong>
+          <strong>正在打开编排草稿…</strong>
         </div>
       </div>
     );
@@ -91,13 +91,13 @@ export function StudioPage() {
     return (
       <div className="page studio-page">
         <PageIntro
-          title="Studio"
-          description="Draft recovery stopped before the editor was opened."
-          detail="MOMO Studio will not infer, retry, or overwrite an interrupted formal save."
+          title="编排"
+          description="编辑器打开前检测到一次未完成的正式保存。"
+          detail="MOMO Studio 不会擅自推断、重试或覆盖这次中断的保存。"
         />
         <div className="studio-notice studio-notice--conflict" role="alert">
           <AlertCircle aria-hidden="true" />
-          <span>A formal-save recovery marker must be explicitly released before this draft can be edited.</span>
+          <span>需要先明确解除正式保存的恢复标记，才能继续编辑此草稿。</span>
         </div>
         <StudioFormalSaveRecoveryDialog
           actualTargetRevision={recovery.actualTargetRevision}
@@ -118,9 +118,9 @@ export function StudioPage() {
   return (
     <div className="page studio-page">
       <PageIntro
-        title="Studio"
-        description="Author camera motion as explicit keyframes and directed transition edges."
-        detail={`Drafts autosave independently; only a validated, compiler-approved formal Motion can enter ${runtime.controlMode === 'REAL' ? 'backend-authorized Real' : 'Dry Run'} playback.`}
+        title="编排"
+        description="使用关键帧和帧间过渡来编排摄影机械臂运动。"
+        detail={`草稿会独立自动保存；只有通过校验和轨迹编译的正式运动，才能进入${runtime.controlMode === 'REAL' ? '后端授权的真机' : '仿真'}播放。`}
       />
 
       <StudioToolbar
@@ -146,7 +146,7 @@ export function StudioPage() {
         <div className="studio-notice studio-notice--success" role="status">
           <CheckCircle2 aria-hidden="true" />
           <span>{workspace.recoveryMessage}</span>
-          <button aria-label="Dismiss Studio notice" className="mini-command" onClick={workspace.clearRecoveryMessage} type="button">
+          <button aria-label="关闭编排提示" className="mini-command" onClick={workspace.clearRecoveryMessage} type="button">
             <X aria-hidden="true" />
           </button>
         </div>
@@ -155,7 +155,7 @@ export function StudioPage() {
         <div className="studio-notice studio-notice--error" role="alert">
           <AlertCircle aria-hidden="true" />
           <span>{workspace.error}</span>
-          <button aria-label="Dismiss Studio error" className="mini-command" onClick={workspace.clearError} type="button">
+          <button aria-label="关闭编排错误" className="mini-command" onClick={workspace.clearError} type="button">
             <X aria-hidden="true" />
           </button>
         </div>
@@ -163,10 +163,10 @@ export function StudioPage() {
       {workspace.conflict && workspace.conflictAcknowledged ? (
         <div className="studio-notice studio-notice--conflict" role="status">
           <AlertCircle aria-hidden="true" />
-          <span>Draft autosave is paused at a revision conflict. Keep editing locally, then Reload or Save As.</span>
+          <span>草稿自动保存因版本冲突暂停。你可以继续本地编辑，然后选择“重新加载”或“另存为”。</span>
           <div className="studio-notice__actions">
-            <button className="command-button" disabled={workspace.action !== null} onClick={() => void workspace.reloadConflict()} type="button">Reload</button>
-            <button className="command-button command-button--primary" disabled={workspace.action !== null || workspace.saveDisabledReason !== null} onClick={openSaveAs} type="button">Save As</button>
+            <button className="command-button" disabled={workspace.action !== null} onClick={() => void workspace.reloadConflict()} type="button">重新加载</button>
+            <button className="command-button command-button--primary" disabled={workspace.action !== null || workspace.saveDisabledReason !== null} onClick={openSaveAs} type="button">另存为</button>
           </div>
         </div>
       ) : null}
@@ -300,17 +300,17 @@ export function StudioPage() {
         <StudioConfirmDialog
           busy={workspace.action !== null}
           confirmLabel={confirmation.type === 'new'
-            ? 'Create new draft'
-            : `Confirm ${runtime.controlMode === 'REAL' ? 'Real' : 'Dry Run'} Goto`}
+            ? '新建草稿'
+            : `确认${runtime.controlMode === 'REAL' ? '真机' : '仿真'}前往`}
           danger={confirmation.type === 'new'}
           description={confirmation.type === 'new'
-            ? 'This working draft is autosaved, but its changes are not saved as a formal Motion. A new blank draft will not delete it.'
+            ? '当前工作草稿已经自动保存，但尚未保存为正式运动。新建空白草稿不会删除它。'
             : runtime.controlMode === 'REAL'
-              ? 'Submit the embedded keyframe snapshot through the backend-authorized Real Joint Motion gateway.'
-              : 'Submit the embedded keyframe snapshot through the single reviewed Dry Run safety gateway. No real hardware is enabled.'}
+              ? '通过后端授权的真机关节运动入口提交内嵌关键帧快照。'
+              : '通过唯一经过审核的仿真安全入口提交内嵌关键帧快照；不会启用实体硬件。'}
           onCancel={() => setConfirmation(null)}
           onConfirm={confirmAction}
-          title={confirmation.type === 'new' ? 'Start a blank draft?' : 'Goto selected keyframe?'}
+          title={confirmation.type === 'new' ? '新建空白草稿？' : '前往所选关键帧？'}
         />
       ) : null}
     </div>

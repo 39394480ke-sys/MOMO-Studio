@@ -10,7 +10,7 @@ import type { SecuritySessionResponse } from '../../api/types';
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError || error instanceof Error) return error.message;
-  return 'The LAN security-session request failed.';
+  return '局域网安全会话请求失败。';
 }
 
 export function LanSecuritySessionPanel() {
@@ -37,7 +37,7 @@ export function LanSecuritySessionPanel() {
   const expiryLabel = useMemo(() => {
     if (!session) return null;
     const parsed = new Date(session.expires_at);
-    return Number.isNaN(parsed.valueOf()) ? session.expires_at : parsed.toLocaleString();
+    return Number.isNaN(parsed.valueOf()) ? session.expires_at : parsed.toLocaleString('zh-CN');
   }, [session]);
 
   const canIssue =
@@ -81,19 +81,18 @@ export function LanSecuritySessionPanel() {
   return (
     <section className="settings-section lan-security" aria-labelledby="lan-security-title">
       <div className="settings-section__heading">
-        <p className="section-kicker">Local / LAN access</p>
-        <h2 id="lan-security-title">Browser Security Session</h2>
+        <p className="section-kicker">本机 / 局域网访问</p>
+        <h2 id="lan-security-title">浏览器安全会话</h2>
       </div>
       <p className="lan-security__intro">
-        Local-only use needs no credential. When an operator explicitly enables LAN,
-        exchange the long-lived bearer once for a short-lived HttpOnly cookie. The bearer
-        stays only in this field until the request completes and is never stored by the UI.
+        仅在本机使用时不需要凭证。明确启用局域网访问后，可用长期 Bearer Token
+        换取短期 HttpOnly Cookie。Token 只在请求期间保留在此输入框中，界面不会存储。
       </p>
 
       {!session && (
         <form className="lan-security__form" onSubmit={(event) => void issue(event)}>
           <label>
-            <span>LAN bearer token</span>
+            <span>局域网 Bearer Token</span>
             <input
               aria-describedby="lan-token-help"
               autoComplete="off"
@@ -106,11 +105,11 @@ export function LanSecuritySessionPanel() {
             />
           </label>
           <p id="lan-token-help">
-            Never paste this token into a URL, WebSocket address, or browser storage.
+            不要把此 Token 粘贴到网址、WebSocket 地址或浏览器存储中。
           </p>
           <button className="command-button" disabled={!canIssue} type="submit">
             <KeyRound aria-hidden="true" />
-            {pending === 'issue' ? 'Exchanging…' : 'Create LAN browser session'}
+            {pending === 'issue' ? '正在交换…' : '创建局域网浏览器会话'}
           </button>
         </form>
       )}
@@ -119,10 +118,10 @@ export function LanSecuritySessionPanel() {
         <div className="real-session-bar lan-security__session" role="status">
           <LockKeyhole aria-hidden="true" />
           <div>
-            <span>{expired ? 'Session expired' : 'HttpOnly session active'}</span>
-            <strong>Expires {expiryLabel}</strong>
+            <span>{expired ? '会话已过期' : 'HttpOnly 会话已生效'}</span>
+            <strong>到期时间：{expiryLabel}</strong>
             <small>
-              {session.surfaces.join(' · ')} · token unavailable to JavaScript
+              {session.surfaces.join(' · ')} · JavaScript 无法读取 Token
             </small>
           </div>
           <button
@@ -132,7 +131,7 @@ export function LanSecuritySessionPanel() {
             type="button"
           >
             <LogOut aria-hidden="true" />
-            {pending === 'revoke' ? 'Revoking…' : 'Revoke browser session'}
+            {pending === 'revoke' ? '正在撤销…' : '撤销浏览器会话'}
           </button>
         </div>
       )}

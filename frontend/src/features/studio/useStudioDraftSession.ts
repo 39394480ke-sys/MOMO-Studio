@@ -150,7 +150,7 @@ function id(): string {
 }
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : 'The Studio operation failed.';
+  return error instanceof Error ? error.message : '编排操作失败。';
 }
 
 function revisionDetails(error: ApiError): { actual: number | null; expected: number | null } {
@@ -260,12 +260,12 @@ function editorMetadata(
 }
 
 function autosaveLabel(status: StudioEditorState['autosave']): string {
-  if (status.status === 'saving') return 'Autosaving draft…';
-  if (status.status === 'error') return `Autosave failed · ${status.error ?? 'retry required'}`;
+  if (status.status === 'saving') return '正在自动保存草稿…';
+  if (status.status === 'error') return `自动保存失败 · ${status.error ?? '需要重试'}`;
   if (status.status === 'saved' && status.lastSavedAt) {
-    return `Draft autosaved · ${new Date(status.lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    return `草稿已自动保存 · ${new Date(status.lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   }
-  return status.persistedRevision ? 'Draft autosave ready' : 'Creating draft…';
+  return status.persistedRevision ? '草稿自动保存就绪' : '正在创建草稿…';
 }
 
 export function useStudioDraftSession({
@@ -417,7 +417,7 @@ export function useStudioDraftSession({
             }
           }
           if (!finish(recovered, source)) return;
-          setRecoveryMessage('Recovered the requested autosaved draft. No formal Motion was overwritten.');
+          setRecoveryMessage('已恢复指定的自动保存草稿，没有覆盖任何正式运动。');
           return;
         }
 
@@ -426,7 +426,7 @@ export function useStudioDraftSession({
           if (!current()) return;
           const created = await createMotionDraftFromMotion(motion.id, motion.revision);
           if (!finish(created, motion)) return;
-          setRecoveryMessage(`Opened “${motion.name}” as an autosaved working draft.`);
+          setRecoveryMessage(`已将“${motion.name}”作为自动保存的工作草稿打开。`);
           return;
         }
 
@@ -447,7 +447,7 @@ export function useStudioDraftSession({
             editor_metadata: editorMetadata(null, 0, 1, 0),
           });
           if (!finish(created, null)) return;
-          setRecoveryMessage(`Added saved Pose “${pose.name}” to a new draft.`);
+          setRecoveryMessage(`已将机位“${pose.name}”添加到新草稿。`);
           return;
         }
 
@@ -465,13 +465,13 @@ export function useStudioDraftSession({
             }
           }
           if (!finish(recovered, source)) return;
-          setRecoveryMessage(`Crash recovery restored “${recovered.name}” from draft revision ${recovered.revision}.`);
+          setRecoveryMessage(`崩溃恢复已从草稿版本 ${recovered.revision} 恢复“${recovered.name}”。`);
           return;
         }
 
         const variant: RobotVariant = runtime.robot?.variant ?? 'V2';
         const created = await createMotionDraft({
-          name: 'Untitled Motion',
+          name: '未命名运动',
           robot_variant: variant,
           editor_metadata: editorMetadata(null, 0, 1, 0),
         });
@@ -529,7 +529,7 @@ export function useStudioDraftSession({
       loadDraft(reloaded, source);
       setLoadedEntryKey(entryKey);
       setFormalSaveRecoveryState(null);
-      setRecoveryMessage('Released the draft recovery marker. The target Motion was not changed.');
+      setRecoveryMessage('已解除草稿恢复标记，目标运动没有发生变化。');
     } catch (caught) {
       setError(message(caught));
     } finally {
@@ -571,16 +571,16 @@ export function useStudioDraftSession({
         );
         if (failedCurrentWorkspace) throw caught;
       }
-      if (conflictRef.current) throw new Error('Resolve the revision conflict before autosaving.');
+      if (conflictRef.current) throw new Error('请先解决版本冲突，再自动保存。');
       const current = draftRef.current;
-      if (!current) throw new Error('Draft is not ready.');
+      if (!current) throw new Error('草稿尚未就绪。');
       const currentSignature = persistedSignature(editorRef.current.document, metadataRef.current);
       if (currentSignature !== persistedSignatureRef.current) return persistWorkspace();
       return current;
     }
 
     const current = draftRef.current;
-    if (!current) throw new Error('Draft is not ready.');
+    if (!current) throw new Error('草稿尚未就绪。');
     const document = editorRef.current.document;
     const metadata = metadataRef.current;
     const signature = persistedSignature(document, metadata);
@@ -593,7 +593,7 @@ export function useStudioDraftSession({
     dispatch({ type: 'autosave/start', token });
     const operation = updateMotionDraft(current.id, {
       expected_revision: current.revision,
-      name: document.name.trim() || 'Untitled Motion',
+      name: document.name.trim() || '未命名运动',
       description: document.description,
       robot_variant: document.robotVariant,
       keyframes: studioDocumentToDraftKeyframes(document),
@@ -768,8 +768,8 @@ export function useStudioDraftSession({
       setDraftPreflight(result.preflight);
       setFormalBaseline(formalDocumentSignature(motionToStudioDocument(result.motion)));
       setRecoveryMessage(currentSignature === signature
-        ? `Saved formal Motion “${result.motion.name}” at revision ${result.motion.revision}.`
-        : `Saved the submitted Motion revision ${result.motion.revision}; newer local edits remain in the autosaved draft.`);
+        ? `已将正式运动“${result.motion.name}”保存为版本 ${result.motion.revision}。`
+        : `已保存提交的运动版本 ${result.motion.revision}；较新的本地修改仍保留在自动保存草稿中。`);
     } catch (caught) {
       if (!recordSaveConflict(caught, {
         draft: submittedDraft?.revision ?? draftRef.current?.revision ?? null,
@@ -792,7 +792,7 @@ export function useStudioDraftSession({
       const activeConflict = conflictRef.current;
       if (activeConflict) {
         const conflictingDraft = draftRef.current;
-        if (!conflictingDraft) throw new Error('Draft is not ready.');
+        if (!conflictingDraft) throw new Error('草稿尚未就绪。');
         const localDocument = editorRef.current.document;
         const localMetadata = metadataRef.current;
         const latest = await getMotionDraft(conflictingDraft.id);
@@ -801,7 +801,7 @@ export function useStudioDraftSession({
         });
         persisted = await updateMotionDraft(forked.id, {
           expected_revision: forked.revision,
-          name: localDocument.name.trim() || 'Untitled Motion',
+          name: localDocument.name.trim() || '未命名运动',
           description: localDocument.description,
           robot_variant: localDocument.robotVariant,
           keyframes: studioDocumentToDraftKeyframes(localDocument),
@@ -822,7 +822,7 @@ export function useStudioDraftSession({
       loadDraft(result.draft, result.motion);
       setDraftPreflight(result.preflight);
       setFormalBaseline(formalDocumentSignature(motionToStudioDocument(result.motion)));
-      setRecoveryMessage(`Saved new formal Motion “${result.motion.name}” with a new UUID.`);
+      setRecoveryMessage(`已将新的正式运动“${result.motion.name}”保存为新 UUID。`);
       setConflict(null);
       return true;
     } catch (caught) {
@@ -855,12 +855,12 @@ export function useStudioDraftSession({
           }
         }
         loadDraft(latest, source);
-        setRecoveryMessage(`Reloaded draft revision ${latest.revision}. Local conflicting edits were discarded.`);
+        setRecoveryMessage(`已重新加载草稿版本 ${latest.revision}，并丢弃发生冲突的本地修改。`);
       } else if (currentDraft.source_motion_id) {
         const latestMotion = await getMotion(currentDraft.source_motion_id);
         const freshDraft = await createMotionDraftFromMotion(latestMotion.id, latestMotion.revision);
         loadDraft(freshDraft, latestMotion);
-        setRecoveryMessage(`Reloaded “${latestMotion.name}” revision ${latestMotion.revision} into a fresh draft.`);
+        setRecoveryMessage(`已将“${latestMotion.name}”版本 ${latestMotion.revision} 重新加载到新草稿。`);
       }
       setConflict(null);
     } catch (caught) {
@@ -877,12 +877,12 @@ export function useStudioDraftSession({
       await persistWorkspace();
       const variant = runtime.robot?.variant ?? editorRef.current.document.robotVariant;
       const created = await createMotionDraft({
-        name: 'Untitled Motion',
+        name: '未命名运动',
         robot_variant: variant,
         editor_metadata: editorMetadata(null, 0, 1, 0),
       });
       loadDraft(created, null);
-      setRecoveryMessage('Created a blank autosaved draft. Previous drafts remain recoverable.');
+      setRecoveryMessage('已创建空白自动保存草稿，之前的草稿仍可恢复。');
     } catch (caught) {
       setError(message(caught));
     } finally {
@@ -893,15 +893,15 @@ export function useStudioDraftSession({
   const formalDirty = formalBaseline === null
     ? formalDocumentSignature(editor.document) !== formalDocumentSignature(createEmptyStudioDocument({
         robotVariant: editor.document.robotVariant,
-        name: 'Untitled Motion',
+        name: '未命名运动',
       }))
     : formalDocumentSignature(editor.document) !== formalBaseline;
 
   return {
     action,
     autosaveLabel: runtime.backend !== 'connected'
-      ? 'Draft offline · autosave paused'
-      : conflict ? 'Draft conflict · autosave paused' : autosaveLabel(editor.autosave),
+      ? '草稿离线 · 自动保存已暂停'
+      : conflict ? '草稿版本冲突 · 自动保存已暂停' : autosaveLabel(editor.autosave),
     clearCompiledState,
     clearConflict: () => setConflictAcknowledged(true),
     clearError: () => setError(null),

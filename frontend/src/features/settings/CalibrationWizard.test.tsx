@@ -93,13 +93,13 @@ describe('protected current-angle Calibration Wizard', () => {
       <CalibrationWizard connected={false} initiallyConfigured={false} />,
     );
 
-    expect(screen.getByText('Not configured')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Start initial calibration' })).toBeDisabled();
+    expect(screen.getByText('未配置')).toBeVisible();
+    expect(screen.getByRole('button', { name: '开始首次标定' })).toBeDisabled();
     expect(startCalibrationSession).not.toHaveBeenCalled();
     expect(readCalibrationJoint).not.toHaveBeenCalled();
 
     rerender(<CalibrationWizard connected initiallyConfigured={false} />);
-    expect(screen.getByRole('button', { name: 'Start initial calibration' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '开始首次标定' })).toBeEnabled();
     expect(startCalibrationSession).not.toHaveBeenCalled();
   });
 
@@ -143,24 +143,24 @@ describe('protected current-angle Calibration Wizard', () => {
     });
 
     render(<CalibrationWizard connected initiallyConfigured={false} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start initial calibration' }));
-    expect(await screen.findByText(/Draft · Initial calibration → Revision 1/)).toBeVisible();
-    expect(await screen.findByRole('button', { name: 'Read selected joint' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '开始首次标定' }));
+    expect(await screen.findByText(/草稿 · 首次标定 → 版本 1/)).toBeVisible();
+    expect(await screen.findByRole('button', { name: '读取所选关节' })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Read selected joint' }));
+    fireEvent.click(screen.getByRole('button', { name: '读取所选关节' }));
     await waitFor(() => expect(readCalibrationJoint).toHaveBeenCalledWith(
       'calibration-session',
       'j1',
     ));
     expect(await screen.findByText('2048')).toBeVisible();
 
-    fireEvent.change(screen.getByLabelText('Current logical value'), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText('Multi-turn phase (when required)'), { target: { value: '0' } });
-    fireEvent.change(screen.getByLabelText('Raw lower bound'), { target: { value: '0' } });
-    fireEvent.change(screen.getByLabelText('Raw upper bound'), { target: { value: '4095' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview mapping' }));
+    fireEvent.change(screen.getByLabelText('当前逻辑值'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('多圈相位（需要时）'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Raw 下限'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Raw 上限'), { target: { value: '4095' } });
+    fireEvent.click(screen.getByRole('button', { name: '预览映射' }));
 
-    expect(await screen.findByText('Selected-joint mapping preview')).toBeVisible();
+    expect(await screen.findByText('所选关节映射预览')).toBeVisible();
     expect(previewCalibrationJoint).toHaveBeenCalledWith(
       'calibration-session',
       {
@@ -172,14 +172,14 @@ describe('protected current-angle Calibration Wizard', () => {
       },
     );
 
-    const confirmButton = screen.getByRole('button', { name: 'Confirm this joint only' });
+    const confirmButton = screen.getByRole('button', { name: '仅确认此关节' });
     expect(confirmButton).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Type the exact joint confirmation'), {
+    fireEvent.change(screen.getByLabelText('输入完全一致的关节确认文本'), {
       target: { value: 'CONFIRM CALIBRATION JOINT' },
     });
     fireEvent.click(confirmButton);
-    expect(await screen.findByText('Complete calibration preview')).toBeVisible();
-    expect(screen.getByRole('table', { name: 'Complete proposed calibration mapping' })).toBeVisible();
+    expect(await screen.findByText('完整标定预览')).toBeVisible();
+    expect(screen.getByRole('table', { name: '完整的候选标定映射' })).toBeVisible();
     expect(confirmCalibrationJoint).toHaveBeenCalledWith(
       'calibration-session',
       'j1',
@@ -187,15 +187,15 @@ describe('protected current-angle Calibration Wizard', () => {
       'CONFIRM CALIBRATION JOINT',
     );
 
-    const saveButton = screen.getByRole('button', { name: 'Save new calibration revision' });
+    const saveButton = screen.getByRole('button', { name: '保存新标定版本' });
     expect(saveButton).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Type the exact save confirmation'), {
+    fireEvent.change(screen.getByLabelText('输入完全一致的保存确认文本'), {
       target: { value: 'SAVE CALIBRATION' },
     });
     fireEvent.click(saveButton);
 
-    expect(await screen.findByText('Calibration revision saved')).toBeVisible();
-    expect(screen.getByText(/Calibration configured · Field acceptance pending · Real motion blocked/)).toBeVisible();
+    expect(await screen.findByText('标定版本已保存')).toBeVisible();
+    expect(screen.getByText(/标定已配置 · 等待现场验收 · 真机运动已阻止/)).toBeVisible();
     expect(completeCalibrationSession).toHaveBeenCalledWith(
       'calibration-session',
       'd'.repeat(64),

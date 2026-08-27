@@ -27,7 +27,7 @@ function id(): string {
 }
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : 'The Studio operation failed.';
+  return error instanceof Error ? error.message : '编排操作失败。';
 }
 
 export function snapshotCompatibilityReason(
@@ -36,15 +36,15 @@ export function snapshotCompatibilityReason(
   ignoredFrameId?: string,
 ): string | null {
   if (snapshot.robot_variant !== document.robotVariant) {
-    return `Current robot is ${snapshot.robot_variant}, but this draft is ${document.robotVariant}.`;
+    return `当前机械臂是 ${snapshot.robot_variant}，但草稿型号是 ${document.robotVariant}。`;
   }
   const reference = document.frames.find((frame) => frame.id !== ignoredFrameId)?.poseSnapshot;
   if (!reference) return null;
   if (snapshot.profile_fingerprint !== reference.profile_fingerprint) {
-    return 'Current robot profile does not match the embedded draft snapshots.';
+    return '当前机械臂配置与草稿内嵌快照不匹配。';
   }
   if (snapshot.kinematics_fingerprint !== reference.kinematics_fingerprint) {
-    return 'Current robot kinematics does not match the embedded draft snapshots.';
+    return '当前机械臂运动学模型与草稿内嵌快照不匹配。';
   }
   return null;
 }
@@ -123,7 +123,7 @@ export function useStudioPoseInsertion({
     const insertion = poseInsertion;
     if (!insertion) return;
     if (documentRef.current.frames.length >= MAX_STUDIO_FRAMES) {
-      setPoseError(`A Studio draft supports at most ${MAX_STUDIO_FRAMES} keyframes.`);
+      setPoseError(`一个编排草稿最多支持 ${MAX_STUDIO_FRAMES} 个关键帧。`);
       return;
     }
     poseCommitAbortRef.current?.abort();

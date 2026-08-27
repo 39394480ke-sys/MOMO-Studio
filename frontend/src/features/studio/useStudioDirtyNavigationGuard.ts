@@ -10,7 +10,7 @@ export function useStudioDirtyNavigationGuard({
   persistWorkspace,
 }: UseStudioDirtyNavigationGuardOptions): void {
   useEffect(() => {
-    const prompt = 'This draft is autosaved, but its Motion changes are not saved. Leave Studio?';
+    const prompt = '草稿已经自动保存，但运动修改尚未正式保存。确定离开编排页面吗？';
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (!formalDirty) return;
       event.preventDefault();

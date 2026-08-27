@@ -21,7 +21,7 @@ const SAVE_CONFIRMATION = 'SAVE CALIBRATION';
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError || error instanceof Error) return error.message;
-  return 'The protected calibration request failed.';
+  return '受保护的标定请求失败。';
 }
 
 function integerOrNull(value: string): number | null {
@@ -169,14 +169,14 @@ export function CalibrationWizard({
         <div className="calibration-wizard__complete" role="status">
           <ShieldCheck aria-hidden="true" />
           <div>
-            <h3 id="calibration-wizard-title">Calibration revision saved</h3>
-            <p>Revision {saved.revision} · {saved.variant}</p>
-            <p>Calibration configured · Field acceptance pending · Real motion blocked</p>
+            <h3 id="calibration-wizard-title">标定版本已保存</h3>
+            <p>版本 {saved.revision} · {saved.variant}</p>
+            <p>标定已配置 · 等待现场验收 · 真机运动已阻止</p>
             <code>{saved.calibration_fingerprint}</code>
           </div>
         </div>
         <button className="command-button" onClick={() => setSaved(null)} type="button">
-          Close summary
+          关闭摘要
         </button>
       </section>
     );
@@ -186,12 +186,12 @@ export function CalibrationWizard({
     return (
       <section className="calibration-wizard" aria-labelledby="calibration-wizard-title">
         <div>
-          <p className="section-kicker">Protected · selected-joint reads only</p>
-          <h3 id="calibration-wizard-title">Current-angle Calibration Wizard</h3>
-          <strong>{initiallyConfigured ? 'Calibration configured' : 'Not configured'}</strong>
+          <p className="section-kicker">受保护 · 只读取所选关节</p>
+          <h3 id="calibration-wizard-title">当前角度标定向导</h3>
+          <strong>{initiallyConfigured ? '标定已配置' : '未配置'}</strong>
           <p>
-            The wizard never moves a joint, writes a servo, changes mode, scans IDs, or
-            promotes an example calibration. It requires the current explicit connection.
+            本向导不会移动关节、写入舵机、更改模式、扫描 ID，也不会把示例标定升级为正式数据；
+            仅使用当前明确建立的设备连接。
           </p>
         </div>
         <button
@@ -200,9 +200,9 @@ export function CalibrationWizard({
           onClick={() => void start()}
           type="button"
         >
-          {initiallyConfigured ? 'Start protected recalibration' : 'Start initial calibration'}
+          {initiallyConfigured ? '开始受保护的重新标定' : '开始首次标定'}
         </button>
-        {!connected && <small>Explicitly connect and verify diagnostics first.</small>}
+        {!connected && <small>请先明确连接设备并确认诊断结果。</small>}
         {error && <p className="real-inline-error" role="alert">{error}</p>}
       </section>
     );
@@ -213,25 +213,25 @@ export function CalibrationWizard({
       <div className="settings-section__heading settings-section__heading--inline">
         <div>
           <p className="section-kicker">
-            Draft · {status.base_revision === null
-              ? 'Initial calibration → Revision 1'
-              : `Revision ${status.base_revision} → ${status.base_revision + 1}`}
+            草稿 · {status.base_revision === null
+              ? '首次标定 → 版本 1'
+              : `版本 ${status.base_revision} → ${status.base_revision + 1}`}
           </p>
-          <h3 id="calibration-wizard-title">Current-angle Calibration Wizard</h3>
+          <h3 id="calibration-wizard-title">当前角度标定向导</h3>
         </div>
         <button className="command-button" disabled={pending !== null} onClick={() => void cancel()} type="button">
-          Cancel
+          取消
         </button>
       </div>
 
       <div className="calibration-wizard__warning">
         <CircleAlert aria-hidden="true" />
-        <p>Keep the physical E-stop reachable. Reading a selected position is not a motion command.</p>
+        <p>请保持物理急停可触达。读取所选关节位置不是运动命令。</p>
       </div>
 
       {error && <p className="real-inline-error" role="alert">{error}</p>}
 
-      <div className="calibration-wizard__progress" aria-label="Calibration joint progress">
+      <div className="calibration-wizard__progress" aria-label="标定关节进度">
         {status.required_joint_ids.map((jointId) => (
           <span className={status.confirmed_joint_ids.includes(jointId) ? 'is-confirmed' : ''} key={jointId}>
             {jointId.toUpperCase()}
@@ -241,7 +241,7 @@ export function CalibrationWizard({
 
       <div className="calibration-wizard__form">
         <label>
-          <span>Selected joint</span>
+          <span>所选关节</span>
           <select
             disabled={pending !== null}
             onChange={(event) => {
@@ -263,59 +263,59 @@ export function CalibrationWizard({
           </select>
         </label>
         <div className="calibration-wizard__read">
-          <span>Present raw</span>
+          <span>当前 Raw</span>
           <strong>{status.selected_joint_id === selectedJoint && status.observed_raw !== null
             ? status.observed_raw
-            : 'Not read'}</strong>
+            : '尚未读取'}</strong>
           <button className="command-button" disabled={!selectedJoint || pending !== null} onClick={() => void read()} type="button">
-            Read selected joint
+            读取所选关节
           </button>
         </div>
         <label>
-          <span>Current logical value</span>
+          <span>当前逻辑值</span>
           <input disabled={pending !== null} inputMode="decimal" onChange={(event) => setLogicalValue(event.target.value)} value={logicalValue} />
         </label>
         <label>
-          <span>Direction</span>
+          <span>方向</span>
           <select disabled={pending !== null} onChange={(event) => setDirection(event.target.value === '-1' ? -1 : 1)} value={direction}>
             <option value={1}>+1</option>
             <option value={-1}>−1</option>
           </select>
         </label>
         <label>
-          <span>Multi-turn phase (when required)</span>
+          <span>多圈相位（需要时）</span>
           <input disabled={pending !== null} inputMode="numeric" onChange={(event) => setPhase(event.target.value)} value={phase} />
         </label>
         <label>
-          <span>Raw lower bound</span>
+          <span>Raw 下限</span>
           <input disabled={pending !== null} inputMode="numeric" onChange={(event) => setRawLower(event.target.value)} value={rawLower} />
         </label>
         <label>
-          <span>Raw upper bound</span>
+          <span>Raw 上限</span>
           <input disabled={pending !== null} inputMode="numeric" onChange={(event) => setRawUpper(event.target.value)} value={rawUpper} />
         </label>
       </div>
 
       <button className="command-button" disabled={!canPreview || pending !== null} onClick={() => void createPreview()} type="button">
-        Preview mapping
+        预览映射
       </button>
 
       {preview && (
         <div className="calibration-preview">
-          <h4>Selected-joint mapping preview</h4>
+          <h4>所选关节映射预览</h4>
           <dl>
-            <div><dt>Joint / Servo</dt><dd>{preview.joint_id.toUpperCase()} / {preview.servo_id}</dd></div>
-            <div><dt>Raw → logical</dt><dd>{preview.observed_raw} → {preview.logical_value} {preview.unit}</dd></div>
-            <div><dt>Direction / Home</dt><dd>{preview.direction > 0 ? '+1' : '−1'} / {preview.home_present_raw}</dd></div>
-            <div><dt>Phase / bounds</dt><dd>{preview.phase ?? 'N/A'} / {preview.raw_bounds.join('…')}</dd></div>
-            <div><dt>Round trip</dt><dd>{preview.round_trip_logical_value} {preview.unit}</dd></div>
-            <div><dt>Mapping error</dt><dd>{preview.mapping_error}</dd></div>
+            <div><dt>关节 / 舵机</dt><dd>{preview.joint_id.toUpperCase()} / {preview.servo_id}</dd></div>
+            <div><dt>Raw → 逻辑值</dt><dd>{preview.observed_raw} → {preview.logical_value} {preview.unit}</dd></div>
+            <div><dt>方向 / 零位</dt><dd>{preview.direction > 0 ? '+1' : '−1'} / {preview.home_present_raw}</dd></div>
+            <div><dt>相位 / 范围</dt><dd>{preview.phase ?? '不适用'} / {preview.raw_bounds.join('…')}</dd></div>
+            <div><dt>往返换算</dt><dd>{preview.round_trip_logical_value} {preview.unit}</dd></div>
+            <div><dt>映射误差</dt><dd>{preview.mapping_error}</dd></div>
           </dl>
           <label className="real-confirmation-field">
-            <span>Type the exact joint confirmation</span>
+            <span>请输入完全一致的关节确认文本</span>
             <code>{JOINT_CONFIRMATION}</code>
             <input
-              aria-label="Type the exact joint confirmation"
+              aria-label="输入完全一致的关节确认文本"
               autoComplete="off"
               disabled={pending !== null}
               onChange={(event) => setJointConfirmation(event.target.value)}
@@ -328,27 +328,27 @@ export function CalibrationWizard({
             onClick={() => void confirm()}
             type="button"
           >
-            Confirm this joint only
+            仅确认此关节
           </button>
         </div>
       )}
 
-      {selectedConfirmed && !preview && <p className="calibration-wizard__confirmed">Selected joint confirmed for this revision.</p>}
+      {selectedConfirmed && !preview && <p className="calibration-wizard__confirmed">所选关节已在当前版本中确认。</p>}
 
       {status.state === 'READY_TO_SAVE' && (
         <div className="calibration-save">
-          <h4>Complete calibration preview</h4>
+          <h4>完整标定预览</h4>
           <p>
-            All {status.required_joint_ids.length} enabled joints are confirmed. Saving creates
-            a new atomic revision and backs up the previous revision; no servo write occurs.
+            已确认全部 {status.required_joint_ids.length} 个启用关节。保存时会创建一个新的原子版本并备份上一版本，
+            不会写入舵机。
           </p>
           {status.save_preview ? (
             <>
               <div className="real-table-wrap">
                 <table className="real-diagnostics-table">
-                  <caption>Complete proposed calibration mapping</caption>
+                  <caption>完整的候选标定映射</caption>
                   <thead>
-                    <tr><th>Joint</th><th>Servo</th><th>Mode</th><th>Direction</th><th>Home</th><th>Phase</th><th>Raw bounds</th></tr>
+                    <tr><th>关节</th><th>舵机</th><th>模式</th><th>方向</th><th>零位</th><th>相位</th><th>Raw 范围</th></tr>
                   </thead>
                   <tbody>
                     {status.save_preview.joints.map((joint) => (
@@ -365,19 +365,19 @@ export function CalibrationWizard({
                   </tbody>
                 </table>
               </div>
-              <span>Proposed calibration fingerprint</span>
+              <span>候选标定指纹</span>
               <code>{status.save_preview.proposed_calibration_fingerprint}</code>
             </>
           ) : (
             <p className="real-inline-error" role="alert">
-              The backend did not provide a complete save preview. Saving is blocked.
+              后端没有提供完整的保存预览，当前无法保存。
             </p>
           )}
           <label className="real-confirmation-field">
-            <span>Type the exact save confirmation</span>
+            <span>请输入完全一致的保存确认文本</span>
             <code>{SAVE_CONFIRMATION}</code>
             <input
-              aria-label="Type the exact save confirmation"
+              aria-label="输入完全一致的保存确认文本"
               autoComplete="off"
               disabled={pending !== null}
               onChange={(event) => setSaveConfirmation(event.target.value)}
@@ -394,14 +394,14 @@ export function CalibrationWizard({
             onClick={() => void complete()}
             type="button"
           >
-            <Save aria-hidden="true" /> Save new calibration revision
+            <Save aria-hidden="true" /> 保存新标定版本
           </button>
         </div>
       )}
 
       <footer className="calibration-wizard__footer">
         <RotateCcw aria-hidden="true" />
-        Rollback is a separate, exact-confirmation operation and always creates a forward revision.
+        回滚是独立的精确确认操作，并且始终会创建一个新的后续版本。
       </footer>
     </section>
   );

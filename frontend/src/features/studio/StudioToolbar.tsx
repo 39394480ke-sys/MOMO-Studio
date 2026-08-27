@@ -49,9 +49,9 @@ export function StudioToolbar({
   onUndo,
 }: StudioToolbarProps) {
   return (
-    <header className="studio-toolbar" aria-label="Studio document controls">
+    <header className="studio-toolbar" aria-label="编排文档控制">
       <div className="studio-toolbar__identity">
-        <label htmlFor="studio-motion-name">Motion name</label>
+        <label htmlFor="studio-motion-name">运动名称</label>
         <input
           autoComplete="off"
           disabled={busy}
@@ -62,72 +62,72 @@ export function StudioToolbar({
         />
         <div className="studio-document-meta" aria-live="polite">
           <span className={`studio-dirty-state${dirty ? ' studio-dirty-state--dirty' : ''}`}>
-            {dirty ? 'Unsaved Motion changes' : 'Motion up to date'}
+            {dirty ? '运动有未保存修改' : '运动已是最新'}
           </span>
           <span>{autosaveLabel}</span>
           <span>{robotVariant}</span>
-          {draftRevision ? <span>draft rev {draftRevision}</span> : null}
+          {draftRevision ? <span>草稿版本 {draftRevision}</span> : null}
         </div>
       </div>
 
       <div className="studio-toolbar__actions">
         <button
-          aria-label="Undo last Studio edit"
+          aria-label="撤销上一次编排修改"
           className="mini-command"
           disabled={busy || !canUndo}
           onClick={onUndo}
-          title={canUndo ? 'Undo last edit (Ctrl/⌘ Z)' : 'Nothing to undo'}
+          title={canUndo ? '撤销上一次修改（Ctrl/⌘ Z）' : '没有可撤销的修改'}
           type="button"
         >
           <Undo2 aria-hidden="true" />
-          <span>Undo</span>
+          <span>撤销</span>
         </button>
         <button
-          aria-label="Redo last Studio edit"
+          aria-label="重做上一次编排修改"
           className="mini-command"
           disabled={busy || !canRedo}
           onClick={onRedo}
-          title={canRedo ? 'Redo last edit (Ctrl/⌘ Shift Z)' : 'Nothing to redo'}
+          title={canRedo ? '重做上一次修改（Ctrl/⌘ Shift Z）' : '没有可重做的修改'}
           type="button"
         >
           <Redo2 aria-hidden="true" />
-          <span>Redo</span>
+          <span>重做</span>
         </button>
         <button className="command-button" disabled={busy} onClick={onNew} type="button">
           <FilePlus2 aria-hidden="true" />
-          New draft
+          新建草稿
         </button>
         <button
           aria-describedby={saveDisabledReason ? 'studio-save-disabled-reason' : undefined}
           className="command-button command-button--primary"
           disabled={busy || !canSaveMotion}
           onClick={onSave}
-          title={saveDisabledReason ?? 'Validate, compile, and save this Motion'}
+          title={saveDisabledReason ?? '校验、编译并保存当前运动'}
           type="button"
         >
           <Save aria-hidden="true" />
-          Save
+          保存
         </button>
         <button
           aria-describedby={saveDisabledReason ? 'studio-save-disabled-reason' : undefined}
           className="command-button"
           disabled={busy || !canSaveMotion}
           onClick={onSaveAs}
-          title={saveDisabledReason ?? 'Save a new Motion with a new UUID'}
+          title={saveDisabledReason ?? '使用新的 UUID 另存一份运动'}
           type="button"
         >
           <SaveAll aria-hidden="true" />
-          Save As
+          另存为
         </button>
         <Link className="command-button studio-library-link" to="/library">
           <Library aria-hidden="true" />
-          Library
+          资源库
         </Link>
       </div>
 
       {saveDisabledReason ? (
         <p className="studio-toolbar__reason" id="studio-save-disabled-reason">
-          <ArrowLeft aria-hidden="true" /> Save unavailable · {saveDisabledReason}
+          <ArrowLeft aria-hidden="true" /> 暂时无法保存 · {saveDisabledReason}
         </p>
       ) : null}
     </header>

@@ -3,6 +3,7 @@ import { Crosshair } from 'lucide-react';
 
 import { visionStreamUrl } from '../../api/client';
 import type { NormalizedBoundingBox } from '../../api/types';
+import { zhStatus } from '../../i18n/zh';
 import type { VisionWorkspace } from './useVisionWorkspace';
 
 interface Point {
@@ -57,7 +58,7 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
   const sourceState = workspace.status?.source_state ?? null;
   const syntheticSource = workspace.capabilities?.source.provider_id
     .toLowerCase().includes('synthetic') ?? false;
-  const sourceLabel = syntheticSource ? 'Synthetic' : workspace.readOnlyLiveCamera ? 'Live' : 'Vision';
+  const sourceLabel = syntheticSource ? '合成' : workspace.readOnlyLiveCamera ? '实时' : '视觉';
   const sourceOperational = sourceState === 'READY' || sourceState === 'STREAMING';
   const frameFresh = latestFrame !== null
     && latestFrame.age_ms <= workspace.configuration.frame_freshness_limit_s * 1000;
@@ -126,57 +127,57 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
   let unavailableHeading: string | null = null;
   let unavailableDetail: string | null = null;
   if (!workspace.online) {
-    unavailableHeading = 'Vision backend offline';
-    unavailableDetail = 'Selection and Follow remain disabled.';
+    unavailableHeading = '视觉后端离线';
+    unavailableDetail = '目标选择和跟随保持禁用。';
   } else if (!workspace.capabilities) {
-    unavailableHeading = 'Checking Vision providers';
-    unavailableDetail = 'Selection waits for an explicit source capability.';
+    unavailableHeading = '正在检查视觉能力';
+    unavailableDetail = '确认明确的图像源能力后才能选择目标。';
   } else if (!streamCapable) {
     unavailableHeading = workspace.capabilities.camera_access_policy === 'DISABLED'
-      ? 'Vision source disabled'
-      : 'Vision stream unavailable';
+      ? '视觉图像源已禁用'
+      : '视觉视频流不可用';
     unavailableDetail = workspace.capabilities.source.reason
       ?? workspace.capabilities.stream.reason
-      ?? 'Selection and Follow remain disabled.';
+      ?? '目标选择和跟随保持禁用。';
   } else if (workspace.streamFailed) {
-    unavailableHeading = 'Vision stream disconnected';
-    unavailableDetail = 'Selection and Follow remain disabled until the stream reconnects.';
+    unavailableHeading = '视觉视频流已断开';
+    unavailableDetail = '视频流重新连接前，目标选择和跟随保持禁用。';
   } else if (!workspace.statusReachable) {
-    unavailableHeading = 'Vision status unavailable';
-    unavailableDetail = 'Selection and Follow remain disabled until status polling recovers.';
+    unavailableHeading = '视觉状态不可用';
+    unavailableDetail = '状态轮询恢复前，目标选择和跟随保持禁用。';
   } else if (sourceState !== null && !sourceOperational) {
     unavailableHeading = workspace.readOnlyLiveCamera && sourceState === 'CLOSED'
-      ? 'Live camera closed'
-      : `Vision source ${String(sourceState).toLowerCase()}`;
+      ? '实时相机已关闭'
+      : `视觉图像源：${zhStatus(sourceState)}`;
     unavailableDetail = workspace.readOnlyLiveCamera
-      ? 'Use Open live camera in Source & policy. No robot motion is enabled.'
-      : 'Selection and Follow remain disabled.';
+      ? '请在“图像源与策略”中打开实时相机；不会启用机械臂运动。'
+      : '目标选择和跟随保持禁用。';
   } else if (!latestFrame) {
-    unavailableHeading = 'Waiting for the first frame';
-    unavailableDetail = 'Selection will unlock after a frame identity is published.';
+    unavailableHeading = '正在等待第一帧画面';
+    unavailableDetail = '后端发布画面身份后会解锁目标选择。';
   } else if (!frameFresh) {
-    unavailableHeading = 'Vision frame stale';
-    unavailableDetail = 'Reselect only after a fresh frame arrives.';
+    unavailableHeading = '视觉画面已过期';
+    unavailableDetail = '请等待新画面到达后重新选择目标。';
   }
 
   return (
     <section className="vision-stage" aria-labelledby="vision-stage-title">
       <div className="vision-stage__header">
         <div>
-          <p className="eyebrow">{sourceLabel} video</p>
-          <h2 id="vision-stage-title">Target workspace</h2>
+          <p className="eyebrow">{sourceLabel}画面</p>
+          <h2 id="vision-stage-title">目标工作区</h2>
         </div>
         <span
           className={`status-pill status-pill--${workspace.status?.tracking?.status === 'LOCKED' ? 'ready' : 'idle'}`}
           role="status"
         >
-          {workspace.readOnlyLiveCamera ? 'READ ONLY' : workspace.status?.tracking?.status ?? 'NO TARGET'}
+          {workspace.readOnlyLiveCamera ? '只读' : zhStatus(workspace.status?.tracking?.status, '无目标')}
         </span>
       </div>
 
       <div
         className={`vision-canvas${canSelect ? ' vision-canvas--selectable' : ''}`}
-        aria-label={`${sourceLabel} frame target selection surface`}
+        aria-label={`${sourceLabel}画面目标选择区域`}
         aria-describedby="vision-selection-instructions"
         onPointerDown={startDrag}
         onPointerMove={moveDrag}
@@ -192,7 +193,7 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
       >
         {streamEnabled ? (
           <img
-            alt={`${sourceLabel} vision stream`}
+            alt={`${sourceLabel}视觉视频流`}
             className="vision-canvas__image"
             draggable={false}
             onError={() => workspace.setStreamFailed(true)}
@@ -211,7 +212,7 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
           <>
             <div className="vision-crosshair" aria-hidden="true"><span /><span /></div>
             <div
-              aria-label="Follow dead zone"
+              aria-label="跟随死区"
               className="vision-dead-zone"
               style={{
                 left: `${(0.5 - workspace.configuration.dead_zone_x) * 100}%`,
@@ -233,33 +234,33 @@ export function VisionCanvas({ workspace }: { workspace: VisionWorkspace }) {
         ))}
         {displayBox ? (
           <div
-            aria-label="Tracked target bounding box"
+            aria-label="跟踪目标边界框"
             className={`vision-box vision-box--${workspace.status?.tracking?.status.toLowerCase() ?? 'selected'}`}
             style={boxStyle(displayBox)}
           >
             <span>
-              {workspace.status?.tracking?.status ?? 'SELECTED'}
+              {zhStatus(workspace.status?.tracking?.status, '已选择')}
               {workspace.status?.tracking ? ` · ${Math.round(workspace.status.tracking.confidence * 100)}%` : ''}
             </span>
           </div>
         ) : null}
         {draftBox ? (
-          <div aria-label="Target selection preview" className="vision-box vision-box--draft" style={boxStyle(draftBox)} />
+          <div aria-label="目标选择预览" className="vision-box vision-box--draft" style={boxStyle(draftBox)} />
         ) : null}
       </div>
 
-      <dl className="vision-metrics" aria-label="Vision frame and tracking metrics">
-        <div><dt>Source</dt><dd title={sourceState ?? undefined}>{latestFrame?.source_id ?? (workspace.online ? 'Waiting' : 'OFFLINE')}</dd></div>
-        <div><dt>Frame age</dt><dd>{latestFrame ? `${frameFresh ? '' : 'STALE · '}${Math.round(latestFrame.age_ms)} ms` : '—'}</dd></div>
-        <div><dt>Target</dt><dd>{tracking?.status ?? (workspace.status?.selection ? 'SELECTED' : 'None')}</dd></div>
-        <div><dt>Confidence</dt><dd>{workspace.status?.tracking ? `${Math.round(workspace.status.tracking.confidence * 100)}%` : '—'}</dd></div>
-        <div><dt>Follow</dt><dd>{workspace.status?.follow.active ? 'ACTIVE' : 'STOPPED'}</dd></div>
-        <div><dt>Robot</dt><dd>{workspace.status?.robot_state ?? 'Unknown'}</dd></div>
+      <dl className="vision-metrics" aria-label="视觉画面与跟踪指标">
+        <div><dt>图像源</dt><dd title={sourceState ?? undefined}>{latestFrame?.source_id ?? (workspace.online ? '等待中' : '离线')}</dd></div>
+        <div><dt>画面延迟</dt><dd>{latestFrame ? `${frameFresh ? '' : '已过期 · '}${Math.round(latestFrame.age_ms)} ms` : '—'}</dd></div>
+        <div><dt>目标</dt><dd>{zhStatus(tracking?.status, workspace.status?.selection ? '已选择' : '无')}</dd></div>
+        <div><dt>置信度</dt><dd>{workspace.status?.tracking ? `${Math.round(workspace.status.tracking.confidence * 100)}%` : '—'}</dd></div>
+        <div><dt>跟随</dt><dd>{workspace.status?.follow.active ? '运行中' : '已停止'}</dd></div>
+        <div><dt>机械臂</dt><dd>{zhStatus(workspace.status?.robot_state, '未知')}</dd></div>
       </dl>
       <p className="vision-stage__hint" id="vision-selection-instructions">
         {workspace.readOnlyLiveCamera
-          ? 'Live preview is read-only. Frames are not recorded, and tracking or Follow cannot be started.'
-          : `Drag directly on a fresh ${sourceLabel} frame to select any target. The frame identity is captured when the drag begins; an expired frame is rejected.`}
+          ? '实时预览为只读模式：不会录像，也不能启动目标跟踪或视觉跟随。'
+          : `在最新${sourceLabel}画面上直接拖框选择目标。开始拖动时会锁定画面身份；已经过期的画面会被拒绝。`}
       </p>
     </section>
   );

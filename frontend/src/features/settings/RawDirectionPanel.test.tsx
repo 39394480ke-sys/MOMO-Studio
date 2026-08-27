@@ -116,7 +116,7 @@ describe('Raw direction field panel', () => {
     }));
     renderPanel();
 
-    const rawPlus = await screen.findByRole('button', { name: 'Test J10 RAW_PLUS' });
+    const rawPlus = await screen.findByRole('button', { name: '测试 J10 正方向' });
     fireEvent.click(rawPlus);
     await waitFor(() => expect(armRawDirectionJoint).toHaveBeenCalledWith('j10'));
     expect(stepRawDirectionJoint).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe('Raw direction field panel', () => {
     renderPanel();
 
     expect(await screen.findByRole('button', { name: '读取六轴零点并开始' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Test J10 RAW_PLUS' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '测试 J10 正方向' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '读取六轴零点并开始' }));
     await waitFor(() => expect(startRawDirectionSession).toHaveBeenCalledTimes(1));
   });
@@ -150,7 +150,7 @@ describe('Raw direction field panel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('上一次方向测试未完整结束');
     expect(screen.getByRole('button', { name: '读取六轴零点并开始' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Test J10 RAW_PLUS' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '测试 J10 正方向' })).not.toBeInTheDocument();
   });
 
   it('requires zero recapture after a structured physical step failure', async () => {
@@ -170,7 +170,7 @@ describe('Raw direction field panel', () => {
     }));
     renderPanel();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Test J10 RAW_PLUS' }));
+    fireEvent.click(await screen.findByRole('button', { name: '测试 J10 正方向' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '小步未完成，系统已请求保持（目标 Raw 2180，最后 Raw 2168）',
     );

@@ -95,32 +95,32 @@ export function StudioPosePicker({
     <DialogFrame labelledBy="studio-pose-picker-heading" onClose={busy ? () => undefined : onClose}>
       <header className="studio-dialog__header">
         <div>
-          <p className="section-kicker">Pose Library</p>
-          <h2 id="studio-pose-picker-heading">Add keyframe {placement}</h2>
+          <p className="section-kicker">机位资源库</p>
+          <h2 id="studio-pose-picker-heading">在当前关键帧{placement === 'before' ? '前' : '后'}添加</h2>
         </div>
-        <button aria-label="Close Pose picker" className="mini-command" disabled={busy} onClick={onClose} type="button">
+        <button aria-label="关闭机位选择器" className="mini-command" disabled={busy} onClick={onClose} type="button">
           <X aria-hidden="true" />
         </button>
       </header>
       <label className="studio-field">
-        <span>Search saved Poses</span>
+        <span>搜索已保存机位</span>
         <input
           autoFocus
           maxLength={200}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Pose name or tag"
+          placeholder="机位名称或标签"
           value={search}
         />
       </label>
       {error ? <p className="studio-dialog__error" role="alert">{error}</p> : null}
       <div className="studio-pose-picker-list" aria-busy={busy}>
-        {busy ? <p>Loading bounded Pose results…</p> : null}
-        {!busy && poses.length === 0 ? <p>No matching Pose was found.</p> : null}
+        {busy ? <p>正在加载机位结果…</p> : null}
+        {!busy && poses.length === 0 ? <p>没有找到匹配的机位。</p> : null}
         {poses.map((pose) => (
           <button disabled={busy} key={pose.id} onClick={() => onChoose(pose)} type="button">
             <span>
               <strong>{pose.name}</strong>
-              <small>{pose.robot_variant} · rev {pose.revision} · {pose.tags.join(' · ') || 'no tags'}</small>
+              <small>{pose.robot_variant} · 版本 {pose.revision} · {pose.tags.join(' · ') || '无标签'}</small>
             </span>
             <Plus aria-hidden="true" />
           </button>
@@ -150,18 +150,18 @@ export function StudioSaveAsDialog({
     <DialogFrame labelledBy="studio-save-as-heading" onClose={onClose}>
       <header className="studio-dialog__header">
         <div>
-          <p className="section-kicker">New immutable identity</p>
-          <h2 id="studio-save-as-heading">Save Motion As</h2>
+          <p className="section-kicker">创建新的不可变资源</p>
+          <h2 id="studio-save-as-heading">运动另存为</h2>
         </div>
-        <button aria-label="Close Save As dialog" className="mini-command" onClick={onClose} type="button">
+        <button aria-label="关闭另存为对话框" className="mini-command" onClick={onClose} type="button">
           <X aria-hidden="true" />
         </button>
       </header>
       <p className="studio-dialog__copy">
-        A new Motion UUID and revision 1 will be created. Embedded keyframe snapshots are preserved; the source Motion is not overwritten.
+        系统会创建新的运动 UUID 和版本 1。内嵌关键帧快照会完整保留，原运动不会被覆盖。
       </p>
       <label className="studio-field">
-        <span>New Motion name</span>
+        <span>新运动名称</span>
         <input
           autoFocus
           maxLength={200}
@@ -170,9 +170,9 @@ export function StudioSaveAsDialog({
         />
       </label>
       <div className="studio-dialog__actions">
-        <button className="command-button" disabled={busy} onClick={onClose} type="button">Cancel</button>
+        <button className="command-button" disabled={busy} onClick={onClose} type="button">取消</button>
         <button className="command-button command-button--primary" disabled={busy || !valid} onClick={onSave} type="button">
-          <SaveAll aria-hidden="true" /> {busy ? 'Saving…' : 'Save new Motion'}
+          <SaveAll aria-hidden="true" /> {busy ? '正在保存…' : '保存为新运动'}
         </button>
       </div>
     </DialogFrame>
@@ -201,20 +201,20 @@ export function StudioConflictDialog({
       <header className="studio-dialog__header studio-dialog__header--warning">
         <AlertTriangle aria-hidden="true" />
         <div>
-          <p className="section-kicker">Revision conflict</p>
-          <h2 id="studio-conflict-heading">The stored entity changed</h2>
+          <p className="section-kicker">版本冲突</p>
+          <h2 id="studio-conflict-heading">已保存的数据发生变化</h2>
         </div>
       </header>
       <p className="studio-dialog__copy">
-        Expected revision {expectedRevision ?? 'unknown'}, but the repository reports {actualRevision ?? 'a newer revision'}. MOMO Studio did not overwrite it.
+        预期版本为 {expectedRevision ?? '未知'}，但资源库当前为 {actualRevision ?? '更新版本'}。MOMO Studio 没有覆盖它。
       </p>
       <div className="studio-dialog__actions studio-dialog__actions--three">
-        <button className="command-button" disabled={busy} onClick={onCancel} type="button">Keep editing</button>
+        <button className="command-button" disabled={busy} onClick={onCancel} type="button">继续本地编辑</button>
         <button className="command-button" disabled={busy} onClick={onReload} type="button">
-          <FolderOpen aria-hidden="true" /> Reload
+          <FolderOpen aria-hidden="true" /> 重新加载
         </button>
         <button className="command-button command-button--primary" disabled={busy} onClick={onSaveAs} type="button">
-          <SaveAll aria-hidden="true" /> Save As
+          <SaveAll aria-hidden="true" /> 另存为
         </button>
       </div>
     </DialogFrame>
@@ -251,23 +251,23 @@ export function StudioFormalSaveRecoveryDialog({
       <header className="studio-dialog__header studio-dialog__header--warning">
         <AlertTriangle aria-hidden="true" />
         <div>
-          <p className="section-kicker">Fail-closed recovery</p>
-          <h2 id="studio-formal-save-recovery-heading">Formal save needs attention</h2>
+          <p className="section-kicker">安全恢复</p>
+          <h2 id="studio-formal-save-recovery-heading">需要处理未完成的正式保存</h2>
         </div>
       </header>
       <p className="studio-dialog__copy">
-        Studio cannot prove that an interrupted {kind === 'SAVE_AS' ? 'Save As' : 'Save'} operation matches its target Motion, so the editor remains locked. The target Motion remains untouched.
+        编排器无法确认中断的{kind === 'SAVE_AS' ? '另存为' : '保存'}操作是否与目标运动一致，因此暂时锁定编辑器；目标运动不会被修改。
       </p>
       <dl className="studio-dialog__details">
-        <div><dt>Draft</dt><dd>{draftId} · revision {draftRevision}</dd></div>
-        <div><dt>Target Motion</dt><dd>{targetMotionId} · intended revision {targetMotionRevision}</dd></div>
+        <div><dt>草稿</dt><dd>{draftId} · 版本 {draftRevision}</dd></div>
+        <div><dt>目标运动</dt><dd>{targetMotionId} · 计划版本 {targetMotionRevision}</dd></div>
         {actualTargetRevision === null ? null : (
-          <div><dt>Observed target</dt><dd>revision {actualTargetRevision}</dd></div>
+          <div><dt>实际目标</dt><dd>版本 {actualTargetRevision}</dd></div>
         )}
-        <div><dt>Recovery reason</dt><dd>{reason}</dd></div>
+        <div><dt>恢复原因</dt><dd>{reason}</dd></div>
       </dl>
       <p className="studio-dialog__copy">
-        Release draft clears only this recovery marker and reloads the autosaved draft. It does not retry, force, overwrite, or delete the target Motion.
+        “解除草稿锁定”只会清除此恢复标记并重新加载自动保存草稿，不会重试、强制覆盖或删除目标运动。
       </p>
       {error ? <p className="studio-dialog__error" role="alert">{error}</p> : null}
       <div className="studio-dialog__actions">
@@ -277,7 +277,7 @@ export function StudioFormalSaveRecoveryDialog({
           onClick={onRelease}
           type="button"
         >
-          {busy ? 'Releasing…' : 'Release draft'}
+          {busy ? '正在解除…' : '解除草稿锁定'}
         </button>
       </div>
     </DialogFrame>
@@ -307,13 +307,13 @@ export function StudioConfirmDialog({
     <DialogFrame labelledBy="studio-confirm-heading" onClose={onCancel}>
       <header className="studio-dialog__header">
         <div>
-          <p className="section-kicker">Confirm action</p>
+          <p className="section-kicker">确认操作</p>
           <h2 id="studio-confirm-heading">{title}</h2>
         </div>
       </header>
       <p className="studio-dialog__copy">{description}</p>
       <div className="studio-dialog__actions">
-        <button className="command-button" disabled={busy} onClick={onCancel} type="button">Cancel</button>
+        <button className="command-button" disabled={busy} onClick={onCancel} type="button">取消</button>
         <button
           className={`command-button ${danger ? 'command-button--danger-solid' : 'command-button--primary'}`}
           disabled={busy}

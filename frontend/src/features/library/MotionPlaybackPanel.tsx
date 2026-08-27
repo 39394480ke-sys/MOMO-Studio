@@ -8,6 +8,7 @@ import type {
 } from '../../api/types';
 import { playbackLocksLibrary } from './playbackState';
 import { TrajectoryPreview } from './TrajectoryPreview';
+import { zhStatus } from '../../i18n/zh';
 
 const RATE_OPTIONS = [0.25, 0.5, 1, 1.5, 2] as const;
 
@@ -35,7 +36,7 @@ interface MotionPlaybackPanelProps {
 }
 
 function seconds(value: number): string {
-  return `${value.toFixed(2)} s`;
+  return `${value.toFixed(2)} 秒`;
 }
 
 export function MotionPlaybackPanel({
@@ -109,24 +110,24 @@ export function MotionPlaybackPanel({
     <section aria-labelledby="motion-playback-heading" className="motion-playback-panel">
       <header>
         <div>
-          <p className="section-kicker">Stage 5 safety workflow</p>
-          <h4 id="motion-playback-heading">Preflight & playback</h4>
+          <p className="section-kicker">Stage 5 安全流程</p>
+          <h4 id="motion-playback-heading">预检与播放</h4>
         </div>
-        <span className={`playback-state playback-state--${state.toLowerCase()}`}>{state}</span>
+        <span className={`playback-state playback-state--${state.toLowerCase()}`}>{zhStatus(state)}</span>
       </header>
 
       <p className="motion-playback-panel__intro">
         {runtimeMode === 'REAL'
-          ? 'Compile and verify the immutable Motion first. Real playback remains inside the backend-authorized capability gateway.'
-          : 'Compile and verify the immutable Motion first. Playback remains inside the reviewed Dry Run gateway and never accesses hardware.'}
+          ? '请先编译并验证不可变运动。真机播放始终通过后端授权的能力入口。'
+          : '请先编译并验证不可变运动。播放始终通过已审核的仿真入口，不会访问实体硬件。'}
       </p>
 
       {disabledReason ? (
-        <p className="playback-blocker" role="status">Playback unavailable · {disabledReason}</p>
+        <p className="playback-blocker" role="status">暂时无法播放 · {disabledReason}</p>
       ) : null}
       {foreignPlaybackActive ? (
         <p className="playback-blocker" role="status">
-          Another Motion ({playback?.motion_id}) owns the active playback session. Stop it before preparing this Motion.
+          另一个运动（{playback?.motion_id}）正在占用播放会话。请先停止它，再准备当前运动。
         </p>
       ) : null}
       {shownError ? (
@@ -134,12 +135,12 @@ export function MotionPlaybackPanel({
           <span>{shownError}</span>
           {error ? (
             <button
-              aria-label="Dismiss playback error"
+              aria-label="关闭播放错误"
               className="command-button"
               onClick={onDismissError}
               type="button"
             >
-              Dismiss
+              关闭
             </button>
           ) : null}
         </div>
@@ -153,50 +154,50 @@ export function MotionPlaybackPanel({
           type="button"
         >
           <ShieldCheck aria-hidden="true" />
-          {actionKey === `preflight-motion-${motion.id}` ? 'Preflighting…' : 'Run preflight'}
+          {actionKey === `preflight-motion-${motion.id}` ? '正在预检…' : '运行预检'}
         </button>
-        <span>Revision {motion.revision} · bounded compiler sampling</span>
+        <span>版本 {motion.revision} · 有边界的编译器采样</span>
       </div>
 
       {preflight ? (
         <section
-          aria-label="Preflight result"
+          aria-label="预检结果"
           className={preflight.passed ? 'preflight-report preflight-report--passed' : 'preflight-report preflight-report--failed'}
         >
           <header>
-            <strong>{preflight.passed ? 'Preflight passed' : 'Preflight rejected'}</strong>
-            <code title={preflight.digest ?? 'No trajectory digest'}>{preflight.digest ?? 'no digest'}</code>
+            <strong>{preflight.passed ? '预检通过' : '预检未通过'}</strong>
+            <code title={preflight.digest ?? '无轨迹摘要'}>{preflight.digest ?? '无摘要'}</code>
           </header>
           <dl className="preflight-metrics">
-            <div><dt>Duration</dt><dd>{seconds(preflight.duration_s)}</dd></div>
-            <div><dt>Segments</dt><dd>{preflight.segment_count}</dd></div>
-            <div><dt>Samples</dt><dd>{preflight.sample_count}</dd></div>
-            <div><dt>Sample rate</dt><dd>{preflight.sample_rate_hz} Hz</dd></div>
+            <div><dt>时长</dt><dd>{seconds(preflight.duration_s)}</dd></div>
+            <div><dt>轨迹段</dt><dd>{preflight.segment_count}</dd></div>
+            <div><dt>采样点</dt><dd>{preflight.sample_count}</dd></div>
+            <div><dt>采样率</dt><dd>{preflight.sample_rate_hz} Hz</dd></div>
           </dl>
           {preflight.violations.length > 0 ? (
             <div className="preflight-violations">
-              <strong>Violations</strong>
+              <strong>违规项</strong>
               <ul>
                 {preflight.violations.map((violation, index) => (
                   <li key={`${violation.code}-${violation.segment_index ?? 'motion'}-${index}`}>
                     <code>{violation.code}</code>
                     <span>{violation.message}</span>
                     {violation.segment_index !== null && violation.segment_index !== undefined
-                      ? <small>Segment {violation.segment_index + 1}</small>
+                      ? <small>轨迹段 {violation.segment_index + 1}</small>
                       : null}
-                    {violation.keyframe_id ? <small>Keyframe {violation.keyframe_id}</small> : null}
-                    {violation.check ? <small>Check {violation.check}</small> : null}
+                    {violation.keyframe_id ? <small>关键帧 {violation.keyframe_id}</small> : null}
+                    {violation.check ? <small>检查项 {violation.check}</small> : null}
                     {violation.sample_index !== null && violation.sample_index !== undefined
-                      ? <small>Sample {violation.sample_index}</small>
+                      ? <small>采样点 {violation.sample_index}</small>
                       : null}
                     {violation.joint_id ? (
                       <small>
-                        Joint {violation.joint_id}
+                        关节 {violation.joint_id}
                         {violation.actual !== null && violation.actual !== undefined
-                          ? ` · actual ${violation.actual}${violation.unit ? ` ${violation.unit}` : ''}`
+                          ? ` · 实际 ${violation.actual}${violation.unit ? ` ${violation.unit}` : ''}`
                           : ''}
                         {violation.limit !== null && violation.limit !== undefined
-                          ? ` · limit ${violation.limit}${violation.unit ? ` ${violation.unit}` : ''}`
+                          ? ` · 限制 ${violation.limit}${violation.unit ? ` ${violation.unit}` : ''}`
                           : ''}
                       </small>
                     ) : null}
@@ -207,11 +208,11 @@ export function MotionPlaybackPanel({
           ) : null}
           {preflight.checks.length > 0 ? (
             <details className="preflight-checks">
-              <summary>Safety checks · {preflight.checks.filter((check) => check.passed).length}/{preflight.checks.length} passed</summary>
+              <summary>安全检查 · {preflight.checks.filter((check) => check.passed).length}/{preflight.checks.length} 通过</summary>
               <ul>
                 {preflight.checks.map((check, index) => (
                   <li key={`${check.name}-${index}`}>
-                    <strong>{check.passed ? 'PASS' : 'FAIL'} · {check.name}</strong>
+                    <strong>{check.passed ? '通过' : '失败'} · {check.name}</strong>
                     <span>{check.detail}</span>
                   </li>
                 ))}
@@ -221,23 +222,23 @@ export function MotionPlaybackPanel({
         </section>
       ) : null}
 
-      {previewLoading ? <p className="trajectory-loading" role="status">Loading bounded trajectory preview…</p> : null}
+      {previewLoading ? <p className="trajectory-loading" role="status">正在加载有边界的轨迹预览…</p> : null}
       {preview ? <TrajectoryPreview preview={preview} /> : null}
 
       <section aria-labelledby="playback-controls-heading" className="playback-controls">
         <header>
-          <h5 id="playback-controls-heading">Playback controls</h5>
-          <span>{hasPreparedTrajectory ? 'Prepared digest verified' : 'Preflight required'}</span>
+          <h5 id="playback-controls-heading">播放控制</h5>
+          <span>{hasPreparedTrajectory ? '已验证准备好的轨迹摘要' : '需要先运行预检'}</span>
         </header>
         <div className="playback-controls__buttons">
           <button className="command-button command-button--primary" disabled={playDisabled} onClick={onPlay} type="button">
-            <CirclePlay aria-hidden="true" /> Play
+            <CirclePlay aria-hidden="true" /> 播放
           </button>
           <button className="command-button" disabled={actionBusy || state !== 'PLAYING' || disabledReason !== null} onClick={onPause} type="button">
-            <CirclePause aria-hidden="true" /> Pause
+            <CirclePause aria-hidden="true" /> 暂停
           </button>
           <button className="command-button" disabled={actionBusy || state !== 'PAUSED' || disabledReason !== null} onClick={onResume} type="button">
-            <RotateCcw aria-hidden="true" /> Resume
+            <RotateCcw aria-hidden="true" /> 继续
           </button>
           <button
             className="command-button command-button--danger"
@@ -245,14 +246,14 @@ export function MotionPlaybackPanel({
             onClick={onStop}
             type="button"
           >
-            <Square aria-hidden="true" /> Stop
+            <Square aria-hidden="true" /> 停止
           </button>
         </div>
         <div className="playback-options">
           <label>
-            <span>Rate</span>
+            <span>速度倍率</span>
             <select
-              aria-label="Playback rate"
+              aria-label="播放速度倍率"
               disabled={actionBusy || disabledReason !== null || foreignPlaybackActive || !optionsAvailable}
               onChange={(event) => onRateChange(Number(event.target.value))}
               value={rate}
@@ -267,23 +268,23 @@ export function MotionPlaybackPanel({
               onChange={(event) => onLoopChange(event.target.checked)}
               type="checkbox"
             />
-            <span>Loop playback</span>
+            <span>循环播放</span>
           </label>
         </div>
 
         <div aria-live="polite" className="playback-progress">
           <div>
-            <strong>{state}</strong>
+            <strong>{zhStatus(state)}</strong>
             <span>{Math.round(progress * 100)}%</span>
           </div>
-          <progress aria-label="Playback progress" max={1} value={progress} />
+          <progress aria-label="播放进度" max={1} value={progress} />
           <dl>
-            <div><dt>Elapsed</dt><dd>{seconds(relevantPlayback?.elapsed_s ?? 0)} / {seconds(displayedDuration)}</dd></div>
-            <div><dt>Keyframe</dt><dd title={keyframeLabel ?? relevantPlayback?.current_keyframe_id ?? undefined}>{keyframeLabel ?? relevantPlayback?.current_keyframe_id ?? '—'}</dd></div>
-            <div><dt>Segment</dt><dd>{relevantPlayback?.current_segment_index === null || relevantPlayback?.current_segment_index === undefined ? '—' : relevantPlayback.current_segment_index + 1}</dd></div>
-            <div><dt>Sample</dt><dd>{relevantPlayback?.current_sample_index ?? '—'}</dd></div>
+            <div><dt>已用时</dt><dd>{seconds(relevantPlayback?.elapsed_s ?? 0)} / {seconds(displayedDuration)}</dd></div>
+            <div><dt>关键帧</dt><dd title={keyframeLabel ?? relevantPlayback?.current_keyframe_id ?? undefined}>{keyframeLabel ?? relevantPlayback?.current_keyframe_id ?? '—'}</dd></div>
+            <div><dt>轨迹段</dt><dd>{relevantPlayback?.current_segment_index === null || relevantPlayback?.current_segment_index === undefined ? '—' : relevantPlayback.current_segment_index + 1}</dd></div>
+            <div><dt>采样点</dt><dd>{relevantPlayback?.current_sample_index ?? '—'}</dd></div>
           </dl>
-          <small>Rate {rate}× · {loop ? 'loop on' : 'loop off'} · hardware_accessed=false</small>
+          <small>速度 {rate}× · {loop ? '循环开启' : '循环关闭'} · 未访问实体硬件</small>
         </div>
       </section>
     </section>

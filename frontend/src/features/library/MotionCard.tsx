@@ -41,34 +41,34 @@ export function MotionCard({
     <article aria-labelledby={titleId} className="library-card library-card--motion">
       <header className="library-card__header">
         <div>
-          <span className="entity-kind">Motion · {motion.robot_variant}</span>
+          <span className="entity-kind">运动 · {motion.robot_variant}</span>
           <h3 id={titleId}>{motion.name}</h3>
         </div>
-        <span className="entity-revision">rev {motion.revision}</span>
+        <span className="entity-revision">版本 {motion.revision}</span>
       </header>
 
       {motion.description ? <p className="library-card__description">{motion.description}</p> : null}
 
       <dl className="entity-facts entity-facts--motion">
         <div>
-          <dt>Created</dt>
+          <dt>创建时间</dt>
           <dd>{formatEntityDate(motion.created_at)}</dd>
         </div>
         <div>
-          <dt>Keyframes</dt>
+          <dt>关键帧</dt>
           <dd>{motion.keyframe_count}</dd>
         </div>
         <div>
-          <dt>Total duration</dt>
-          <dd>{motion.total_duration_s.toFixed(2)} s</dd>
+          <dt>总时长</dt>
+          <dd>{motion.total_duration_s.toFixed(2)} 秒</dd>
         </div>
         <div>
-          <dt>Motion type</dt>
-          <dd>{motion.motion_types.length > 0 ? motion.motion_types.join(' · ') : 'No transitions'}</dd>
+          <dt>运动类型</dt>
+          <dd>{motion.motion_types.length > 0 ? motion.motion_types.join(' · ') : '无过渡'}</dd>
         </div>
       </dl>
 
-      <div aria-label={`${motion.name} tags`} className="entity-tags">
+      <div aria-label={`${motion.name} 的标签`} className="entity-tags">
         {motion.tags.length > 0 ? (
           motion.tags.map((tag) => (
             <button key={tag} onClick={() => onTagSelect(tag)} type="button">
@@ -76,7 +76,7 @@ export function MotionCard({
             </button>
           ))
         ) : (
-          <span>No tags</span>
+          <span>无标签</span>
         )}
       </div>
 
@@ -84,7 +84,7 @@ export function MotionCard({
 
       <div className="library-card__actions">
         <button className="command-button" disabled={viewBusy} onClick={() => onView(motion)} type="button">
-          View details
+          查看详情
         </button>
         <Link
           aria-disabled={busy}
@@ -96,22 +96,22 @@ export function MotionCard({
           to={`/studio?motion=${encodeURIComponent(motion.id)}`}
         >
           <ExternalLink aria-hidden="true" />
-          Open in Studio
+          在编排中打开
         </Link>
         <button
           aria-describedby={playDisabledReason ? `play-reason-${motion.id}` : undefined}
           className="command-button"
           disabled={playBusy || playDisabledReason !== null}
           onClick={() => onPlay(motion)}
-          title={playDisabledReason ?? 'Open this Motion playback workflow'}
+          title={playDisabledReason ?? '打开此运动的播放流程'}
           type="button"
         >
           <Play aria-hidden="true" />
-          Play
+          播放
         </button>
         {playDisabledReason ? (
           <span className="visually-hidden" id={`play-reason-${motion.id}`}>
-            Playback unavailable: {playDisabledReason}
+            播放不可用：{playDisabledReason}
           </span>
         ) : null}
         <button
@@ -121,7 +121,7 @@ export function MotionCard({
           type="button"
         >
           <Copy aria-hidden="true" />
-          Duplicate
+          复制
         </button>
         <button
           className="command-button command-button--danger"
@@ -130,18 +130,18 @@ export function MotionCard({
           type="button"
         >
           <Trash2 aria-hidden="true" />
-          Delete
+          删除
         </button>
       </div>
-      {playDisabledReason ? <p className="stage-boundary-note">Playback unavailable · {playDisabledReason}</p> : null}
+      {playDisabledReason ? <p className="stage-boundary-note">暂时无法播放 · {playDisabledReason}</p> : null}
 
       {deletePending ? (
         <div aria-labelledby={`delete-motion-${motion.id}`} className="delete-confirmation" role="alertdialog">
-          <strong id={`delete-motion-${motion.id}`}>Delete “{motion.name}”?</strong>
-          <p>This removes the stored Motion. It does not delete any source Pose.</p>
+          <strong id={`delete-motion-${motion.id}`}>删除“{motion.name}”？</strong>
+          <p>这会删除已保存的运动，但不会删除任何来源机位。</p>
           <div>
             <button className="command-button" disabled={busy} onClick={onDeleteCancel} type="button">
-              Cancel
+              取消
             </button>
             <button
               className="command-button command-button--danger-solid"
@@ -149,7 +149,7 @@ export function MotionCard({
               onClick={() => onDeleteConfirm(motion)}
               type="button"
             >
-              Confirm delete
+              确认删除
             </button>
           </div>
         </div>

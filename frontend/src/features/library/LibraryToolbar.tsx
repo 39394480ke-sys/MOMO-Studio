@@ -20,44 +20,44 @@ const SORT_OPTIONS: Array<{
   sort: EntitySortField;
   order: SortOrder;
 }> = [
-  { label: 'Newest created', sort: 'created_at', order: 'desc' },
-  { label: 'Recently updated', sort: 'updated_at', order: 'desc' },
-  { label: 'Name A–Z', sort: 'name', order: 'asc' },
-  { label: 'Name Z–A', sort: 'name', order: 'desc' },
+  { label: '最新创建', sort: 'created_at', order: 'desc' },
+  { label: '最近更新', sort: 'updated_at', order: 'desc' },
+  { label: '名称 A–Z', sort: 'name', order: 'asc' },
+  { label: '名称 Z–A', sort: 'name', order: 'desc' },
 ];
 
 export function LibraryToolbar({ filters, disabled, onChange }: LibraryToolbarProps) {
   const selectedSort = `${filters.sort}:${filters.order}`;
 
   return (
-    <div className="library-toolbar" aria-label="Library filters">
+    <div className="library-toolbar" aria-label="资源库筛选">
       <label className="library-search">
-        <span>Search</span>
+        <span>搜索</span>
         <span className="library-search__field">
           <Search aria-hidden="true" />
           <input
             disabled={disabled}
             maxLength={200}
             onChange={(event) => onChange({ ...filters, search: event.target.value })}
-            placeholder="Name or description"
+            placeholder="名称或说明"
             type="search"
             value={filters.search}
           />
         </span>
       </label>
       <label>
-        <span>Tags</span>
+        <span>标签</span>
         <input
           disabled={disabled}
           maxLength={2079}
           onChange={(event) => onChange({ ...filters, tags: event.target.value })}
-          placeholder="demo, reach"
+          placeholder="产品, 正面"
           type="text"
           value={filters.tags}
         />
       </label>
       <label>
-        <span>Sort</span>
+        <span>排序</span>
         <select
           disabled={disabled}
           onChange={(event) => {

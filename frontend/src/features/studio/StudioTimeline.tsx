@@ -145,14 +145,14 @@ export function StudioTimeline({
     <section aria-busy={disabled} aria-labelledby="studio-timeline-heading" className="studio-timeline-panel">
       <header className="studio-panel-heading">
         <div>
-          <p className="section-kicker">Editor timeline</p>
-          <h2 id="studio-timeline-heading">Keyframes & transitions</h2>
+          <p className="section-kicker">编辑时间轴</p>
+          <h2 id="studio-timeline-heading">关键帧与过渡</h2>
         </div>
         <div className="studio-timeline-tools">
           <label>
-            <span>Zoom</span>
+            <span>缩放</span>
             <input
-              aria-label="Timeline zoom"
+              aria-label="时间轴缩放"
               disabled={disabled}
               max="8"
               min="0.25"
@@ -163,7 +163,7 @@ export function StudioTimeline({
             />
             <output>{Math.round(zoom * 100)}%</output>
           </label>
-          <span>{data.duration.toFixed(2)} s · {frames.length} keyframes</span>
+          <span>{data.duration.toFixed(2)} 秒 · {frames.length} 个关键帧</span>
         </div>
       </header>
 
@@ -173,31 +173,31 @@ export function StudioTimeline({
           disabled={disabled || frames.length === 0 || frameLimitReached}
           onClick={() => onAddBefore(selectedFrameId)}
           title={frameLimitReached
-            ? 'The draft has reached the 1000-keyframe limit'
-            : frames.length === 0 ? 'Capture or add the first keyframe first' : 'Choose a Pose to insert before the selection'}
+            ? '草稿已达到 1000 个关键帧上限'
+            : frames.length === 0 ? '请先捕获或添加第一个关键帧' : '选择一个机位，插入到当前关键帧之前'}
           type="button"
         >
-          <ArrowLeft aria-hidden="true" /> Add before
+          <ArrowLeft aria-hidden="true" /> 插入到前面
         </button>
         <button className="command-button" disabled={disabled || frameLimitReached} onClick={() => onAddAfter(selectedFrameId)} type="button">
-          <CirclePlus aria-hidden="true" /> Add {frames.length === 0 ? 'first keyframe' : 'after'}
+          <CirclePlus aria-hidden="true" /> {frames.length === 0 ? '添加第一个关键帧' : '插入到后面'}
         </button>
         <button
-          aria-label="Move selected keyframe earlier"
+          aria-label="将所选关键帧前移"
           className="mini-command"
           disabled={disabled || selectedIndex <= 0}
           onClick={() => selectedFrameId && onMove(selectedFrameId, -1)}
-          title="Move selected keyframe earlier (Alt + Left Arrow)"
+          title="将所选关键帧前移（Alt + 左方向键）"
           type="button"
         >
           <ChevronLeft aria-hidden="true" />
         </button>
         <button
-          aria-label="Move selected keyframe later"
+          aria-label="将所选关键帧后移"
           className="mini-command"
           disabled={disabled || selectedIndex < 0 || selectedIndex >= frames.length - 1}
           onClick={() => selectedFrameId && onMove(selectedFrameId, 1)}
-          title="Move selected keyframe later (Alt + Right Arrow)"
+          title="将所选关键帧后移（Alt + 右方向键）"
           type="button"
         >
           <ChevronRight aria-hidden="true" />
@@ -208,7 +208,7 @@ export function StudioTimeline({
           onClick={() => selectedFrameId && onDuplicate(selectedFrameId)}
           type="button"
         >
-          <Copy aria-hidden="true" /> Duplicate
+          <Copy aria-hidden="true" /> 复制
         </button>
         <button
           className="command-button command-button--danger"
@@ -216,19 +216,19 @@ export function StudioTimeline({
           onClick={() => selectedFrameId && onDelete(selectedFrameId)}
           type="button"
         >
-          <Trash2 aria-hidden="true" /> Delete
+          <Trash2 aria-hidden="true" /> 删除
         </button>
       </div>
 
       {frames.length === 0 ? (
         <div className="studio-timeline-empty">
           <CirclePlus aria-hidden="true" />
-          <strong>Blank Motion draft</strong>
-          <span>Capture the current {runtimeMode} robot state or add a saved Pose to begin.</span>
+          <strong>空白运动草稿</strong>
+          <span>捕获当前{runtimeMode === 'REAL' ? '真机' : '仿真'}机械臂状态，或添加已保存的机位以开始编排。</span>
         </div>
       ) : (
         <div
-          aria-label="Horizontally scrollable Motion timeline"
+          aria-label="可横向滚动的运动时间轴"
           className="studio-timeline-scroll"
           data-testid="studio-timeline-scroll"
           onScroll={(event) => {
@@ -270,14 +270,14 @@ export function StudioTimeline({
                     {index > 0 && incoming ? (
                       <span
                         className={`studio-segment-chip${isDefault ? ' studio-segment-chip--default' : ''}`}
-                        title={isDefault ? 'New adjacency uses the Editor Default transition' : 'Preserved adjacent transition'}
+                        title={isDefault ? '新相邻帧使用编辑器默认过渡' : '保留原有相邻帧过渡'}
                       >
-                        {incoming.motion_mode === 'CARTESIAN_LINEAR' ? 'TCP linear' : 'Joint'} · {incoming.duration_s.toFixed(2)}s
-                        {isDefault ? ' · default' : ''}
+                        {incoming.motion_mode === 'CARTESIAN_LINEAR' ? 'TCP 直线' : '关节'} · {incoming.duration_s.toFixed(2)} 秒
+                        {isDefault ? ' · 默认' : ''}
                       </span>
                     ) : null}
                     <button
-                      aria-label={`Keyframe ${index + 1}: ${frame.label}. Alt plus arrow keys reorder.`}
+                      aria-label={`关键帧 ${index + 1}：${frame.label}。按 Alt 加方向键可调整顺序。`}
                       aria-pressed={frame.id === selectedFrameId}
                       className={`studio-keyframe${frame.id === selectedFrameId ? ' studio-keyframe--selected' : ''}`}
                       disabled={disabled}
@@ -296,7 +296,7 @@ export function StudioTimeline({
                       <GripVertical aria-hidden="true" />
                       <span>
                         <strong>K{index + 1} · {frame.label}</strong>
-                        <small>{time.toFixed(2)}s · hold {frame.hold_s.toFixed(2)}s</small>
+                        <small>{time.toFixed(2)} 秒 · 停留 {frame.hold_s.toFixed(2)} 秒</small>
                       </span>
                     </button>
                   </li>
@@ -308,9 +308,9 @@ export function StudioTimeline({
       )}
 
       <label className="studio-playhead-control">
-        <span>Playhead</span>
+        <span>播放头</span>
         <input
-          aria-label="Timeline playhead"
+          aria-label="时间轴播放头"
           disabled={disabled || frames.length === 0}
           max={totalDuration}
           min="0"
@@ -323,7 +323,7 @@ export function StudioTimeline({
       </label>
 
       <p className="studio-keyboard-hint">
-        Drag a keyframe to reorder, or focus it and press Alt + Left/Right Arrow. Only an unchanged directed adjacency keeps its transition; new adjacencies are marked “default”.
+        拖动关键帧可以调整顺序；也可以聚焦关键帧后按 Alt + 左/右方向键。只有未改变的相邻帧会保留原过渡，新形成的相邻关系会标记为“默认”。
       </p>
     </section>
   );

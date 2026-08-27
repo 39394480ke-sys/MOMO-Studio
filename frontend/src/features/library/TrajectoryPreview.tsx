@@ -73,17 +73,17 @@ export function TrajectoryPreview({ preview }: { preview: TrajectoryPreviewData 
     <section aria-labelledby="trajectory-preview-heading" className="trajectory-preview">
       <header>
         <div>
-          <p className="section-kicker">Prepared trajectory</p>
-          <h4 id="trajectory-preview-heading">Trajectory preview</h4>
+          <p className="section-kicker">已准备轨迹</p>
+          <h4 id="trajectory-preview-heading">轨迹预览</h4>
         </div>
-        <span>{preview.sample_count} samples · {preview.sample_rate_hz} Hz</span>
+        <span>{preview.sample_count} 个采样点 · {preview.sample_rate_hz} Hz</span>
       </header>
 
       <div className="trajectory-preview__layout">
         <figure className="trajectory-chart">
-          <figcaption>Joint position vs time</figcaption>
+          <figcaption>关节位置随时间变化</figcaption>
           <svg
-            aria-label={`Joint trajectory over ${number(preview.duration_s)} seconds`}
+            aria-label={`${number(preview.duration_s)} 秒关节轨迹`}
             className="trajectory-chart__svg"
             role="img"
             viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -119,7 +119,7 @@ export function TrajectoryPreview({ preview }: { preview: TrajectoryPreviewData 
                   x={chart.x(segment.start_time_s)}
                   y={PLOT_TOP}
                 >
-                  <title>Segment {segment.segment_index + 1} · {segment.motion_mode}</title>
+                  <title>轨迹段 {segment.segment_index + 1} · {segment.motion_mode}</title>
                 </rect>
               ))}
               {chart.series.map((series) => (
@@ -140,9 +140,9 @@ export function TrajectoryPreview({ preview }: { preview: TrajectoryPreviewData 
                 </line>
               ))}
             </g>
-            <text className="trajectory-chart__label" x={5} y={17}>normalized</text>
+            <text className="trajectory-chart__label" x={5} y={17}>归一化</text>
           </svg>
-          <ul aria-label="Joint traces" className="trajectory-chart__legend">
+          <ul aria-label="关节轨迹曲线" className="trajectory-chart__legend">
             {chart.series.map((series) => (
               <li key={series.jointId} title={`${series.jointId}: ${series.bounds.minimum}–${series.bounds.maximum} ${series.unit}`}>
                 <span aria-hidden="true" style={{ backgroundColor: series.color }} />
@@ -154,13 +154,13 @@ export function TrajectoryPreview({ preview }: { preview: TrajectoryPreviewData 
         </figure>
 
         <figure className="tcp-preview">
-          <figcaption>TCP path · top view (X/Y)</figcaption>
+          <figcaption>TCP 路径 · 俯视图（X/Y）</figcaption>
           {preview.tcp_path.length > 0 ? (
-            <svg aria-label="TCP XY path summary" role="img" viewBox="0 0 240 140">
+            <svg aria-label="TCP XY 路径摘要" role="img" viewBox="0 0 240 140">
               <rect className="tcp-preview__frame" height="116" width="216" x="12" y="12" />
               <path className="tcp-preview__path" d={chart.tcpPath} />
             </svg>
-          ) : <p>No TCP samples.</p>}
+          ) : <p>没有 TCP 采样点。</p>}
           <dl>
             <div><dt>X</dt><dd>{number(chart.xBounds.minimum)}–{number(chart.xBounds.maximum)} mm</dd></div>
             <div><dt>Y</dt><dd>{number(chart.yBounds.minimum)}–{number(chart.yBounds.maximum)} mm</dd></div>
@@ -169,11 +169,11 @@ export function TrajectoryPreview({ preview }: { preview: TrajectoryPreviewData 
         </figure>
       </div>
 
-      <div className="trajectory-timeline" aria-label="Trajectory segments and keyframes">
+      <div className="trajectory-timeline" aria-label="轨迹段与关键帧">
         <div className="trajectory-timeline__segments">
           {preview.segments.map((segment) => (
             <span className={`trajectory-mode trajectory-mode--${segment.motion_mode.toLowerCase()}`} key={segment.segment_index}>
-              {segment.motion_mode} · segment {segment.segment_index + 1}
+              {segment.motion_mode} · 轨迹段 {segment.segment_index + 1}
             </span>
           ))}
         </div>
@@ -181,7 +181,7 @@ export function TrajectoryPreview({ preview }: { preview: TrajectoryPreviewData 
           {preview.keyframe_markers.map((marker) => (
             <li key={marker.keyframe_id} title={marker.label}>
               <strong>{marker.label}</strong>
-              <span>{number(marker.time_s)} s · sample {marker.sample_index}</span>
+              <span>{number(marker.time_s)} 秒 · 采样点 {marker.sample_index}</span>
             </li>
           ))}
         </ol>
