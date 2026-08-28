@@ -25,6 +25,7 @@ import {
   snapshotCompatibilityReason,
   useStudioPoseInsertion,
 } from './useStudioPoseInsertion';
+import { timelineTimeEdit } from './studioTimelineMath';
 
 export type {
   StudioConflict,
@@ -191,6 +192,19 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
     ? '后端不可用'
     : saveDisabledReason;
 
+  const moveFrameTime = useCallback((frameId: string, timeS: number) => {
+    const frames = studioDocumentToDraftKeyframes(editorRef.current.document);
+    const timing = timelineTimeEdit(frames, frameId, timeS);
+    if (!timing) return;
+    edit({
+      type: 'timeline/set-frame-time',
+      frameId: timing.frameId,
+      incomingDurationS: timing.incomingDurationS,
+      nextFrameId: timing.nextFrameId,
+      nextIncomingDurationS: timing.nextIncomingDurationS,
+    });
+  }, [edit]);
+
   return {
     action,
     addPose: poseInsertionSession.addPose,
@@ -219,6 +233,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
     keyframes,
     loadedEntryKey: draftSession.loadedEntryKey,
     motionDisabledReason: motionSession.disabledReason,
+    moveFrameTime,
     pause: motionSession.pause,
     play: motionSession.play,
     playback: motionSession.playback,

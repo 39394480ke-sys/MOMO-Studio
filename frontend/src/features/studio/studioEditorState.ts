@@ -123,6 +123,13 @@ export type StudioEditorAction =
   | { type: 'edge/set-duration'; toFrameId: string; durationS: number }
   | { type: 'edge/set-mode'; toFrameId: string; motionMode: MotionMode }
   | { type: 'edge/set-easing'; toFrameId: string; easing: MotionEasing }
+  | {
+      type: 'timeline/set-frame-time';
+      frameId: string;
+      incomingDurationS: number;
+      nextFrameId: string | null;
+      nextIncomingDurationS: number | null;
+    }
   | { type: 'history/undo' }
   | { type: 'history/redo' }
   | { type: 'autosave/start'; token: string }
@@ -475,10 +482,10 @@ export function studioEditorReducer(
         source.id,
         createStudioFrame({
           id: action.duplicateFrameId,
-          label: action.label ?? `${source.label} copy`,
+          label: action.label ?? `${source.label} 副本`,
           poseSnapshot: source.poseSnapshot,
           sourcePoseId: source.sourcePoseId,
-          holdS: source.holdS,
+          holdS: 0,
         }),
       );
     }
@@ -530,6 +537,37 @@ export function studioEditorReducer(
         easing: action.easing,
         isDefault: false,
       }));
+    case 'timeline/set-frame-time': {
+      if (
+        !Number.isFinite(action.incomingDurationS)
+        || action.incomingDurationS <= 0
+        || action.incomingDurationS > 600
+        || (action.nextFrameId === null) !== (action.nextIncomingDurationS === null)
+        || (action.nextIncomingDurationS !== null && (
+          !Number.isFinite(action.nextIncomingDurationS)
+          || action.nextIncomingDurationS <= 0
+          || action.nextIncomingDurationS > 600
+        ))
+      ) return state;
+      const incomingIndex = state.document.edges.findIndex(
+        (edge) => edge.toFrameId === action.frameId,
+      );
+      if (incomingIndex < 0) return state;
+      const nextIndex = action.nextFrameId === null
+        ? -1
+        : state.document.edges.findIndex((edge) => edge.toFrameId === action.nextFrameId);
+      if (action.nextFrameId !== null && nextIndex < 0) return state;
+      const edges = state.document.edges.map((edge, index) => {
+        if (index === incomingIndex) {
+          return { ...edge, durationS: action.incomingDurationS, isDefault: false };
+        }
+        if (index === nextIndex && action.nextIncomingDurationS !== null) {
+          return { ...edge, durationS: action.nextIncomingDurationS, isDefault: false };
+        }
+        return edge;
+      });
+      return commitDocument(state, { ...state.document, edges });
+    }
     case 'history/undo': {
       const previous = state.undoStack.at(-1);
       if (previous === undefined) return state;

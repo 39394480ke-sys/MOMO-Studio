@@ -861,7 +861,21 @@ afterEach(() => {
 });
 
 describe('Stage 6 Studio workspace', () => {
-  it('blocks Goto, capture, and Playback in Commissioning READ ONLY', async () => {
+  it('renders only the Viewer, Inspector, and Timeline as primary Studio regions', async () => {
+    mockStudioBackend();
+    renderStudio();
+
+    expect(await screen.findByRole('heading', { name: '3D 仿真视图' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '关键帧属性' })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Studio Motion' })).toBeVisible();
+    expect(screen.getAllByRole('button', { name: '添加关键帧' })).toHaveLength(1);
+    expect(screen.queryByText('当前机械臂状态')).not.toBeInTheDocument();
+    expect(screen.queryByText('环境编译')).not.toBeInTheDocument();
+    expect(screen.queryByText('校准屏障')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/停留/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the timeline simulation-only in Commissioning READ ONLY', async () => {
     const backend = mockStudioBackend();
     renderStudio(
       `/studio?draft=${DRAFT_ID}`,
@@ -880,18 +894,17 @@ describe('Stage 6 Studio workspace', () => {
     );
 
     await screen.findByLabelText('运动名称');
-    expect(screen.getByRole('button', { name: '真机前往' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /捕获当前状态/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '准备播放' })).toBeDisabled();
-    expect(screen.getAllByText(/unsafe runtime policy/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /前往/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '准备播放' })).not.toBeInTheDocument();
+    expect(screen.getByText('SIMULATION')).toBeVisible();
+    expect(screen.getByRole('button', { name: '播放仿真预览' })).toBeEnabled();
     expect(backend.requests.some((request) => request.path.includes('/goto'))).toBe(false);
     expect(backend.requests.some((request) =>
       request.path.endsWith('/play') && request.method === 'POST'
     )).toBe(false);
   });
 
-  it('uses the shared Real Joint capability for Studio Goto with honest Real copy', async () => {
-    const user = userEvent.setup();
+  it('never exposes a physical Goto action even when Real Joint capability is authorized', async () => {
     const backend = mockStudioBackend();
     renderStudio(
       `/studio?draft=${DRAFT_ID}`,
@@ -920,14 +933,9 @@ describe('Stage 6 Studio workspace', () => {
     );
 
     await screen.findByLabelText('运动名称');
-    const goto = screen.getByRole('button', { name: '真机前往' });
-    await waitFor(() => expect(goto).toBeEnabled());
-    await user.click(goto);
-    expect(screen.getByText(/后端授权的真机关节运动入口/)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '确认真机前往' }));
-    await waitFor(() => expect(backend.requests.some(
-      (request) => request.path.includes('/goto') && request.method === 'POST',
-    )).toBe(true));
+    expect(screen.queryByRole('button', { name: /真机前往/ })).not.toBeInTheDocument();
+    expect(screen.getByText('SIMULATION')).toBeVisible();
+    expect(backend.requests.some((request) => request.path.includes('/goto'))).toBe(false);
   });
 
   it('starts blank, captures current state, adds a Pose, and autosaves two playable frames', async () => {
@@ -936,24 +944,28 @@ describe('Stage 6 Studio workspace', () => {
     renderStudio();
 
     expect(await screen.findByText('空白运动草稿')).toBeVisible();
-    expect(await screen.findByLabelText('当前机械臂 TCP')).toBeVisible();
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: '校验草稿' }));
-    expect(await screen.findByText('DRAFT_REQUIRES_TWO_KEYFRAMES')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: /捕获当前状态/ }));
+    await user.click(screen.getByRole('button', { name: '添加关键帧' }));
+    await user.click(await screen.findByRole('button', { name: /捕获当前姿态/ }));
     expect(await screen.findByRole('button', { name: /关键帧 1：Capture 1/ })).toBeVisible();
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
 
-    await user.click(screen.getByRole('button', { name: '添加机位' }));
+    await user.click(screen.getByRole('button', { name: '添加关键帧' }));
     await user.click(await screen.findByRole('button', { name: /Saved Pose/ }));
     expect(await screen.findByRole('button', { name: /关键帧 2：Saved Pose/ })).toBeVisible();
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
 
     await waitFor(
-      () => expect(backend.requests.some((request) => request.method === 'PUT')).toBe(true),
+      () => expect(backend.requests.some((request) => {
+        if (request.method !== 'PUT') return false;
+        return (request.body as { keyframes?: MotionDraft['keyframes'] }).keyframes?.length === 2;
+      })).toBe(true),
       { timeout: 1800 },
     );
-    const autosave = backend.requests.filter((request) => request.method === 'PUT').at(-1);
+    const autosave = backend.requests.filter((request) => {
+      if (request.method !== 'PUT') return false;
+      return (request.body as { keyframes?: MotionDraft['keyframes'] }).keyframes?.length === 2;
+    }).at(-1);
     const body = autosave?.body as { keyframes: MotionDraft['keyframes'] };
     expect(body.keyframes).toHaveLength(2);
     expect(body.keyframes[0].incoming_transition).toBeNull();
@@ -962,6 +974,53 @@ describe('Stage 6 Studio workspace', () => {
       motion_mode: 'JOINT',
       easing: 'SMOOTHSTEP',
     });
+    expect(body.keyframes.every((keyframe) => keyframe.hold_s === 0)).toBe(true);
+  });
+
+  it('duplicates after the selected keyframe with zero hold and disables delete at the minimum', async () => {
+    const user = userEvent.setup();
+    const backend = mockStudioBackend();
+    renderStudio();
+
+    await screen.findByRole('button', { name: /关键帧 1：Frame A/ });
+    expect(screen.getByRole('button', { name: '删除关键帧' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: '复制关键帧' }));
+    expect(await screen.findByRole('button', { name: /关键帧 2：Frame A 副本/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: '删除关键帧' })).toBeEnabled();
+    await waitFor(() => expect(backend.requests.some((request) => {
+      if (request.method !== 'PUT') return false;
+      const keyframes = (request.body as { keyframes?: MotionDraft['keyframes'] }).keyframes;
+      return keyframes?.[1]?.label === 'Frame A 副本' && keyframes[1].hold_s === 0;
+    })).toBe(true), { timeout: 1900 });
+
+    await user.click(screen.getByRole('button', { name: '删除关键帧' }));
+    expect(screen.queryByRole('button', { name: /Frame A 副本/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '删除关键帧' })).toBeDisabled();
+  });
+
+  it('undoes, redoes, and formally saves a transition duration edit', async () => {
+    const user = userEvent.setup();
+    const backend = mockStudioBackend();
+    renderStudio();
+
+    await user.click(await screen.findByRole('button', { name: /关键帧 2：Frame B/ }));
+    const duration = screen.getByLabelText('进入过渡时长（秒）');
+    fireEvent.change(duration, { target: { value: '3' } });
+    expect(duration).toHaveValue(3);
+    await user.click(screen.getByRole('button', { name: '撤销上一次编排修改' }));
+    expect(duration).toHaveValue(2);
+    await user.click(screen.getByRole('button', { name: '重做上一次编排修改' }));
+    expect(duration).toHaveValue(3);
+
+    await user.click(screen.getByRole('button', { name: '保存' }));
+    expect(await screen.findByText(/已将正式运动“Studio Motion”保存为版本 1/)).toBeVisible();
+    const saveRequest = backend.requests.find((request) => request.path.endsWith('/save') && request.method === 'POST');
+    expect(saveRequest).toBeDefined();
+    expect(backend.requests.some((request) => {
+      if (request.path !== `/studio/drafts/${DRAFT_ID}` || request.method !== 'PUT') return false;
+      const keyframes = (request.body as { keyframes?: MotionDraft['keyframes'] }).keyframes;
+      return keyframes?.[1]?.incoming_transition?.duration_s === 3;
+    })).toBe(true);
   });
 
   it('traps focus in the add-keyframe drawer and restores its trigger after Escape', async () => {
@@ -969,9 +1028,9 @@ describe('Stage 6 Studio workspace', () => {
     mockStudioBackend({ draft: draft(0) });
     renderStudio();
 
-    const trigger = await screen.findByRole('button', { name: '添加第一个关键帧' });
+    const trigger = await screen.findByRole('button', { name: '添加关键帧' });
     await user.click(trigger);
-    const search = await screen.findByLabelText('搜索已保存机位');
+    const search = await screen.findByLabelText('搜索 Pose');
     const close = screen.getByRole('button', { name: '关闭机位选择器' });
     const last = screen.getByRole('button', { name: /Saved Pose/ });
     expect(search).toHaveFocus();
@@ -983,7 +1042,7 @@ describe('Stage 6 Studio workspace', () => {
     expect(last).toHaveFocus();
 
     await user.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog', { name: '在当前关键帧后添加' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '添加关键帧' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
 
@@ -992,7 +1051,7 @@ describe('Stage 6 Studio workspace', () => {
     const backend = mockStudioBackend({ deferPose: true });
     renderStudio();
     await screen.findByRole('button', { name: /关键帧 1/ });
-    await user.click(screen.getByRole('button', { name: '添加机位' }));
+    await user.click(screen.getByRole('button', { name: '添加关键帧' }));
     await user.click(await screen.findByRole('button', { name: /Saved Pose/ }));
 
     expect(screen.getByRole('button', { name: '关闭机位选择器' })).toBeDisabled();
@@ -1070,7 +1129,8 @@ describe('Stage 6 Studio workspace', () => {
     renderStudio();
 
     expect(await screen.findByText('运动有未保存修改')).toBeVisible();
-    expect(screen.getByRole('button', { name: '准备播放' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '播放仿真预览' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '准备播放' })).not.toBeInTheDocument();
   });
 
   it('initializes exactly one workspace under React StrictMode', async () => {
@@ -1127,69 +1187,58 @@ describe('Stage 6 Studio workspace', () => {
     expect(name).toHaveValue('Studio Motion');
   });
 
-  it('supports keyboard reorder and exposes a mobile Inspector drawer without page-level timeline overflow', async () => {
+  it('supports keyboard timing edits and exposes a mobile Inspector drawer without page-level timeline overflow', async () => {
     const user = userEvent.setup();
     mockStudioBackend();
     renderStudio();
-    const first = await screen.findByRole('button', { name: /关键帧 1：Frame A/ });
-    first.focus();
-    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
-    expect(await screen.findByRole('button', { name: /关键帧 1：Frame B/ })).toBeVisible();
+    const second = await screen.findByRole('button', { name: /关键帧 2：Frame B/ });
+    second.focus();
+    await user.keyboard('{ArrowRight}');
+    const movedSecond = await screen.findByRole('button', { name: /关键帧 2：Frame B，时间 2\.25 秒/ });
+    expect(movedSecond).toBeVisible();
     expect(screen.getByTestId('studio-timeline-scroll')).toHaveClass('studio-timeline-scroll');
 
-    await user.click(screen.getByRole('button', { name: '打开关键帧检查器' }));
-    expect(screen.getByRole('dialog', { name: '检查器' })).toHaveClass('studio-inspector--mobile-open');
-    expect(screen.getByRole('button', { name: '捕获到前面' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '捕获到后面' })).toBeVisible();
+    await user.click(movedSecond);
+    await user.click(screen.getByRole('button', { name: '打开关键帧属性' }));
+    expect(screen.getByRole('dialog', { name: '关键帧属性' })).toHaveClass('studio-inspector--mobile-open');
+    expect(screen.getByLabelText('进入过渡时长（秒）')).toHaveValue(2.05);
     await user.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog', { name: '检查器' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '关键帧属性' })).not.toBeInTheDocument();
   });
 
-  it('persists and recovers explicit Editor Default adjacency markers', async () => {
+  it('persists and recovers an absolute keyframe time edit as adjacent transition timing', async () => {
     const user = userEvent.setup();
     const backend = mockStudioBackend();
     const firstView = renderStudio();
-    const first = await screen.findByRole('button', { name: /关键帧 1：Frame A/ });
-    first.focus();
-    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
+    const second = await screen.findByRole('button', { name: /关键帧 2：Frame B/ });
+    second.focus();
+    await user.keyboard('{ArrowRight}');
     await waitFor(
       () => expect(backend.requests.some((request) => {
         if (request.method !== 'PUT') return false;
-        const metadata = (request.body as { editor_metadata?: MotionDraft['editor_metadata'] }).editor_metadata;
-        return metadata?.default_edges.some((edge) =>
-          edge.from_keyframe_id === FRAME_B && edge.to_keyframe_id === FRAME_A
-        );
+        const keyframes = (request.body as { keyframes?: MotionDraft['keyframes'] }).keyframes;
+        return keyframes?.[1]?.incoming_transition?.duration_s === 2.05;
       })).toBe(true),
       { timeout: 1900 },
     );
 
     firstView.unmount();
     renderStudio();
-    expect(await screen.findByText(/关节 · 1\.00 秒 · 默认/)).toBeVisible();
+    expect(await screen.findByText('2.05 s')).toBeVisible();
   });
 
-  it('uses backend compile preview, saves a formal Motion, and drives digest-bound Dry Run playback', async () => {
+  it('uses backend compile preview for client-only timeline playback and keeps real motion routes untouched', async () => {
     const user = userEvent.setup();
-    mockStudioBackend();
+    const backend = mockStudioBackend();
     renderStudio();
     await screen.findByRole('button', { name: /关键帧 1/ });
 
-    await user.click(screen.getByRole('button', { name: '编译预览' }));
-    expect(await screen.findByText('草稿轨迹已接受')).toBeVisible();
-    expect(screen.getByText(/草稿预览不可直接执行/)).toBeVisible();
-    expect(screen.getByText('编译器检查（1）')).toBeVisible();
-
-    await user.click(screen.getByRole('button', { name: '保存' }));
-    expect(await screen.findByText(/已将正式运动“Studio Motion”保存为版本 1/)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '准备播放' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '播放' })).toBeEnabled());
-    await user.click(screen.getByRole('button', { name: '播放' }));
-    expect(await screen.findByText('25%')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '暂停' }));
-    expect(await screen.findByText('30%')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '继续' }));
-    await user.click(screen.getByRole('button', { name: '停止' }));
-    expect(await screen.findByText('已停止')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '播放仿真预览' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '暂停仿真预览' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: '暂停仿真预览' }));
+    expect(screen.getByRole('button', { name: '播放仿真预览' })).toBeEnabled();
+    expect(backend.requests.some((request) => request.path.endsWith('/compile'))).toBe(true);
+    expect(backend.requests.some((request) => /\/(playback|motion)\//.test(request.path))).toBe(false);
   });
 
   it('renders a backend compile failure without fabricating a preview', async () => {
@@ -1197,98 +1246,61 @@ describe('Stage 6 Studio workspace', () => {
     mockStudioBackend({ compileError: true });
     renderStudio();
     await screen.findByRole('button', { name: /关键帧 1/ });
-    await user.click(screen.getByRole('button', { name: '编译预览' }));
+    await user.click(screen.getByRole('button', { name: '播放仿真预览' }));
     expect(await screen.findByText('草稿转换失败')).toBeVisible();
-    expect(screen.queryByText('草稿轨迹已接受')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '暂停仿真预览' })).toBeDisabled();
   });
 
-  it('lets priority Stop supersede an in-flight playback preflight', async () => {
-    const user = userEvent.setup();
+  it('does not expose real playback preparation or priority Stop in the editor', async () => {
     const backend = mockStudioBackend({ deferPreflight: true });
     renderStudio();
     await screen.findByRole('button', { name: /关键帧 1/ });
-    await user.click(screen.getByRole('button', { name: '保存' }));
-    await screen.findByText(/已将正式运动/);
-
-    await user.click(screen.getByRole('button', { name: '准备播放' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '停止' })).toBeEnabled());
-    await user.click(screen.getByRole('button', { name: '停止' }));
-    expect(await screen.findByText('已停止')).toBeVisible();
-
-    backend.resolveDeferredPreflight();
-    await waitFor(() => expect(screen.getByText('已停止')).toBeVisible());
-    expect(screen.getByRole('button', { name: '播放' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '准备播放' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '停止' })).not.toBeInTheDocument();
+    expect(backend.requests.some((request) => request.path.includes('/preflight'))).toBe(false);
   });
 
-  it('keeps global priority Stop available for a foreign playback session', async () => {
-    const user = userEvent.setup();
+  it('isolates the editor from a foreign hardware playback session', async () => {
     const backend = mockStudioBackend({ initialPlaybackState: 'PLAYING' });
     renderStudio();
     await screen.findByRole('button', { name: /关键帧 1/ });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '停止' })).toBeEnabled());
-    expect(screen.getByText(/另一个正式运动正在占用播放会话/)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '停止' }));
-    expect(await screen.findByText('已停止')).toBeVisible();
-    expect(backend.requests.some((request) => request.path === '/playback/stop')).toBe(true);
+    expect(screen.queryByRole('button', { name: '停止' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/另一个正式运动正在占用播放会话/)).not.toBeInTheDocument();
+    expect(backend.requests.some((request) => request.path === '/playback/stop')).toBe(false);
   });
 
-  it('uses the persisted Studio keyframe Goto route and can priority-stop it before submission resolves', async () => {
-    const user = userEvent.setup();
+  it('never exposes or submits keyframe Goto from the timeline editor', async () => {
     const backend = mockStudioBackend({ deferGoto: true });
     renderStudio();
     await screen.findByRole('button', { name: /关键帧 1/ });
-    await user.click(screen.getByRole('button', { name: '仿真前往' }));
-    await user.click(await screen.findByRole('button', { name: '确认仿真前往' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '停止' })).toBeEnabled());
-    await user.click(screen.getByRole('button', { name: '停止' }));
-    await waitFor(() => expect(backend.requests.filter((request) =>
-      request.path === '/motion/stop'
-    )).toHaveLength(1));
-    backend.resolveDeferredGoto();
-
-    expect(await screen.findByText(/当前仿真运动链路已接受优先停止请求/)).toBeVisible();
-    await waitFor(() => expect(screen.queryByText(/前往编排关键帧 · 运行中/)).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '仿真前往' })).not.toBeInTheDocument();
     expect(backend.requests.some((request) =>
       request.path === `/studio/drafts/${DRAFT_ID}/keyframes/${FRAME_A}/goto`
-    )).toBe(true);
-    expect(backend.requests.filter((request) => request.path === '/motion/stop')).toHaveLength(2);
-    expect(backend.requests.some((request) => request.path === '/motion/joints')).toBe(false);
+    )).toBe(false);
   });
 
-  it('does not submit Goto after priority Stop wins while its autosave is pending', async () => {
+  it('autosaves editor changes without submitting Goto or Stop commands', async () => {
     const user = userEvent.setup();
     const backend = mockStudioBackend({ deferFirstAutosave: true });
     renderStudio();
     const name = await screen.findByLabelText('运动名称');
     await user.type(name, ' edited');
-    await user.click(screen.getByRole('button', { name: '仿真前往' }));
-    await user.click(await screen.findByRole('button', { name: '确认仿真前往' }));
     await waitFor(() => expect(backend.requests.some((request) =>
       request.path === `/studio/drafts/${DRAFT_ID}` && request.method === 'PUT'
     )).toBe(true));
-
-    await user.click(screen.getByRole('button', { name: '停止' }));
-    await waitFor(() => expect(backend.requests.some((request) => request.path === '/motion/stop')).toBe(true));
     backend.resolveDeferredAutosave();
-
-    expect(await screen.findByText(/当前仿真运动链路已接受优先停止请求/)).toBeVisible();
+    await waitFor(() => expect(screen.getByLabelText('运动名称')).toHaveValue('Studio Motion edited'));
     expect(backend.requests.some((request) => request.path.includes('/keyframes/'))).toBe(false);
+    expect(backend.requests.some((request) => request.path === '/motion/stop')).toBe(false);
   });
 
-  it('restarts Studio command polling after Stop and renders the terminal state', async () => {
-    const user = userEvent.setup();
+  it('does not surface an active Goto command inside the editor workspace', async () => {
     const backend = mockStudioBackend({ activeGoto: true });
     renderStudio();
     await screen.findByRole('button', { name: /关键帧 1/ });
-    await user.click(screen.getByRole('button', { name: '仿真前往' }));
-    await user.click(await screen.findByRole('button', { name: '确认仿真前往' }));
-    expect(await screen.findByText(/前往编排关键帧 · 运行中/)).toBeVisible();
-
-    await user.click(screen.getByRole('button', { name: '停止' }));
-
-    expect(await screen.findByText(/前往编排关键帧 · 已停止/)).toBeVisible();
-    expect(backend.requests.some((request) => request.path === '/motion/commands/goto-command')).toBe(true);
+    expect(screen.queryByText(/前往编排关键帧/)).not.toBeInTheDocument();
+    expect(backend.requests.some((request) => request.path === '/motion/commands/goto-command')).toBe(false);
   });
 
   it('forks the latest imported draft, applies local null-sequence content, rebinds, then saves as', async () => {
@@ -1541,7 +1553,7 @@ describe('Stage 6 Studio workspace', () => {
     ));
   });
 
-  it.each(['validate', 'compile', 'goto'] as const)(
+  it.each(['compile'] as const)(
     'classifies a post-persist %s Draft race and keeps local editor content for Reload or Save As',
     async (operation) => {
       const user = userEvent.setup();
@@ -1555,14 +1567,7 @@ describe('Stage 6 Studio workspace', () => {
         request.path === `/studio/drafts/${DRAFT_ID}` && request.method === 'PUT'
       )).toBe(true), { timeout: 1900 });
 
-      if (operation === 'validate') {
-        await user.click(screen.getByRole('button', { name: '校验草稿' }));
-      } else if (operation === 'compile') {
-        await user.click(screen.getByRole('button', { name: '编译预览' }));
-      } else {
-        await user.click(screen.getByRole('button', { name: '仿真前往' }));
-        await user.click(await screen.findByRole('button', { name: '确认仿真前往' }));
-      }
+      await user.click(screen.getByRole('button', { name: '播放仿真预览' }));
 
       const conflictDialog = await screen.findByRole('dialog', { name: /已保存的数据发生变化/ });
       expect(within(conflictDialog).getByRole('button', { name: '重新加载' })).toBeEnabled();
@@ -1705,18 +1710,18 @@ describe('Stage 6 Studio workspace', () => {
     window.dispatchEvent(new PopStateEvent('popstate', { state: { idx: 0 } }));
     window.dispatchEvent(new PopStateEvent('popstate', { state: { idx: 1 } }));
     expect(historyGo).toHaveBeenCalledWith(-1);
-    await user.click(screen.getByRole('link', { name: '资源库' }));
-    expect(confirm).toHaveBeenCalled();
-    expect(screen.getByRole('heading', { level: 1, name: '编排' })).toBeVisible();
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('heading', { level: 1, name: '编辑' })).toBeVisible();
   });
 
   it('keeps invalid numeric input from poisoning the draft document', async () => {
+    const user = userEvent.setup();
     const backend = mockStudioBackend();
     renderStudio();
-    await screen.findByRole('button', { name: /关键帧 1/ });
-    const hold = screen.getByLabelText('关键帧停留秒数');
-    fireEvent.change(hold, { target: { value: '-1' } });
-    expect(hold).toHaveValue(0.2);
+    await user.click(await screen.findByRole('button', { name: /关键帧 2：Frame B/ }));
+    const duration = screen.getByLabelText('进入过渡时长（秒）');
+    fireEvent.change(duration, { target: { value: '-1' } });
+    expect(duration).toHaveValue(2);
     await waitFor(
       () => expect(backend.requests.filter((request) => request.method === 'PUT').length).toBe(0),
       { timeout: 850 },

@@ -92,3 +92,55 @@ to Library and the surrounding application shell was intentionally preserved.
 - [x] Desktop rail and mobile bottom-sheet layouts pass.
 
 final result: passed
+
+---
+
+# Studio Timeline Redesign — Design QA
+
+## Scope
+
+- Page: Studio / Motion Workspace only.
+- Reference: `MOMO Studio · Modern Minimal.pdf`, Desktop / Studio board.
+- Evidence: `docs/stage-reports/evidence/studio-timeline-redesign/`.
+- Safety posture: DRY_RUN. Timeline playback and scrubbing update only the frontend simulation viewer; no hardware motion route is invoked.
+
+## Visual comparison
+
+- Reference and implementation were reviewed side by side in `reference-vs-implementation.jpg`.
+- The workspace is reduced to the intended three primary regions: Viewer, Inspector, and Timeline.
+- The Viewer is free of engineering workflow cards and exposes only lightweight simulation status.
+- The Inspector contains only name, incoming transition duration, motion mode, duplicate, and delete.
+- Timeline is the only visible Add Keyframe entry point and uses the existing left-side drawer.
+- Timeline ruler, duration-proportional segments, keyframe points, and red playhead match the reference hierarchy.
+
+## Responsive checks
+
+| Viewport | Result |
+| --- | --- |
+| 1440×960 | Viewer, Inspector, and Timeline fit without page scrolling; document width matches viewport. |
+| 1280×800 | All three primary regions remain visible above the status footer; document width matches viewport. |
+
+Long timelines use local horizontal scrolling inside the Timeline instead of expanding the page.
+
+## Interaction checks
+
+- Selecting a keyframe synchronizes the Inspector, playhead, and 3D viewer.
+- Dragging a keyframe updates its time, the adjacent transition durations, the total duration, and the Inspector value.
+- Scrubbing the playhead updates the viewer without issuing robot commands.
+- Duplicate inserts an immutable snapshot after the selected keyframe; delete respects the two-keyframe minimum.
+- Add Keyframe drawer opens from Timeline, uses the real Pose Library, adds the selected pose, and closes.
+- Orbit and zoom remain available in the 3D viewer.
+- The existing imported legacy draft is rejected by backend compilation because its stored snapshot fingerprint does not match its declared robot contract. The compact `无法预览` state is shown as designed. Valid compile/play/pause/save/reload paths are covered by frontend integration tests.
+- Browser console errors and warnings: 0.
+
+## Automated verification
+
+- Studio interaction and state tests cover timing edits, minimum spacing, no crossing, synchronization, simulation playback, no hardware calls, duplicate/delete, hidden zero hold, save, undo, and redo.
+- Frontend: 68 suites, 305/305 tests passed.
+- Backend: 670/670 tests passed.
+- TypeScript, ESLint, Ruff, and mypy passed.
+- Frontend production build and repository `make build` passed. Vite reports only the existing large-chunk advisory.
+
+## Result
+
+final result: passed

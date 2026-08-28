@@ -299,10 +299,34 @@ describe('frame insertion, capture, replacement, and deletion', () => {
     });
     expect(state.document.frames[1].poseSnapshot).toEqual(state.document.frames[0].poseSnapshot);
     expect(state.document.frames[1].poseSnapshot).not.toBe(state.document.frames[0].poseSnapshot);
+    expect(state.document.frames[1].holdS).toBe(0);
     expect(state.document.edges).toEqual([
       { fromFrameId: 'a', toFrameId: 'copy', ...DEFAULT_STUDIO_EDGE, isDefault: true },
       { fromFrameId: 'copy', toFrameId: 'b', ...DEFAULT_STUDIO_EDGE, isDefault: true },
     ]);
+  });
+
+  it('changes both adjacent transition durations in one undoable timeline edit', () => {
+    let state = fresh(['a', 'b', 'c']);
+    state = studioEditorReducer(state, { type: 'edge/set-duration', toFrameId: 'b', durationS: 2.5 });
+    state = studioEditorReducer(state, { type: 'edge/set-duration', toFrameId: 'c', durationS: 2.1 });
+    const undoDepth = state.undoStack.length;
+
+    state = studioEditorReducer(state, {
+      type: 'timeline/set-frame-time',
+      frameId: 'b',
+      incomingDurationS: 3,
+      nextFrameId: 'c',
+      nextIncomingDurationS: 1.6,
+    });
+
+    expect(state.document.edges.map((edge) => edge.durationS)).toEqual([3, 1.6]);
+    expect(state.document.edges.every((edge) => !edge.isDefault)).toBe(true);
+    expect(state.undoStack).toHaveLength(undoDepth + 1);
+    state = studioEditorReducer(state, { type: 'history/undo' });
+    expect(state.document.edges.map((edge) => edge.durationS)).toEqual([2.5, 2.1]);
+    state = studioEditorReducer(state, { type: 'history/redo' });
+    expect(state.document.edges.map((edge) => edge.durationS)).toEqual([3, 1.6]);
   });
 });
 

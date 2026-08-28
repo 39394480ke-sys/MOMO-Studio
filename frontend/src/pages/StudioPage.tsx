@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, LoaderCircle, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { PageIntro } from '../components/PageIntro';
@@ -15,14 +15,12 @@ import { StudioInspector } from '../features/studio/StudioInspector';
 import { StudioTimeline } from '../features/studio/StudioTimeline';
 import { StudioToolbar } from '../features/studio/StudioToolbar';
 import { StudioViewer } from '../features/studio/StudioViewer';
+import { timelineData } from '../features/studio/studioTimelineMath';
+import {
+  sampleDraftJointState,
+  sampleTrajectoryJointState,
+} from '../features/studio/studioViewerState';
 import { useStudioWorkspace } from '../features/studio/useStudioWorkspace';
-import { useForwardKinematics } from '../features/control/useForwardKinematics';
-import { sampleTrajectoryJointState } from '../features/studio/studioViewerState';
-
-type Confirmation =
-  | { type: 'new' }
-  | { type: 'goto'; frameId: string }
-  | null;
 
 const EMPTY_JOINT_IDS: readonly string[] = [];
 const EMPTY_JOINT_DEFINITIONS: readonly never[] = [];
@@ -38,15 +36,17 @@ export function StudioPage() {
   }, runtime);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [saveAsName, setSaveAsName] = useState('');
-  const [confirmation, setConfirmation] = useState<Confirmation>(null);
+  const [confirmNewOpen, setConfirmNewOpen] = useState(false);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
-  const kinematics = useForwardKinematics({
-    enabled: runtime.backend === 'connected' && runtime.robot?.connected === true,
-    stateSequence: runtime.robot?.state_sequence ?? null,
-    socketTcpPose: null,
-    socketStateSequence: null,
-  });
+  const [simulationPlaying, setSimulationPlaying] = useState(false);
+  const compilePreview = workspace.compile;
+  const setWorkspacePlayheadS = workspace.setPlayheadS;
+  const playheadRef = useRef(workspace.playheadS);
+  playheadRef.current = workspace.playheadS;
+
   const frameLimitReached = workspace.keyframes.length >= 1000;
+  const timeline = useMemo(() => timelineData(workspace.keyframes), [workspace.keyframes]);
+  const simulationDuration = workspace.preview?.duration_s ?? timeline.duration;
   const viewerProfile = useMemo(() => {
     const profile = runtime.profile?.profile ?? null;
     return profile?.variant === workspace.editor.document.robotVariant ? profile : null;
@@ -54,44 +54,52 @@ export function StudioPage() {
   const viewerEnabledJointIds = viewerProfile?.enabled_joints ?? EMPTY_JOINT_IDS;
   const viewerJointDefinitions = viewerProfile?.joint_definitions ?? EMPTY_JOINT_DEFINITIONS;
   const sampledViewerState = useMemo(
-    () => sampleTrajectoryJointState(
-      workspace.preview,
-      workspace.playheadS,
-      viewerEnabledJointIds,
-    ),
-    [viewerEnabledJointIds, workspace.playheadS, workspace.preview],
+    () => sampleTrajectoryJointState(workspace.preview, workspace.playheadS, viewerEnabledJointIds)
+      ?? sampleDraftJointState(workspace.keyframes, workspace.playheadS, viewerEnabledJointIds),
+    [viewerEnabledJointIds, workspace.keyframes, workspace.playheadS, workspace.preview],
   );
-  const studioPlayback = workspace.playback;
-  const playbackBelongsHere = Boolean(
-    workspace.savedMotion &&
-    (!studioPlayback?.motion_id || studioPlayback.motion_id === workspace.savedMotion.id),
-  );
-  const playbackUsesLiveState = playbackBelongsHere &&
-    (studioPlayback?.state === 'PLAYING' || studioPlayback?.state === 'PAUSED');
   const selectedSnapshot = workspace.selectedFrame?.pose_snapshot.joint_state ?? null;
-  const viewerJointPositions = playbackUsesLiveState && runtime.robot
-    ? runtime.robot.positions
-    : sampledViewerState?.positions ?? selectedSnapshot?.positions ?? runtime.robot?.positions ?? {};
-  const viewerJointUnits = playbackUsesLiveState && runtime.robot
-    ? runtime.robot.units
-    : sampledViewerState?.units ?? selectedSnapshot?.units ?? runtime.robot?.units ?? {};
-  const setStudioPlayheadS = workspace.setPlayheadS;
+  const viewerJointPositions = sampledViewerState?.positions
+    ?? selectedSnapshot?.positions
+    ?? runtime.robot?.positions
+    ?? {};
+  const viewerJointUnits = sampledViewerState?.units
+    ?? selectedSnapshot?.units
+    ?? runtime.robot?.units
+    ?? {};
 
   useEffect(() => {
     if (
-      workspace.initializing ||
-      !workspace.draft ||
-      workspace.loadedEntryKey !== entryKey ||
-      searchParams.get('draft') === workspace.draft.id
+      workspace.initializing
+      || !workspace.draft
+      || workspace.loadedEntryKey !== entryKey
+      || searchParams.get('draft') === workspace.draft.id
     ) return;
     setSearchParams({ draft: workspace.draft.id }, { replace: true });
   }, [entryKey, searchParams, setSearchParams, workspace.draft, workspace.initializing, workspace.loadedEntryKey]);
 
   useEffect(() => {
-    if (!playbackBelongsHere) return;
-    if (studioPlayback?.state !== 'PLAYING' && studioPlayback?.state !== 'PAUSED') return;
-    setStudioPlayheadS(studioPlayback.elapsed_s);
-  }, [playbackBelongsHere, setStudioPlayheadS, studioPlayback?.elapsed_s, studioPlayback?.state]);
+    if (!workspace.preview) setSimulationPlaying(false);
+  }, [workspace.preview]);
+
+  useEffect(() => {
+    if (!simulationPlaying) return;
+    let animationFrame = 0;
+    let previous = performance.now();
+    const tick = (now: number) => {
+      const elapsed = Math.max(0, (now - previous) / 1000);
+      previous = now;
+      const next = Math.min(simulationDuration, playheadRef.current + elapsed);
+      setWorkspacePlayheadS(next);
+      if (next >= simulationDuration) {
+        setSimulationPlaying(false);
+        return;
+      }
+      animationFrame = window.requestAnimationFrame(tick);
+    };
+    animationFrame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [setWorkspacePlayheadS, simulationDuration, simulationPlaying]);
 
   const openSaveAs = () => {
     setSaveAsName(`${workspace.editor.document.name || '未命名运动'} 副本`);
@@ -99,24 +107,27 @@ export function StudioPage() {
   };
 
   const requestNew = () => {
-    if (workspace.formalDirty) setConfirmation({ type: 'new' });
+    if (workspace.formalDirty) setConfirmNewOpen(true);
     else void workspace.createBlankDraft();
   };
 
-  const confirmAction = () => {
-    if (confirmation?.type === 'new') void workspace.createBlankDraft();
-    if (confirmation?.type === 'goto') void workspace.gotoFrame(confirmation.frameId);
-    setConfirmation(null);
-  };
+  const playSimulation = useCallback(async () => {
+    let preview = workspace.preview;
+    if (!preview) preview = await compilePreview();
+    if (!preview) return;
+    if (playheadRef.current >= preview.duration_s) setWorkspacePlayheadS(0);
+    setSimulationPlaying(true);
+  }, [compilePreview, setWorkspacePlayheadS, workspace.preview]);
+
+  const pauseSimulation = useCallback(() => setSimulationPlaying(false), []);
+  const scrubSimulation = useCallback((timeS: number) => {
+    setWorkspacePlayheadS(timeS);
+  }, [setWorkspacePlayheadS]);
 
   if (workspace.initializing) {
     return (
       <div className="page studio-page">
-        <PageIntro
-          title="编排"
-          description="正在加载自动保存的时间轴工作区。"
-          detail="草稿恢复只处理当前草稿，不会覆盖已正式保存的运动。"
-        />
+        <PageIntro title="编辑" description="正在加载 Motion Workspace。" detail="草稿恢复不会覆盖已正式保存的运动。" />
         <div className="studio-initializing" role="status">
           <LoaderCircle aria-hidden="true" />
           <strong>正在打开编排草稿…</strong>
@@ -129,15 +140,7 @@ export function StudioPage() {
     const recovery = workspace.formalSaveRecovery;
     return (
       <div className="page studio-page">
-        <PageIntro
-          title="编排"
-          description="编辑器打开前检测到一次未完成的正式保存。"
-          detail="MOMO Studio 不会擅自推断、重试或覆盖这次中断的保存。"
-        />
-        <div className="studio-notice studio-notice--conflict" role="alert">
-          <AlertCircle aria-hidden="true" />
-          <span>需要先明确解除正式保存的恢复标记，才能继续编辑此草稿。</span>
-        </div>
+        <PageIntro title="编辑" description="检测到一次未完成的正式保存。" detail="MOMO Studio 不会擅自覆盖运动资源。" />
         <StudioFormalSaveRecoveryDialog
           actualTargetRevision={recovery.actualTargetRevision}
           busy={workspace.action === 'abandon-save-intent'}
@@ -154,12 +157,15 @@ export function StudioPage() {
     );
   }
 
+  const lastFrameId = workspace.keyframes.at(-1)?.id ?? null;
+  const insertionAnchorId = workspace.editor.selectedFrameId ?? lastFrameId;
+
   return (
     <div className="page studio-page">
       <PageIntro
-        title="编排"
-        description="使用关键帧和帧间过渡来编排摄影机械臂运动。"
-        detail={`草稿会独立自动保存；只有通过校验和轨迹编译的正式运动，才能进入${runtime.controlMode === 'REAL' ? '后端授权的真机' : '仿真'}播放。`}
+        title="编辑"
+        description="Motion Workspace · 编辑关键帧、节奏与摄影机械臂轨迹。"
+        detail="时间轴播放和拖动只驱动仿真预览，不会向实体机械臂发送命令。"
       />
 
       <StudioToolbar
@@ -170,14 +176,12 @@ export function StudioPage() {
         canUndo={workspace.editor.undoStack.length > 0}
         dirty={workspace.formalDirty}
         draftName={workspace.editor.document.name}
-        draftRevision={workspace.draft?.revision ?? null}
         onNameChange={(name) => workspace.edit({ type: 'document/set-name', name })}
         onNew={requestNew}
         onRedo={() => workspace.edit({ type: 'history/redo' })}
         onSave={() => void workspace.save()}
         onSaveAs={openSaveAs}
         onUndo={() => workspace.edit({ type: 'history/undo' })}
-        robotVariant={workspace.editor.document.robotVariant}
         saveDisabledReason={workspace.saveDisabledReason}
       />
 
@@ -185,24 +189,21 @@ export function StudioPage() {
         <div className="studio-notice studio-notice--success" role="status">
           <CheckCircle2 aria-hidden="true" />
           <span>{workspace.recoveryMessage}</span>
-          <button aria-label="关闭编排提示" className="mini-command" onClick={workspace.clearRecoveryMessage} type="button">
-            <X aria-hidden="true" />
-          </button>
+          <button aria-label="关闭编排提示" className="mini-command" onClick={workspace.clearRecoveryMessage} type="button"><X aria-hidden="true" /></button>
         </div>
       ) : null}
       {workspace.error ? (
         <div className="studio-notice studio-notice--error" role="alert">
           <AlertCircle aria-hidden="true" />
+          <span><strong>无法预览</strong></span>
           <span>{workspace.error}</span>
-          <button aria-label="关闭编排错误" className="mini-command" onClick={workspace.clearError} type="button">
-            <X aria-hidden="true" />
-          </button>
+          <button aria-label="关闭编排错误" className="mini-command" onClick={workspace.clearError} type="button"><X aria-hidden="true" /></button>
         </div>
       ) : null}
       {workspace.conflict && workspace.conflictAcknowledged ? (
         <div className="studio-notice studio-notice--conflict" role="status">
           <AlertCircle aria-hidden="true" />
-          <span>草稿自动保存因版本冲突暂停。你可以继续本地编辑，然后选择“重新加载”或“另存为”。</span>
+          <span>草稿自动保存因版本冲突暂停。请选择重新加载或另存为。</span>
           <div className="studio-notice__actions">
             <button className="command-button" disabled={workspace.action !== null} onClick={() => void workspace.reloadConflict()} type="button">重新加载</button>
             <button className="command-button command-button--primary" disabled={workspace.action !== null || workspace.saveDisabledReason !== null} onClick={openSaveAs} type="button">另存为</button>
@@ -210,99 +211,53 @@ export function StudioPage() {
         </div>
       ) : null}
 
-      <div className="studio-primary-grid">
-        <StudioViewer
-        action={workspace.action}
-        compileDisabledReason={workspace.compileDisabledReason}
-        compileError={null}
-        currentTcp={kinematics.fk?.tcp_pose ?? null}
-        currentTcpError={kinematics.error}
-        draftPreflight={workspace.draftPreflight}
-        draftValidation={workspace.draftValidation}
-        frameLimitReached={frameLimitReached}
-        motionDisabledReason={workspace.motionDisabledReason}
-        playbackDisabledReason={workspace.playbackDisabledReason}
-        onAddPose={() => workspace.startPoseInsertion('after', workspace.editor.selectedFrameId)}
-        onCapture={() => void workspace.capture()}
-        onCompile={() => void workspace.compile()}
-        onOpenInspector={() => setMobileInspectorOpen(true)}
-        onPause={() => void workspace.pause()}
-        onPlay={() => void workspace.play()}
-        onPreparePlayback={() => void workspace.preparePlayback()}
-        onResume={() => void workspace.resume()}
-        onStop={() => void workspace.stop()}
-        onValidate={() => void workspace.validate()}
-        playback={workspace.playback}
-        playbackPreflight={workspace.playbackPreflight}
-        preview={workspace.preview}
-        robot={runtime.robot}
-        runtimeMode={runtime.controlMode}
-        savedMotion={workspace.savedMotion}
-        savedMotionCurrent={!workspace.formalDirty}
-        selectedFrame={workspace.selectedFrame}
-        studioCommand={workspace.studioCommand}
-        validateDisabledReason={workspace.validateDisabledReason}
-        viewerEnabledJointIds={viewerEnabledJointIds}
-        viewerJointDefinitions={viewerJointDefinitions}
-        viewerJointPositions={viewerJointPositions}
-        viewerJointUnits={viewerJointUnits}
-        viewerVariant={workspace.editor.document.robotVariant}
-        />
+      <main className="studio-workspace" aria-label="Motion 编辑工作区">
+        <div className="studio-primary-grid">
+          <StudioViewer
+            onOpenInspector={() => setMobileInspectorOpen(true)}
+            runtimeMode={runtime.controlMode}
+            selectedFrame={workspace.selectedFrame}
+            viewerEnabledJointIds={viewerEnabledJointIds}
+            viewerJointDefinitions={viewerJointDefinitions}
+            viewerJointPositions={viewerJointPositions}
+            viewerJointUnits={viewerJointUnits}
+            viewerVariant={workspace.editor.document.robotVariant}
+          />
 
-        <StudioInspector
-          busy={workspace.action !== null}
-          frame={workspace.selectedFrame}
-          frameIndex={workspace.selectedFrameIndex}
-          frameLimitReached={frameLimitReached}
-          mobileOpen={mobileInspectorOpen}
-          motionDisabledReason={workspace.motionDisabledReason}
-          runtimeMode={runtime.controlMode}
-          onAddAfter={(frameId) => workspace.startPoseInsertion('after', frameId)}
-          onAddBefore={(frameId) => workspace.startPoseInsertion('before', frameId)}
-          onCaptureAfter={(frameId) => void workspace.capture('after', frameId)}
-          onCaptureBefore={(frameId) => void workspace.capture('before', frameId)}
-          onCloseMobile={() => setMobileInspectorOpen(false)}
-          onDelete={(frameId) => workspace.edit({ type: 'frame/delete', frameId })}
-          onDuplicate={(frameId) => workspace.edit({ type: 'frame/duplicate', frameId, duplicateFrameId: crypto.randomUUID() })}
-          onEasingChange={(frameId, easing) => workspace.edit({ type: 'edge/set-easing', toFrameId: frameId, easing })}
-          onGoto={(frameId) => setConfirmation({ type: 'goto', frameId })}
-          onHoldChange={(frameId, holdS) => workspace.edit({ type: 'frame/set-hold', frameId, holdS })}
-          onLabelChange={(frameId, label) => workspace.edit({ type: 'frame/set-label', frameId, label })}
-          onModeChange={(frameId, motionMode) => workspace.edit({ type: 'edge/set-mode', toFrameId: frameId, motionMode })}
-          onReplace={(frameId) => void workspace.replaceSnapshot(frameId)}
-          onTransitionDurationChange={(frameId, durationS) => workspace.edit({ type: 'edge/set-duration', toFrameId: frameId, durationS })}
-        />
-      </div>
+          <StudioInspector
+            busy={workspace.action !== null}
+            frame={workspace.selectedFrame}
+            frameCount={workspace.keyframes.length}
+            frameIndex={workspace.selectedFrameIndex}
+            frameLimitReached={frameLimitReached}
+            mobileOpen={mobileInspectorOpen}
+            onCloseMobile={() => setMobileInspectorOpen(false)}
+            onDelete={(frameId) => workspace.edit({ type: 'frame/delete', frameId })}
+            onDuplicate={(frameId) => workspace.edit({ type: 'frame/duplicate', frameId, duplicateFrameId: crypto.randomUUID() })}
+            onLabelChange={(frameId, label) => workspace.edit({ type: 'frame/set-label', frameId, label })}
+            onModeChange={(frameId, motionMode) => workspace.edit({ type: 'edge/set-mode', toFrameId: frameId, motionMode })}
+            onTransitionDurationChange={(frameId, durationS) => workspace.edit({ type: 'edge/set-duration', toFrameId: frameId, durationS })}
+          />
+        </div>
 
-      <div className="studio-editor-grid">
         <StudioTimeline
           disabled={workspace.action !== null}
-          defaultEdgeIds={workspace.defaultEdgeIds}
           frameLimitReached={frameLimitReached}
           frames={workspace.keyframes}
           initialScrollS={workspace.timelineScrollS}
-          runtimeMode={runtime.controlMode}
-          onAddAfter={(frameId) => workspace.startPoseInsertion('after', frameId)}
-          onAddBefore={(frameId) => workspace.startPoseInsertion('before', frameId)}
-          onDelete={(frameId) => workspace.edit({ type: 'frame/delete', frameId })}
-          onDuplicate={(frameId) => workspace.edit({ type: 'frame/duplicate', frameId, duplicateFrameId: crypto.randomUUID() })}
-          onMove={(frameId, direction) => workspace.edit({
-            type: 'frame/move',
-            frameId,
-            direction: direction < 0 ? 'backward' : 'forward',
-          })}
-          onPlayheadChange={workspace.setPlayheadS}
-          onReorder={(frameId, toIndex) => workspace.edit({ type: 'frame/reorder', frameId, toIndex })}
+          isPlaying={simulationPlaying}
+          motionName={workspace.editor.document.name}
+          onAdd={() => workspace.startPoseInsertion('after', insertionAnchorId)}
+          onMoveFrameTime={workspace.moveFrameTime}
+          onPause={pauseSimulation}
+          onPlay={() => void playSimulation()}
+          onPlayheadChange={scrubSimulation}
           onScrollChange={workspace.setTimelineScrollS}
           onSelect={(frameId) => workspace.edit({ type: 'selection/set', frameId })}
-          onTransitionDurationChange={(frameId, durationS) => workspace.edit({ type: 'edge/set-duration', toFrameId: frameId, durationS })}
-          onZoomChange={workspace.setTimelineZoom}
           playheadS={workspace.playheadS}
           selectedFrameId={workspace.editor.selectedFrameId}
-          zoom={workspace.timelineZoom}
         />
-
-      </div>
+      </main>
 
       {workspace.poseInsertion ? (
         <StudioPosePicker
@@ -318,7 +273,7 @@ export function StudioPage() {
             });
           }}
           onSearchChange={workspace.setPoseSearch}
-          placement={workspace.poseInsertion.position}
+          placement="after"
           poses={workspace.poses}
           search={workspace.poseSearch}
         />
@@ -345,27 +300,22 @@ export function StudioPage() {
           expectedRevision={workspace.conflict.expectedRevision}
           onCancel={workspace.clearConflict}
           onReload={() => void workspace.reloadConflict()}
-          onSaveAs={() => {
-            openSaveAs();
-          }}
+          onSaveAs={openSaveAs}
         />
       ) : null}
 
-      {confirmation ? (
+      {confirmNewOpen ? (
         <StudioConfirmDialog
           busy={workspace.action !== null}
-          confirmLabel={confirmation.type === 'new'
-            ? '新建草稿'
-            : `确认${runtime.controlMode === 'REAL' ? '真机' : '仿真'}前往`}
-          danger={confirmation.type === 'new'}
-          description={confirmation.type === 'new'
-            ? '当前工作草稿已经自动保存，但尚未保存为正式运动。新建空白草稿不会删除它。'
-            : runtime.controlMode === 'REAL'
-              ? '通过后端授权的真机关节运动入口提交内嵌关键帧快照。'
-              : '通过唯一经过审核的仿真安全入口提交内嵌关键帧快照；不会启用实体硬件。'}
-          onCancel={() => setConfirmation(null)}
-          onConfirm={confirmAction}
-          title={confirmation.type === 'new' ? '新建空白草稿？' : '前往所选关键帧？'}
+          confirmLabel="新建草稿"
+          danger
+          description="当前工作草稿已经自动保存，但尚未保存为正式运动。新建不会删除它。"
+          onCancel={() => setConfirmNewOpen(false)}
+          onConfirm={() => {
+            setConfirmNewOpen(false);
+            void workspace.createBlankDraft();
+          }}
+          title="新建空白草稿？"
         />
       ) : null}
     </div>

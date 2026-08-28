@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { MotionKeyframe } from '../../api/types';
 import {
   clampTransitionDuration,
+  framesWithTimelineTimeEdit,
+  timelineTimeEdit,
   timelineData,
   timeFromTrackPointer,
 } from './studioTimelineMath';
@@ -48,5 +50,33 @@ describe('studio timeline math', () => {
     expect(timeFromTrackPointer(84, 0, 1168, 10)).toBe(0);
     expect(timeFromTrackPointer(584, 0, 1168, 10)).toBe(5);
     expect(timeFromTrackPointer(1400, 0, 1168, 10)).toBe(10);
+  });
+
+  it('moves an interior keyframe without crossing and recalculates both adjacent transitions', () => {
+    const frames = [
+      keyframe('K1', 0, null),
+      keyframe('K2', 0, 2.5),
+      keyframe('K3', 0, 2.1),
+    ];
+    const edit = timelineTimeEdit(frames, 'K2', 3);
+
+    expect(edit).toMatchObject({
+      timeS: 3,
+      incomingDurationS: 3,
+      nextFrameId: 'K3',
+      nextIncomingDurationS: 1.6,
+    });
+    expect(timelineData(framesWithTimelineTimeEdit(frames, edit)).markers.map(({ time }) => time))
+      .toEqual([0, 3, 4.6]);
+  });
+
+  it('enforces minimum spacing and keeps the first keyframe fixed', () => {
+    const frames = [keyframe('K1', 0, null), keyframe('K2', 0, 1), keyframe('K3', 0, 1)];
+    expect(timelineTimeEdit(frames, 'K1', 0.5)).toBeNull();
+    expect(timelineTimeEdit(frames, 'K2', 99)).toMatchObject({
+      timeS: 1.95,
+      incomingDurationS: 1.95,
+      nextIncomingDurationS: 0.05,
+    });
   });
 });

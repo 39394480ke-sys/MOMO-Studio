@@ -711,14 +711,16 @@ export function useStudioDraftSession({
       if (
         generation !== workspaceGenerationRef.current ||
         signature !== documentSignature(editorRef.current.document)
-      ) return;
+      ) return null;
       setDraftPreflight(result.preflight);
       setPreview(result.preview);
+      return result.preview;
     } catch (caught) {
       if (!recordSaveConflict(caught, {
         draft: expectedDraftRevision,
         motion: null,
       }, false)) setError(message(caught));
+      return null;
     } finally {
       setAction((currentAction) => currentAction === actionName ? null : currentAction);
     }

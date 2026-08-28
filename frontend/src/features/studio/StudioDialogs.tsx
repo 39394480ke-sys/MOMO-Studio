@@ -106,8 +106,8 @@ export function StudioPosePicker({
     <DialogFrame labelledBy="studio-pose-picker-heading" onClose={busy ? () => undefined : onClose} variant="drawer">
       <header className="studio-dialog__header">
         <div>
-          <p className="section-kicker">机位资源库</p>
-          <h2 id="studio-pose-picker-heading">在当前关键帧{placement === 'before' ? '前' : '后'}添加</h2>
+          <p className="section-kicker">插入到当前关键帧{placement === 'before' ? '之前' : '之后'}</p>
+          <h2 id="studio-pose-picker-heading">添加关键帧</h2>
         </div>
         <button aria-label="关闭机位选择器" className="mini-command" disabled={busy} onClick={onClose} type="button">
           <X aria-hidden="true" />
@@ -126,14 +126,14 @@ export function StudioPosePicker({
         </span>
         <Plus aria-hidden="true" />
       </button>
-      <div className="studio-drawer-divider"><span>或从机位库选择</span></div>
+      <div className="studio-drawer-divider"><span>从资产库添加</span></div>
       <label className="studio-field">
-        <span>搜索已保存机位</span>
+        <span>搜索 Pose</span>
         <input
           autoFocus
           maxLength={200}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="机位名称或标签"
+          placeholder="搜索姿态…"
           value={search}
         />
       </label>

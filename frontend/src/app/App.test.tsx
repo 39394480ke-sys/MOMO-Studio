@@ -22,7 +22,7 @@ afterEach(() => {
 describe('MOMO Studio product shell', () => {
   it.each([
     ['/control', '机器人控制', '机器人工作区'],
-    ['/studio', '编排', '运动工作区'],
+    ['/studio', '编辑', '运动工作区'],
     ['/library', '资源库', '位姿与运动'],
     ['/vision', '视觉监控', '监看与跟随'],
     ['/settings', '设置', '系统与安全'],
@@ -47,7 +47,9 @@ describe('MOMO Studio product shell', () => {
     view.unmount();
     renderRoute('/studio');
     expect(await screen.findByText('空白运动草稿')).toBeVisible();
-    expect(screen.getByRole('button', { name: /捕获当前状态/ })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /捕获当前姿态/ })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: '添加关键帧' }));
+    expect(await screen.findByRole('button', { name: /捕获当前姿态/ })).toBeVisible();
   });
 
   it('switches to V1 in Settings and exposes exactly the enabled joint set', async () => {
