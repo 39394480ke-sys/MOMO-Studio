@@ -1,0 +1,62 @@
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { AppContent } from '../app/App';
+import { mockStage7Backend } from '../test/stage7Fixtures';
+
+function renderSettings() {
+  return render(
+    <MemoryRouter initialEntries={['/settings']}>
+      <AppContent />
+    </MemoryRouter>,
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe('Settings product center', () => {
+  it('renders every product section from real runtime fields without inventing unavailable device data', async () => {
+    const backend = mockStage7Backend();
+    renderSettings();
+
+    for (const heading of ['设备', '关节与运动', '标定', '相机', '网络与服务', '安全', '高级']) {
+      expect(await screen.findByRole('heading', { name: heading })).toBeVisible();
+    }
+
+    const device = screen.getByRole('heading', { name: '设备' }).closest('section');
+    expect(device).not.toBeNull();
+    expect(within(device as HTMLElement).getAllByText('未配置').length).toBeGreaterThanOrEqual(2);
+    expect(within(device as HTMLElement).getByText('当前版本暂不支持')).toBeVisible();
+
+    expect(await screen.findByText('synthetic-frame-source')).toBeVisible();
+    expect(screen.getByText('当前会话仅使用内存合成画面；不会枚举、打开或录制本机摄像头。')).toBeVisible();
+    expect(screen.queryByText(/USB Camera|Built-in Camera/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '零点快速标定' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /打开关节设置/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '重启服务' })).toBeDisabled();
+
+    expect(backend.requestsFor('/vision/camera/open')).toHaveLength(0);
+    expect(backend.requestsFor('/vision/camera/close')).toHaveLength(0);
+    expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
+  });
+
+  it('keeps the existing hardware and calibration workflow behind an explicit advanced disclosure', async () => {
+    const user = userEvent.setup();
+    mockStage7Backend();
+    renderSettings();
+    await screen.findByRole('heading', { name: '设备' });
+
+    const advanced = screen.getByText('高级 · 实体硬件调试与完整标定').closest('details');
+    expect(advanced).not.toHaveAttribute('open');
+
+    await user.click(screen.getByRole('button', { name: '完整标定' }));
+    await waitFor(() => expect(advanced).toHaveAttribute('open'));
+    expect(screen.getByText(/展开不会连接、扫描、回零、标定或移动真实硬件/)).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'V2 连接与方向验收' })).toBeVisible();
+  });
+});

@@ -5,7 +5,22 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Archive, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react';
+import {
+  Archive,
+  Camera,
+  Copy,
+  ExternalLink,
+  MoreHorizontal,
+  Navigation,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  TriangleAlert,
+  WifiOff,
+  X,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import {
   ApiError,
@@ -29,6 +44,8 @@ import {
   setPlaybackLoop,
   setPlaybackRate,
   stopPlayback,
+  updateMotion,
+  updatePose,
 } from '../api/client';
 import type {
   CapturePoseRequest,
@@ -43,7 +60,6 @@ import type {
   TrajectoryPreflightReport,
   TrajectoryPreview,
 } from '../api/types';
-import { PageIntro } from '../components/PageIntro';
 import {
   realCapabilityAvailability,
   useRealSession,
@@ -60,10 +76,16 @@ import {
   type LibraryFilters,
 } from '../features/library/LibraryToolbar';
 import { MotionCard } from '../features/library/MotionCard';
+import { MotionSimulationPlayer } from '../features/library/MotionSimulationPlayer';
 import { MotionPlaybackPanel } from '../features/library/MotionPlaybackPanel';
 import { PoseCard } from '../features/library/PoseCard';
-import { libraryIdempotencyKey, parseTags } from '../features/library/libraryFormat';
+import {
+  formatEntityDate,
+  libraryIdempotencyKey,
+  parseTags,
+} from '../features/library/libraryFormat';
 import { playbackLocksLibrary } from '../features/library/playbackState';
+import { Robot3DViewer } from '../features/robot-viewer';
 
 type LibraryTab = 'poses' | 'motions';
 type LoadState = 'idle' | 'loading' | 'ready' | 'offline' | 'error';
@@ -71,6 +93,12 @@ type Confirmation =
   | { kind: 'delete-pose'; id: string }
   | { kind: 'goto-pose'; id: string }
   | { kind: 'delete-motion'; id: string };
+type RenameTarget = {
+  kind: 'pose' | 'motion';
+  id: string;
+  revision: number;
+  value: string;
+};
 
 const PAGE_SIZE = 24;
 const SOURCE_POSE_LIMIT = 50;
@@ -204,6 +232,7 @@ export function LibraryPage() {
     message: string;
   } | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [gotoResult, setGotoResult] = useState<{
     poseName: string;
     submission: MotionCommandSubmission;
@@ -238,6 +267,20 @@ export function LibraryPage() {
     preflightGeneration.current += 1;
     preflightRequest.current?.abort();
   }, []);
+
+  useEffect(() => {
+    if (!detail) return undefined;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (renameTarget) {
+        setRenameTarget(null);
+        return;
+      }
+      closeDetail();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  });
 
   const query = useMemo<EntityListQuery>(
     () => ({
@@ -366,6 +409,16 @@ export function LibraryPage() {
   const online = runtime.backend === 'connected';
   const playbackActive = playbackLocksLibrary(playbackStatus);
   const anyActionBusy = actionKey !== null || playbackActive;
+  const selectedResourceId = detail?.status === 'ready' ? detail.entity.id : detail?.id ?? null;
+  const selectedPoseSummary = detail?.kind === 'pose'
+    ? posePage.items.find((pose) => pose.id === selectedResourceId) ?? null
+    : null;
+  const selectedMotionSummary = detail?.kind === 'motion'
+    ? motionPage.items.find((motion) => motion.id === selectedResourceId) ?? null
+    : null;
+  const profile = runtime.profile?.profile ?? null;
+  const viewerJointDefinitions = profile?.joint_definitions ?? [];
+  const viewerEnabledJointIds = profile?.enabled_joints ?? [];
 
   function reload() {
     setActionError(null);
@@ -492,11 +545,53 @@ export function LibraryPage() {
     );
   }
 
+  function beginRename(kind: 'pose' | 'motion', entity: PoseSummary | MotionSummary) {
+    setRenameTarget({
+      kind,
+      id: entity.id,
+      revision: entity.revision,
+      value: entity.name,
+    });
+    void viewEntity(kind, entity.id);
+  }
+
+  function submitRename() {
+    if (!renameTarget || renameTarget.value.trim().length === 0) return;
+    const target = renameTarget;
+    const complete = (updated: PoseEntity | MotionEntity) => {
+        setRenameTarget(null);
+        setActionMessage(`已重命名为“${updated.name}”。`);
+        void viewEntity(target.kind, target.id);
+    };
+    if (target.kind === 'pose') {
+      void mutate(
+        `rename-pose-${target.id}`,
+        () => updatePose(target.id, {
+          expected_revision: target.revision,
+          name: target.value.trim(),
+        }),
+        complete,
+      );
+      return;
+    }
+    void mutate(
+      `rename-motion-${target.id}`,
+      () => updateMotion(target.id, {
+        expected_revision: target.revision,
+        name: target.value.trim(),
+      }),
+      complete,
+    );
+  }
+
   function deleteSelectedPose(pose: PoseSummary) {
     void mutate(
       `delete-pose-${pose.id}`,
       () => deletePose(pose.id, pose.revision),
-      () => setActionMessage(`已删除机位“${pose.name}”。已有运动中的内嵌快照不受影响。`),
+      () => {
+        if (detail?.status === 'ready' && detail.entity.id === pose.id) closeDetail();
+        setActionMessage(`已删除机位“${pose.name}”。已有运动中的内嵌快照不受影响。`);
+      },
     );
   }
 
@@ -528,7 +623,10 @@ export function LibraryPage() {
     void mutate(
       `delete-motion-${motion.id}`,
       () => deleteMotion(motion.id, motion.revision),
-      () => setActionMessage(`已删除运动“${motion.name}”。`),
+      () => {
+        if (detail?.status === 'ready' && detail.entity.id === motion.id) closeDetail();
+        setActionMessage(`已删除运动“${motion.name}”。`);
+      },
     );
   }
 
@@ -737,6 +835,8 @@ export function LibraryPage() {
     setTrajectoryPreview(null);
     setPreviewLoading(false);
     setPreflightError(null);
+    setRenameTarget(null);
+    setConfirmation(null);
     setDetail(null);
   }
 
@@ -746,15 +846,36 @@ export function LibraryPage() {
     setPlaybackPollError(null);
   }
 
+  function revealCreation(nextTab: LibraryTab) {
+    if (nextTab !== tab) closeDetail();
+    setTab(nextTab);
+    setPageNumber(1);
+    setConfirmation(null);
+    window.setTimeout(() => {
+      const panel = document.getElementById(
+        nextTab === 'poses' ? 'capture-pose-panel' : 'create-motion-panel',
+      );
+      panel?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      panel?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus();
+    }, 0);
+  }
+
   return (
     <div className="page library-page">
-      <PageIntro
-        title="资源库"
-        description={`保存不可变的机位快照、预检编译轨迹，并控制${runtime.controlMode === 'REAL' ? '已授权真机' : '仿真'}运动播放。`}
-        detail={runtime.controlMode === 'REAL'
-          ? '前往机位和播放都需要后端授予对应能力，并保持有效的操作员会话。'
-          : '前往机位和运动播放会经过已审核的仿真安全入口，实体硬件访问保持禁用。'}
-      />
+      <header className="library-page-intro">
+        <div>
+          <h1>资源库</h1>
+          <p>管理可复用的不可变姿态快照与已编排运动。</p>
+        </div>
+        <div className="library-page-actions">
+          <button className="command-button command-button--primary" onClick={() => revealCreation('poses')} type="button">
+            <Camera aria-hidden="true" /> 捕获机位
+          </button>
+          <button className="command-button" onClick={() => revealCreation('motions')} type="button">
+            <Plus aria-hidden="true" /> 新建运动
+          </button>
+        </div>
+      </header>
 
       <div className="library-stage-banner">
         <Archive aria-hidden="true" />
@@ -805,30 +926,10 @@ export function LibraryPage() {
         id={`${tab}-panel`}
         role="tabpanel"
       >
-        {tab === 'poses' ? (
-          <PoseCaptureForm
-            busy={anyActionBusy}
-            disabled={
-              !online ||
-              runtime.stale ||
-              runtime.robot?.stale !== false ||
-              runtime.robot?.connected !== true ||
-              runtime.pendingAction !== null
-            }
-            onCapture={capture}
-            robotLabel={runtime.robot ? `${runtime.robot.robot_id} · ${runtime.robot.variant}` : '机械臂不可用'}
-          />
-        ) : (
-          <MotionCreateForm
-            busy={anyActionBusy}
-            disabled={!online}
-            onCreate={create}
-            poseTotal={sourcePoses.total}
-            poses={sourcePoses.items}
-          />
-        )}
-
-        <section aria-labelledby="saved-library-heading" className="saved-library">
+        <section
+          aria-labelledby="saved-library-heading"
+          className={detail ? 'saved-library saved-library--with-detail' : 'saved-library'}
+        >
           <header className="saved-library__heading">
             <div>
               <p className="section-kicker">已保存资源</p>
@@ -837,7 +938,12 @@ export function LibraryPage() {
             <span>共 {activePage.total} 项</span>
           </header>
 
-          <LibraryToolbar disabled={!online} filters={filters} onChange={changeFilters} />
+          <LibraryToolbar
+            disabled={!online}
+            filters={filters}
+            kindLabel={tab === 'poses' ? '机位' : '运动'}
+            onChange={changeFilters}
+          />
 
           {loadState === 'offline' ? (
             <div className="library-notice library-notice--offline" role="status">
@@ -906,89 +1012,169 @@ export function LibraryPage() {
           ) : null}
 
           {detail ? (
-            <section
-              aria-labelledby="library-detail-heading"
-              className="library-detail"
-              role="dialog"
-            >
-              <header>
+            <section aria-labelledby="library-detail-heading" className="library-detail" role="dialog">
+              <header className="library-detail__header">
                 <div>
-                  <p className="section-kicker">已校验资源详情</p>
+                  <div className="library-detail__eyebrow">
+                    <span>{detail.kind === 'pose' ? 'POSE' : 'MOTION'}</span>
+                  </div>
                   <h3 id="library-detail-heading">
-                    {detail.status === 'ready'
-                      ? detail.entity.name
-                      : `${detail.kind === 'pose' ? '机位' : '运动'}详情`}
+                    {detail.status === 'ready' ? detail.entity.name : `${detail.kind === 'pose' ? '机位' : '运动'}详情`}
                   </h3>
                 </div>
-                <button className="command-button" onClick={closeDetail} type="button">关闭详情</button>
+                <button aria-label="关闭资源详情" className="library-detail__close" onClick={closeDetail} type="button"><X aria-hidden="true" /></button>
               </header>
-              {detail.status === 'loading' ? <p role="status">正在加载 UUID {detail.id}…</p> : null}
+
+              {detail.status === 'loading' ? (
+                <div className="library-detail__loading" role="status"><RefreshCw aria-hidden="true" />正在加载资源预览…</div>
+              ) : null}
               {detail.status === 'error' ? (
                 <div className="library-notice library-notice--error" role="alert">
                   <TriangleAlert aria-hidden="true" />
-                  <div>
-                    <strong>详情请求失败</strong>
-                    <span>{detail.message}</span>
-                  </div>
+                  <div><strong>预览不可用</strong><span>{detail.message}</span></div>
                   <button className="command-button" onClick={() => void viewEntity(detail.kind, detail.id)} type="button">重试</button>
                 </div>
               ) : null}
-              {detail.status === 'ready' && detail.kind === 'pose' ? (
-                <dl className="library-detail__facts">
-                  <div><dt>UUID</dt><dd><code>{detail.entity.id}</code></dd></div>
-                  <div><dt>数据结构 / 版本</dt><dd>{detail.entity.schema_version} · 版本 {detail.entity.revision}</dd></div>
-                  <div><dt>配置指纹</dt><dd><code>{detail.entity.snapshot.profile_fingerprint}</code></dd></div>
-                  <div><dt>运动学指纹</dt><dd><code>{detail.entity.snapshot.kinematics_fingerprint}</code></dd></div>
-                  <div><dt>状态序号</dt><dd>{detail.entity.snapshot.state_sequence ?? '导入数据 · 不可用'}</dd></div>
-                  <div><dt>捕获时间</dt><dd>{detail.entity.snapshot.captured_at}</dd></div>
-                </dl>
+
+              {detail.status === 'ready' && renameTarget?.id === detail.entity.id ? (
+                <form className="resource-rename-form" onSubmit={(event) => { event.preventDefault(); submitRename(); }}>
+                  <label htmlFor="resource-rename-input">资源名称</label>
+                  <input
+                    autoFocus
+                    id="resource-rename-input"
+                    maxLength={200}
+                    onChange={(event) => setRenameTarget((current) => current ? { ...current, value: event.target.value } : null)}
+                    value={renameTarget.value}
+                  />
+                  <div>
+                    <button className="command-button" onClick={() => setRenameTarget(null)} type="button">取消</button>
+                    <button className="command-button command-button--primary" disabled={actionKey !== null || renameTarget.value.trim().length === 0} type="submit">保存名称</button>
+                  </div>
+                </form>
               ) : null}
+
+              {detail.status === 'ready' && detail.kind === 'pose' ? (
+                <>
+                  <div className="library-detail__tags">
+                    <span>Pose</span><span>{detail.entity.snapshot.robot_variant}</span>
+                    {detail.entity.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                  </div>
+                  {profile?.variant === detail.entity.snapshot.robot_variant ? (
+                    <Robot3DViewer
+                      ariaLabel={`${detail.entity.name} 机位三维仿真预览`}
+                      className="library-resource-viewer"
+                      enabledJointIds={viewerEnabledJointIds}
+                      jointDefinitions={viewerJointDefinitions}
+                      jointPositions={detail.entity.snapshot.joint_state.positions}
+                      jointUnits={detail.entity.snapshot.joint_state.units}
+                      variant={detail.entity.snapshot.robot_variant}
+                    />
+                  ) : (
+                    <div className="library-detail__preview-fallback" role="status">当前 Profile 与该机位型号不同，交互式三维预览暂不可用。</div>
+                  )}
+                  <div className="library-detail__actions">
+                    <button
+                      className="command-button command-button--primary"
+                      disabled={!selectedPoseSummary || anyActionBusy || gotoDisabledReason(selectedPoseSummary, runtime, realSession) !== null}
+                      onClick={() => selectedPoseSummary && setConfirmation({ kind: 'goto-pose', id: selectedPoseSummary.id })}
+                      title={selectedPoseSummary ? gotoDisabledReason(selectedPoseSummary, runtime, realSession) ?? '通过现有安全网关定位到该姿态' : '资源摘要不可用'}
+                      type="button"
+                    ><Navigation aria-hidden="true" />定位到该姿态</button>
+                    <Link className="command-button" to={`/studio?pose=${encodeURIComponent(detail.entity.id)}`}><Plus aria-hidden="true" />添加到 Studio</Link>
+                  </div>
+                  {selectedPoseSummary && confirmation?.kind === 'goto-pose' && confirmation.id === selectedPoseSummary.id ? (
+                    <div className="resource-detail-confirmation" role="alertdialog" aria-label={`定位到“${selectedPoseSummary.name}”？`}>
+                      <strong>定位到“{selectedPoseSummary.name}”？</strong>
+                      <p>{runtime.controlMode === 'REAL' ? '请求仍将通过真机授权与安全网关。' : '只会通过 Dry Run 仿真安全入口，不启用实体硬件。'}</p>
+                      <div><button className="command-button" onClick={() => setConfirmation(null)} type="button">取消</button><button className="command-button command-button--primary" onClick={() => gotoSelectedPose(selectedPoseSummary)} type="button">确认{runtime.controlMode === 'REAL' ? '真机' : '仿真'}定位</button></div>
+                    </div>
+                  ) : null}
+                  <dl className="library-detail__facts library-detail__facts--compact">
+                    <div><dt>TCP · {detail.entity.snapshot.tcp_pose.frame}</dt><dd>X {detail.entity.snapshot.tcp_pose.position_mm.x.toFixed(1)} · Y {detail.entity.snapshot.tcp_pose.position_mm.y.toFixed(1)} · Z {detail.entity.snapshot.tcp_pose.position_mm.z.toFixed(1)} mm</dd></div>
+                    <div><dt>创建时间</dt><dd>{formatEntityDate(detail.entity.created_at)}</dd></div>
+                    <div><dt>关节快照</dt><dd>{Object.keys(detail.entity.snapshot.joint_state.positions).length} 个启用关节</dd></div>
+                    <div><dt>版本</dt><dd>{detail.entity.revision}</dd></div>
+                  </dl>
+                  <details className="resource-detail-more">
+                    <summary><MoreHorizontal aria-hidden="true" />更多</summary>
+                    <div>
+                      <button disabled={!selectedPoseSummary || anyActionBusy} onClick={() => selectedPoseSummary && beginRename('pose', selectedPoseSummary)} type="button"><Pencil aria-hidden="true" />重命名</button>
+                      <button disabled={!selectedPoseSummary || anyActionBusy} onClick={() => selectedPoseSummary && duplicateSelectedPose(selectedPoseSummary)} type="button"><Copy aria-hidden="true" />复制</button>
+                      <button className="is-danger" disabled={!selectedPoseSummary || anyActionBusy} onClick={() => selectedPoseSummary && setConfirmation({ kind: 'delete-pose', id: selectedPoseSummary.id })} type="button"><Trash2 aria-hidden="true" />删除</button>
+                    </div>
+                  </details>
+                </>
+              ) : null}
+
               {detail.status === 'ready' && detail.kind === 'motion' ? (
                 <>
-                  <dl className="library-detail__facts">
-                    <div><dt>UUID</dt><dd><code>{detail.entity.id}</code></dd></div>
-                    <div><dt>数据结构 / 版本</dt><dd>{detail.entity.schema_version} · 版本 {detail.entity.revision}</dd></div>
-                    <div><dt>机械臂型号</dt><dd>{detail.entity.robot_variant}</dd></div>
-                    <div><dt>默认播放参数</dt><dd>{detail.entity.playback_defaults.speed_multiplier}× · {detail.entity.playback_defaults.loop ? '循环' : '不循环'}</dd></div>
-                  </dl>
-                  <ol className="motion-detail-keyframes">
-                    {detail.entity.keyframes.map((keyframe, index) => (
-                      <li key={keyframe.id}>
-                        <strong>{index + 1}. {keyframe.label}</strong>
-                        <span>{keyframe.pose_snapshot.robot_variant} · 停留 {keyframe.hold_s.toFixed(2)} 秒</span>
-                        <span>
-                          {keyframe.incoming_transition
-                            ? `${keyframe.incoming_transition.motion_mode} · ${keyframe.incoming_transition.duration_s.toFixed(2)} s · ${keyframe.incoming_transition.easing}`
-                            : '起始关键帧 · 无进入过渡'}
-                        </span>
-                        <code>来源 {keyframe.source_pose_id ?? '无（内嵌快照）'}</code>
-                      </li>
-                    ))}
-                  </ol>
-                  <MotionPlaybackPanel
-                    actionKey={actionKey}
-                    disabledReason={playbackDisabledReason(detail.entity, runtime, realSession)}
-                    error={preflightError ?? playbackError ?? playbackPollError}
-                    loop={playbackLoop}
+                  <div className="library-detail__tags">
+                    <span>Motion</span><span>{detail.entity.robot_variant}</span>
+                    {detail.entity.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                  </div>
+                  <MotionSimulationPlayer
+                    enabledJointIds={viewerEnabledJointIds}
+                    jointDefinitions={viewerJointDefinitions}
                     motion={detail.entity}
-                    onDismissError={dismissPlaybackError}
-                    onLoopChange={(next) => changePlaybackLoop(detail.entity, next)}
-                    onPause={() => pauseSelectedMotion(detail.entity)}
-                    onPlay={() => playSelectedMotion(detail.entity)}
-                    onPreflight={() => runMotionPreflight(detail.entity)}
-                    onRateChange={(next) => changePlaybackRate(detail.entity, next)}
-                    onResume={() => resumeSelectedMotion(detail.entity)}
-                    onStop={() => stopSelectedMotion(detail.entity)}
-                    playback={playbackStatus}
-                    preflight={preflight}
-                    preview={trajectoryPreview}
-                    previewLoading={previewLoading}
-                    rate={playbackRate}
-                    runtimeMode={runtime.controlMode}
-                    stopDisabled={!online}
+                    profileVariant={profile?.variant ?? null}
                   />
-                  <p className="stage-boundary-note">播放使用不可变的内嵌快照；时间轴编排请在独立的“编排”工作区完成。</p>
+                  <dl className="library-detail__facts library-detail__facts--motion-summary">
+                    <div><dt>关键帧</dt><dd>{detail.entity.keyframes.length}</dd></div>
+                    <div><dt>总时长</dt><dd>{selectedMotionSummary?.total_duration_s.toFixed(1) ?? '—'} s</dd></div>
+                    <div><dt>运动类型</dt><dd>{selectedMotionSummary?.motion_types.join(' · ') || 'HOLD'}</dd></div>
+                  </dl>
+                  <div className="library-detail__actions">
+                    <Link className="command-button command-button--primary" to={`/studio?motion=${encodeURIComponent(detail.entity.id)}`}><ExternalLink aria-hidden="true" />在 Studio 中编辑</Link>
+                  </div>
+                  <details className="resource-detail-more">
+                    <summary><MoreHorizontal aria-hidden="true" />更多</summary>
+                    <div>
+                      <button disabled={!selectedMotionSummary || anyActionBusy} onClick={() => selectedMotionSummary && beginRename('motion', selectedMotionSummary)} type="button"><Pencil aria-hidden="true" />重命名</button>
+                      <button disabled={!selectedMotionSummary || anyActionBusy} onClick={() => selectedMotionSummary && duplicateSelectedMotion(selectedMotionSummary)} type="button"><Copy aria-hidden="true" />复制</button>
+                      <button className="is-danger" disabled={!selectedMotionSummary || anyActionBusy} onClick={() => selectedMotionSummary && setConfirmation({ kind: 'delete-motion', id: selectedMotionSummary.id })} type="button"><Trash2 aria-hidden="true" />删除</button>
+                    </div>
+                  </details>
+                  <details className="resource-safety-playback">
+                    <summary>安全执行（需预检与授权）</summary>
+                    <p>这一入口可能创建后端播放会话；上方“仿真播放”从不调用它。</p>
+                    <MotionPlaybackPanel
+                      actionKey={actionKey}
+                      disabledReason={playbackDisabledReason(detail.entity, runtime, realSession)}
+                      error={preflightError ?? playbackError ?? playbackPollError}
+                      loop={playbackLoop}
+                      motion={detail.entity}
+                      onDismissError={dismissPlaybackError}
+                      onLoopChange={(next) => changePlaybackLoop(detail.entity, next)}
+                      onPause={() => pauseSelectedMotion(detail.entity)}
+                      onPlay={() => playSelectedMotion(detail.entity)}
+                      onPreflight={() => runMotionPreflight(detail.entity)}
+                      onRateChange={(next) => changePlaybackRate(detail.entity, next)}
+                      onResume={() => resumeSelectedMotion(detail.entity)}
+                      onStop={() => stopSelectedMotion(detail.entity)}
+                      playback={playbackStatus}
+                      preflight={preflight}
+                      preview={trajectoryPreview}
+                      previewLoading={previewLoading}
+                      rate={playbackRate}
+                      runtimeMode={runtime.controlMode}
+                      stopDisabled={!online}
+                    />
+                  </details>
                 </>
+              ) : null}
+              {selectedPoseSummary && confirmation?.kind === 'delete-pose' && confirmation.id === selectedPoseSummary.id ? (
+                <div className="resource-detail-confirmation" role="alertdialog" aria-label={`删除“${selectedPoseSummary.name}”？`}>
+                  <strong>删除“{selectedPoseSummary.name}”？</strong>
+                  <p>已有动作中的内嵌快照不会改变。</p>
+                  <div><button className="command-button" onClick={() => setConfirmation(null)} type="button">取消</button><button className="command-button command-button--danger-solid" onClick={() => deleteSelectedPose(selectedPoseSummary)} type="button">确认删除</button></div>
+                </div>
+              ) : null}
+              {selectedMotionSummary && confirmation?.kind === 'delete-motion' && confirmation.id === selectedMotionSummary.id ? (
+                <div className="resource-detail-confirmation" role="alertdialog" aria-label={`删除“${selectedMotionSummary.name}”？`}>
+                  <strong>删除“{selectedMotionSummary.name}”？</strong>
+                  <p>来源机位不会被删除。</p>
+                  <div><button className="command-button" onClick={() => setConfirmation(null)} type="button">取消</button><button className="command-button command-button--danger-solid" onClick={() => deleteSelectedMotion(selectedMotionSummary)} type="button">确认删除</button></div>
+                </div>
               ) : null}
             </section>
           ) : null}
@@ -1023,20 +1209,16 @@ export function LibraryPage() {
                       <PoseCard
                         busy={anyActionBusy || !online}
                         deletePending={confirmation?.kind === 'delete-pose' && confirmation.id === pose.id}
-                        gotoDisabledReason={gotoDisabledReason(pose, runtime, realSession)}
-                        gotoPending={confirmation?.kind === 'goto-pose' && confirmation.id === pose.id}
                         key={pose.id}
-                        runtimeMode={runtime.controlMode}
                         onDeleteCancel={() => setConfirmation(null)}
                         onDeleteConfirm={deleteSelectedPose}
                         onDeleteRequest={(selected) => setConfirmation({ kind: 'delete-pose', id: selected.id })}
                         onDuplicate={duplicateSelectedPose}
-                        onGotoCancel={() => setConfirmation(null)}
-                        onGotoConfirm={gotoSelectedPose}
-                        onGotoRequest={(selected) => setConfirmation({ kind: 'goto-pose', id: selected.id })}
+                        onRename={(selected) => beginRename('pose', selected)}
+                        onSelect={(selected) => void viewEntity('pose', selected.id)}
                         onTagSelect={selectTag}
-                        onView={(selected) => void viewEntity('pose', selected.id)}
                         pose={pose}
+                        selected={selectedResourceId === pose.id}
                       />
                     ))
                   : motionPage.items.map((motion) => (
@@ -1049,16 +1231,10 @@ export function LibraryPage() {
                         onDeleteConfirm={deleteSelectedMotion}
                         onDeleteRequest={(selected) => setConfirmation({ kind: 'delete-motion', id: selected.id })}
                         onDuplicate={duplicateSelectedMotion}
-                        onPlay={(selected) => void viewEntity('motion', selected.id)}
+                        onRename={(selected) => beginRename('motion', selected)}
+                        onSelect={(selected) => void viewEntity('motion', selected.id)}
                         onTagSelect={selectTag}
-                        onView={(selected) => void viewEntity('motion', selected.id)}
-                        playDisabledReason={playbackDisabledReason(motion, runtime, realSession)}
-                        playBusy={
-                          actionKey !== null ||
-                          !online ||
-                          (playbackActive && playbackStatus?.motion_id !== motion.id)
-                        }
-                        viewBusy={actionKey !== null || !online}
+                        selected={selectedResourceId === motion.id}
                       />
                     ))}
               </div>
@@ -1087,6 +1263,29 @@ export function LibraryPage() {
             </nav>
           ) : null}
         </section>
+
+        {tab === 'poses' ? (
+          <PoseCaptureForm
+            busy={anyActionBusy}
+            disabled={
+              !online ||
+              runtime.stale ||
+              runtime.robot?.stale !== false ||
+              runtime.robot?.connected !== true ||
+              runtime.pendingAction !== null
+            }
+            onCapture={capture}
+            robotLabel={runtime.robot ? `${runtime.robot.robot_id} · ${runtime.robot.variant}` : '机械臂不可用'}
+          />
+        ) : (
+          <MotionCreateForm
+            busy={anyActionBusy}
+            disabled={!online}
+            onCreate={create}
+            poseTotal={sourcePoses.total}
+            poses={sourcePoses.items}
+          />
+        )}
       </div>
     </div>
   );

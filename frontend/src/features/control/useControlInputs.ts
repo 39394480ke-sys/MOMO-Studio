@@ -30,6 +30,12 @@ const EMPTY_POSE: PoseEditorValue = {
   rotationDeg: { x: 0, y: 0, z: 0 },
 };
 
+/** Named FK -> editable-control boundary matching the 0.1 mm / 0.1 deg input step. */
+function roundPoseInput(value: number): number {
+  const rounded = Math.round(value * 10) / 10;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
 export function useControlInputs(options: {
   robot: RobotStatus | null;
   definitions: ProfileJointDefinition[];
@@ -78,9 +84,18 @@ export function useControlInputs(options: {
       : null;
     if (!fk || initializedPoseFor.current === initializationKey) return;
     initializedPoseFor.current = initializationKey;
+    const rotation = quaternionToRpyDegrees(fk.tcp_pose.orientation_quaternion_xyzw);
     setPoseTarget({
-      positionMm: { ...fk.tcp_pose.position_mm },
-      rotationDeg: quaternionToRpyDegrees(fk.tcp_pose.orientation_quaternion_xyzw),
+      positionMm: {
+        x: roundPoseInput(fk.tcp_pose.position_mm.x),
+        y: roundPoseInput(fk.tcp_pose.position_mm.y),
+        z: roundPoseInput(fk.tcp_pose.position_mm.z),
+      },
+      rotationDeg: {
+        x: roundPoseInput(rotation.x),
+        y: roundPoseInput(rotation.y),
+        z: roundPoseInput(rotation.z),
+      },
     });
   }, [options.fk]);
 

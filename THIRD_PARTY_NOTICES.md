@@ -1,6 +1,6 @@
 # Third-party notices and provenance ledger
 
-This file is a provenance ledger, not a software license. MOMO Studio has not selected a repository license. Nothing here grants rights beyond the applicable upstream license.
+This file is a provenance and permission ledger, not a software license. MOMO Studio has not selected a repository license. Nothing here grants rights beyond an applicable upstream license or the explicit rights-holder authorization recorded below.
 
 ## MOMO Studio dependencies
 
@@ -9,9 +9,69 @@ MOMO Studio resolves its development/runtime packages through the manifests and 
 | Ecosystem | Packages presently declared or used | Current use | Provenance action before distribution |
 |---|---|---|---|
 | Python | Hatchling, FastAPI, Pydantic, pydantic-settings, PyYAML, Uvicorn, NumPy and jsonschema; development tools include httpx, pytest, Ruff, mypy, types-PyYAML and types-jsonschema | Build backend, API shell, configuration, domain and persisted JSON Schema validation, mesh-free numerical kinematics and quality checks | Use the exact resolved versions in `backend/uv.lock`; collect each distribution's license metadata and bundled license text. |
-| JavaScript/TypeScript | React, React DOM, React Router, and Lucide React (ISC); Vite plus TypeScript, Vitest, Testing Library, ESLint and related development tools | Web application, routing, interface icons, tests, lint/type/build tooling | Use the exact resolved versions in the frontend lockfile; collect package license metadata and required notices. |
+| JavaScript/TypeScript | React, React DOM, React Router, Lucide React (ISC), Three.js `0.171.0` (MIT), and `urdf-loader` `0.13.1` (Apache-2.0); Vite plus TypeScript, Vitest, Testing Library, ESLint and related development tools | Web application, routing, interface icons, read-only URDF/STL visualization, tests, lint/type/build tooling | These packages are npm dependencies resolved by `frontend/package-lock.json`, not vendored source. Use the exact resolved versions in that lockfile and collect the applicable license texts and notices before distribution. |
 
 Package names are identifiers for attribution and dependency review; they do not imply endorsement.
+
+### V1 and V2 read-only 3D viewer assets
+
+On 2026-08-28, the user directly stated that they created and own all MOMO V1 and V2
+robot-model assets and authorized their use in MOMO Studio. This ledger records that
+rights-holder assertion as the permission basis for the model assets. It does not infer
+MIT, Apache-2.0, a public-domain dedication, or any other named license or terms not
+stated by the user.
+
+The V2 viewer files were copied byte-for-byte from the user-supplied archive
+`MOMO-V2-3D-Viewer-ChatGPT-2026-08-28.zip`, SHA-256
+`577a57c56b0f2ec0af7c486e4437fae9aeda7e8183b11aeebb2dec9c4029bf76`.
+The archive identifies read-only Legacy Source commit
+`ff8bbda0c2222cb57951c7913f7f12f5777b98fa` as its source.
+
+| V2 repository file | SHA-256 |
+|---|---|
+| `frontend/src/assets/robot-v2/urdf/v2/soarmoce_urdf.urdf` | `0b510fc1c06a0c286fedf068da9dca96065d66afb6611bd585a3e416686eccc6` |
+| `frontend/src/assets/robot-v2/meshes/v2/base_link.stl` | `8de59b1b2fa2207dcaa1427bf9ba5dcead9fcfc8d1ed520808fa6e2d6d482e67` |
+| `frontend/src/assets/robot-v2/meshes/v2/Link_2.stl` | `5ac523cd4723055d38320b83c2a70b72b8233cafd141f97ad0cf1109fe4f3e17` |
+| `frontend/src/assets/robot-v2/meshes/v2/Link_3.stl` | `fc2f2cea3ff5f1449a9d5c495eaccdb2cce86b0d276790a255a753ba712099dd` |
+| `frontend/src/assets/robot-v2/meshes/v2/Link_4.stl` | `7c3252133180f772479de3af81b7b027877bdc87ee2e1c51ac160f6f217c5c62` |
+| `frontend/src/assets/robot-v2/meshes/v2/Link_5.stl` | `375155bf0f47ff4f0a363709cc841f971d0611c04a6101ce8c68934211ba9526` |
+| `frontend/src/assets/robot-v2/meshes/v2/Link_6.stl` | `4046d2513ee572b286ac226d1297aac9ca5d150e3c0718674403b7b089bfe996` |
+| `frontend/src/assets/robot-v2/meshes/v2/Link_7.stl` | `a75abef799eec297d9d9bde8b81b9aec006060f594a7b5a4fcfb339b6d2447cc` |
+
+The seven V1 STL files were copied byte-for-byte from the same read-only Legacy commit.
+The Legacy V1 URDF's SHA-256 is
+`5a8d3f6cc39e095537f73aca5562b5f79d625c0bcf80c753800f5a67228b0edf`.
+Its viewer derivative preserves the authored mesh, link, origin, and J11-J15 joint data,
+but changes the Legacy prismatic `J10` base edge into fixed joint `V1_BASE_FIXED` and removes
+its axis/limit. That explicit adaptation makes the visualization's movable-joint contract
+match MOMO Studio V1: exactly J11-J15 and no movable J10 rail axis. It deliberately retains
+the user's authored static `base_link` mesh and is not evidence of a measured rail-less
+physical exterior. The derivative URDF SHA-256 is
+`cea16e30b2a698e32ef4a0a968c50004a53497276c5797312b9d732b661c1aa0`.
+
+| V1 repository file | SHA-256 |
+|---|---|
+| `frontend/src/assets/robot-v1/urdf/v1/soarmoce_urdf.urdf` | `cea16e30b2a698e32ef4a0a968c50004a53497276c5797312b9d732b661c1aa0` |
+| `frontend/src/assets/robot-v1/meshes/v1/base_link.stl` | `26873eb3e28a18b1fd2fdd111475e0a8c3dd843a52b935fba746ae32f3370be4` |
+| `frontend/src/assets/robot-v1/meshes/v1/Link_1.stl` | `1b7dbfd8407bc9eb1f636f955701240b481afb200f02135684a695cd2e7088c0` |
+| `frontend/src/assets/robot-v1/meshes/v1/Link_2.stl` | `7e9a1721ef0248e6ebabd274135491bcef292414fcde52398fe7db7e7b39450e` |
+| `frontend/src/assets/robot-v1/meshes/v1/Link_3.stl` | `1dfa561185bb49d238cf71f53c723e2ae9e226f25247e3c427861528ed7b8a80` |
+| `frontend/src/assets/robot-v1/meshes/v1/Link_4.stl` | `c719094564620b0b3d8c09bb360763209b626bcdde07472fb3581456c5cc2f99` |
+| `frontend/src/assets/robot-v1/meshes/v1/Link_5.stl` | `4a875bf77cc71866d23ad13e24ce5d1865d97cfc951a622f8f6898ae53fcc67b` |
+| `frontend/src/assets/robot-v1/meshes/v1/Link_6.stl` | `7c6d45ffafe235ba5b5853e5917fd9e9ca77700fb0092ad12ecb715e64ef8114` |
+
+The source archive and Legacy root contain no separate named license or copyright notice
+for these files. The user's direct ownership and authorization statement above supplies
+the permission relied on by MOMO Studio, so the previous unknown-rights blocker for these
+robot-model assets is removed. Repository-wide licensing, dependency notices, and rights
+for unrelated Legacy material remain separate matters. Model inclusion is not evidence of
+technical accuracy, safety, calibration, collision, reachability, TCP, or real-motion
+validation.
+
+The viewer uses Three.js `0.171.0` under MIT and `urdf-loader` `0.13.1` under
+Apache-2.0 as npm dependencies; no library source from the archive's `vendor/` directory
+was copied. The direct rights-holder authorization above is independent of those library
+licenses.
 
 ### Stage 3 numerical dependency
 
@@ -136,14 +196,14 @@ action-library/recorder/common-alias source text. The independently written impo
 synthetic fixtures copy no tracked sample numeric motion/raw values, Legacy source
 implementation, ignored/local data, Calibration, runtime record, code, or asset.
 
-The audited Legacy root has no `LICENSE` or `COPYING` file. Its own `THIRD_PARTY_NOTICES.md` identifies some third-party material but does not grant a license for the repository as a whole. Therefore no Legacy code or asset may be copied, modified or redistributed until its copyright holder, original source and applicable license are established.
+The audited Legacy root has no `LICENSE` or `COPYING` file. Its own `THIRD_PARTY_NOTICES.md` identifies some third-party material but does not grant a license for the repository as a whole. As recorded above, the V1/V2 viewer assets were copied or explicitly adapted for this implementation, with the user's later direct ownership and authorization statement as the permission basis. The earlier unknown-rights model-asset blocker is removed, but this does not license the Legacy repository as a whole. Any unrelated Legacy code or asset still requires its own provenance and rights review before inclusion.
 
 ## Legacy third-party candidates and characterization status
 
 | Candidate in Legacy commit | Legacy evidence | Inclusion status | Required action |
 |---|---|---|---|
 | SOARM MOCE-derived hardware conventions and compatibility facts, including joint naming, servo-ID/multi-turn conventions, selected scales and calibration-field concepts | Legacy `THIRD_PARTY_NOTICES.md:5-15` identifies these as third-party-related material. | Not copied; facts were used only to identify items requiring verification. | Trace each fact to an original source and determine whether it is an uncopyrightable fact, licensed documentation, or implementation detail. Record author, URL/version and license before reuse. Independently verify safety-critical values against the actual hardware. |
-| V1/V2 `soarmoce_urdf.urdf` files and versioned STL meshes | Legacy `THIRD_PARTY_NOTICES.md:11-15` and `URDF运动学仿真/README_URDF运动学仿真.md:14-41` state that the URDF/STL files are third-party and their license/attribution/redistribution terms still require review. | No URDF, STL, mesh, controller code, or binary asset is included. Stage 3 independently transcribed numerical joint-axis and origin-transform facts into provisional mesh-free models for Dry Run characterization. | Identify the original model release, copyright holder and exact license; determine the provenance and distribution obligations of the transcribed numerical facts; preserve required attribution. Independently verify model geometry, axes, limits and TCP. V1 is additionally blocked because the Legacy V1 URDF contains a rail contrary to the product contract. |
+| V1/V2 `soarmoce_urdf.urdf` files and versioned STL meshes | Legacy notices characterized the files as third-party and did not state terms; the user's later direct statement identifies the user as creator/rightsholder and authorizes their use in MOMO Studio. | Stage 3 independently transcribed numerical facts into provisional mesh-free models. The frontend now contains both model variants as itemized above. V2 remains byte-identical; V1 meshes remain byte-identical and its URDF is explicitly adapted to fix the obsolete J10 base edge. The model-asset rights blocker is removed by the recorded authorization. | Retain commit/archive/file hashes and the user authorization record. Independently verify geometry, axes, limits, frames and TCP. The Legacy V1 rail mismatch remains a technical fact addressed only for visualization by the documented fixed-joint derivative. |
 | `face_detection_yunet_2023mar.onnx` | Legacy vision code calls it an OpenCV YuNet model (`视觉识别与跟随/vision/人脸检测_face_detector.py:1,20-22`), but the Legacy notice contains no source or license entry. | Not included. | Identify the exact upstream model/version, model-card or repository, training/data/license terms, checksum and attribution requirements before adding any weight. |
 | `gesture_recognizer.task` | Legacy code uses it with optional MediaPipe gesture recognition (`视觉识别与跟随/vision/手势识别_gesture_detector.py:20-23,76-100`), but the Legacy notice contains no source or license entry. | Not included; gesture recognition is retired from the first MOMO Studio product version. | Do not migrate. If scope changes in a later approved product decision, restart provenance/license/model-data review from the original upstream source. |
 
@@ -172,4 +232,4 @@ For every future third-party code or asset addition, update this ledger in the s
 6. whether the artifact is modified and how;
 7. a safety/technical verification record for hardware, robot-model or ML assets.
 
-Unverified provenance is a release blocker, not permission to label an asset as MOMO Studio-original.
+For an asset without an applicable upstream license or an explicit rights-holder authorization such as the one recorded above, unverified provenance remains a release blocker and is not permission to label the asset as MOMO Studio-original.

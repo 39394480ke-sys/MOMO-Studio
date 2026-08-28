@@ -11,17 +11,21 @@ import {
 } from 'lucide-react';
 
 import type {
+  DomainUnit,
   MotionEntity,
   MotionDraftValidation,
   MotionKeyframe,
   MotionCommandStatus,
   PlaybackStatus,
+  ProfileJointDefinition,
   RobotStatus,
+  RobotVariant,
   TcpPose,
   TrajectoryPreflightReport,
   TrajectoryPreview as TrajectoryPreviewData,
 } from '../../api/types';
 import { TrajectoryPreview } from '../library/TrajectoryPreview';
+import { Robot3DViewer } from '../robot-viewer';
 import { zhStatus } from '../../i18n/zh';
 
 interface StudioViewerProps {
@@ -45,6 +49,11 @@ interface StudioViewerProps {
   selectedFrame: MotionKeyframe | null;
   studioCommand: MotionCommandStatus | null;
   validateDisabledReason: string | null;
+  viewerEnabledJointIds: readonly string[];
+  viewerJointDefinitions: readonly ProfileJointDefinition[];
+  viewerJointPositions: Readonly<Record<string, number>>;
+  viewerJointUnits: Readonly<Record<string, DomainUnit | undefined>>;
+  viewerVariant: RobotVariant;
   onAddPose: () => void;
   onCapture: () => void;
   onCompile: () => void;
@@ -82,6 +91,11 @@ export function StudioViewer({
   selectedFrame,
   studioCommand,
   validateDisabledReason,
+  viewerEnabledJointIds,
+  viewerJointDefinitions,
+  viewerJointPositions,
+  viewerJointUnits,
+  viewerVariant,
   onAddPose,
   onCapture,
   onCompile,
@@ -142,6 +156,16 @@ export function StudioViewer({
           </button>
         </div>
       </header>
+
+      <Robot3DViewer
+        ariaLabel={`${viewerVariant} 编排预览三维视图`}
+        className="studio-robot-viewer"
+        enabledJointIds={viewerEnabledJointIds}
+        jointDefinitions={viewerJointDefinitions}
+        jointPositions={viewerJointPositions}
+        jointUnits={viewerJointUnits}
+        variant={viewerVariant}
+      />
 
       <div className="studio-viewer__overview">
         <section aria-label={`当前${runtimeMode === 'REAL' ? '真机' : '仿真'}机械臂`} className="studio-viewer-card">

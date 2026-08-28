@@ -402,6 +402,9 @@ function mockLibraryBackend(options: BackendOptions = {}) {
       }
       return jsonResponse({ ...startPose, id: '77777777-7777-4777-8777-777777777777', name: 'Ready copy' }, 201);
     }
+    if (path === `/poses/${START_ID}` && method === 'PATCH') {
+      return jsonResponse({ ...startPose, name: (body as { name: string }).name, revision: 2 });
+    }
     if (path === `/poses/${START_ID}/goto` && method === 'POST') {
       return jsonResponse({
         command_id: '88888888-8888-4888-8888-888888888888',
@@ -422,6 +425,9 @@ function mockLibraryBackend(options: BackendOptions = {}) {
     }
     if (path === `/motions/${MOTION_ID}/duplicate` && method === 'POST') {
       return jsonResponse({ ...fullMotion, id: '99999999-9999-4999-8999-999999999999', name: 'Pick and place copy' }, 201);
+    }
+    if (path === `/motions/${MOTION_ID}` && method === 'PATCH') {
+      return jsonResponse({ ...fullMotion, name: (body as { name: string }).name, revision: 5 });
     }
     if (path === `/motions/${MOTION_ID}` && method === 'DELETE') {
       return { ok: true, status: 204, json: vi.fn() } as unknown as Response;
@@ -457,6 +463,24 @@ function renderLibrary(
   );
 }
 
+type TestUser = ReturnType<typeof userEvent.setup>;
+
+async function openPoseDetail(user: TestUser, name = 'Ready') {
+  await user.click(await screen.findByRole('button', { name: `打开机位详情 · ${name}` }));
+  return within(await screen.findByRole('dialog', { name }));
+}
+
+async function openMotionDetail(user: TestUser) {
+  await user.click(await screen.findByRole('button', { name: '打开动作详情 · Pick and place' }));
+  return within(await screen.findByRole('dialog', { name: 'Pick and place' }));
+}
+
+async function openSafetyPlayback(user: TestUser) {
+  const detail = await openMotionDetail(user);
+  await user.click(detail.getByText('安全执行（需预检与授权）'));
+  return detail;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -486,14 +510,13 @@ describe('Stage 5 Library', () => {
       }),
     );
 
-    expect((await screen.findAllByText(/只读调试模式仅允许诊断和标定/)).length)
-      .toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: '前往' })[0]).toBeDisabled();
+    const poseDetail = await openPoseDetail(user);
+    expect(poseDetail.getByRole('button', { name: '定位到该姿态' })).toBeDisabled();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    const play = await screen.findByRole('button', { name: '播放' });
-    expect(play).toBeDisabled();
-    expect(screen.getAllByText(/只读调试模式不允许播放/).length)
-      .toBeGreaterThan(0);
+    const controls = await openSafetyPlayback(user);
+    expect(controls.getByRole('button', { name: '仿真播放' })).toBeEnabled();
+    expect(controls.getByRole('button', { name: '运行预检' })).toBeDisabled();
+    expect(controls.getByText(/只读调试模式不允许播放/)).toBeVisible();
     expect(backend.requestsMatching('/goto').filter((request) => request.method === 'POST')).toHaveLength(0);
     expect(
       backend.requestsMatching('/play').filter(
@@ -529,11 +552,12 @@ describe('Stage 5 Library', () => {
       }),
     );
 
-    const goto = (await screen.findAllByRole('button', { name: '前往' }))[0];
+    const detail = await openPoseDetail(user);
+    const goto = detail.getByRole('button', { name: '定位到该姿态' });
     expect(goto).toBeEnabled();
     await user.click(goto!);
-    expect(screen.getByText(/后端授权的真机关节运动入口/)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '确认真机前往' }));
+    expect(detail.getByText(/真机授权与安全网关/)).toBeVisible();
+    await user.click(detail.getByRole('button', { name: '确认真机定位' }));
     await waitFor(() => expect(
       backend.requestsMatching('/goto').filter((request) => request.method === 'POST'),
     ).toHaveLength(1));
@@ -547,18 +571,15 @@ describe('Stage 5 Library', () => {
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
     expect(screen.getAllByText('机位 · V2')[0]).toBeVisible();
     expect(screen.getByText(/X 101.0 · Y 202.0 · Z 303.0 mm/)).toBeVisible();
-    expect(screen.getByText(/J10 101.0 mm/)).toBeVisible();
-    expect(screen.getAllByText(`ID ${START_ID}`)[0]).toBeVisible();
-    expect(screen.getAllByRole('link', { name: '添加到编排' })[0]).toHaveAttribute(
-      'href',
-      `/studio?pose=${START_ID}`,
-    );
+    expect(screen.queryByText(stage3Ids.profileFingerprint)).not.toBeInTheDocument();
 
-    await user.click(screen.getAllByRole('button', { name: '查看详情' })[0]);
-    expect(await screen.findByRole('dialog', { name: 'Ready' })).toBeVisible();
-    expect(screen.getByText(stage3Ids.profileFingerprint)).toBeVisible();
+    const detail = await openPoseDetail(user);
+    expect(detail.getByRole('link', { name: '添加到 Studio' })).toHaveAttribute(
+      'href', `/studio?pose=${START_ID}`,
+    );
+    expect(detail.getByText(/6 个启用关节/)).toBeVisible();
     expect(backend.requestsMatching(`/poses/${START_ID}`)).toHaveLength(1);
-    await user.click(screen.getByRole('button', { name: '关闭详情' }));
+    await user.click(detail.getByRole('button', { name: '关闭资源详情' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -590,7 +611,7 @@ describe('Stage 5 Library', () => {
     renderLibrary();
 
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
-    await user.click(screen.getAllByRole('button', { name: '查看详情' })[0]);
+    await user.click(screen.getByRole('button', { name: '打开机位详情 · Ready' }));
     expect(screen.getByRole('dialog', { name: '机位详情' })).toBeVisible();
 
     await user.click(screen.getByRole('tab', { name: '运动' }));
@@ -684,10 +705,11 @@ describe('Stage 5 Library', () => {
     renderLibrary();
     await screen.findByRole('heading', { name: 'Ready' });
 
-    await user.click(screen.getAllByRole('button', { name: '前往' })[0]);
-    expect(screen.getByRole('alertdialog', { name: '前往“Ready”？' })).toBeVisible();
+    const detail = await openPoseDetail(user);
+    await user.click(detail.getByRole('button', { name: '定位到该姿态' }));
+    expect(detail.getByRole('alertdialog', { name: '定位到“Ready”？' })).toBeVisible();
     expect(backend.requestsMatching('/goto')).toHaveLength(0);
-    await user.click(screen.getByRole('button', { name: '确认仿真前往' }));
+    await user.click(detail.getByRole('button', { name: '确认仿真定位' }));
 
     expect(await screen.findByText(/已提交前往“Ready”；命令状态为 ACCEPTED/)).toBeVisible();
     expect(screen.getByText('预检已接受')).toBeVisible();
@@ -703,11 +725,12 @@ describe('Stage 5 Library', () => {
     renderLibrary();
     await screen.findByRole('heading', { name: 'Ready' });
 
-    await user.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    await user.click(screen.getByRole('button', { name: '更多操作 · Ready' }));
+    await user.click(screen.getByRole('menuitem', { name: '删除' }));
     expect(screen.getByRole('alertdialog', { name: '删除“Ready”？' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: '取消' }));
     expect(backend.requestsMatching(`poses/${START_ID}?expected_revision`)).toHaveLength(0);
-    await user.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    await user.click(screen.getByRole('menuitem', { name: '删除' }));
     await user.click(screen.getByRole('button', { name: '确认删除' }));
 
     expect(await screen.findByText(/已删除机位“Ready”/)).toBeVisible();
@@ -751,7 +774,8 @@ describe('Stage 5 Library', () => {
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'First page Pose 1' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '删除' }));
+    await user.click(screen.getByRole('button', { name: '更多操作 · Ready' }));
+    await user.click(screen.getByRole('menuitem', { name: '删除' }));
     await user.click(screen.getByRole('button', { name: '确认删除' }));
 
     expect(await screen.findByRole('heading', { name: 'First page Pose 1' })).toBeVisible();
@@ -804,22 +828,90 @@ describe('Stage 5 Library', () => {
     const backend = mockLibraryBackend();
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    expect(await screen.findByText('2.25 秒')).toBeVisible();
+    expect(await screen.findByText('2 帧 · 2.3 s')).toBeVisible();
     expect(screen.getByText('JOINT')).toBeVisible();
-    expect(screen.getByRole('button', { name: '播放' })).toBeEnabled();
-    expect(screen.getByRole('link', { name: '在编排中打开' })).toHaveAttribute(
-      'href',
-      `/studio?motion=${MOTION_ID}`,
-    );
+    expect(screen.queryByRole('button', { name: '运行预检' })).not.toBeInTheDocument();
 
     expect(backend.requestsMatching(`/motions/${MOTION_ID}`)).toHaveLength(0);
-    await user.click(screen.getByRole('button', { name: '播放' }));
-    expect(await screen.findByRole('dialog', { name: 'Pick and place' })).toBeVisible();
-    expect(screen.getByText(/起始关键帧 · 无进入过渡/)).toBeVisible();
-    expect(screen.getByText(/JOINT · 2.00 s · SMOOTHSTEP/)).toBeVisible();
-    expect(screen.getByRole('heading', { name: '预检与播放' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '运行预检' })).toBeEnabled();
+    const detail = await openSafetyPlayback(user);
+    expect(detail.getByRole('link', { name: '在 Studio 中编辑' })).toHaveAttribute(
+      'href', `/studio?motion=${MOTION_ID}`,
+    );
+    expect(detail.getByRole('button', { name: '仿真播放' })).toBeEnabled();
+    expect(detail.getByRole('heading', { name: '预检与播放' })).toBeVisible();
+    expect(detail.getByRole('button', { name: '运行预检' })).toBeEnabled();
     expect(backend.requestsMatching(`/motions/${MOTION_ID}`)).toHaveLength(1);
+  });
+
+  it('selects and switches resources, exposes management through More, and closes detail with Escape', async () => {
+    const user = userEvent.setup();
+    mockLibraryBackend();
+    renderLibrary();
+    const ready = await screen.findByRole('button', { name: '打开机位详情 · Ready' });
+    const drop = screen.getByRole('button', { name: '打开机位详情 · Drop' });
+    expect(ready).toHaveAttribute('aria-pressed', 'false');
+    await user.click(ready);
+    expect(ready).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('dialog', { name: 'Ready' })).toBeVisible();
+    await user.click(drop);
+    expect(drop).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('dialog', { name: 'Drop' })).toBeVisible();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '更多操作 · Ready' }));
+    const menu = screen.getByRole('menu', { name: 'Ready 管理操作' });
+    expect(within(menu).getByRole('menuitem', { name: '重命名' })).toBeVisible();
+    expect(within(menu).getByRole('menuitem', { name: '复制' })).toBeVisible();
+    expect(within(menu).getByRole('menuitem', { name: '删除' })).toBeVisible();
+  });
+
+  it('renames a resource from More with revision intent and keeps the detail context', async () => {
+    const user = userEvent.setup();
+    const backend = mockLibraryBackend();
+    renderLibrary();
+    await screen.findByRole('button', { name: '打开机位详情 · Ready' });
+    await user.click(screen.getByRole('button', { name: '更多操作 · Ready' }));
+    await user.click(screen.getByRole('menuitem', { name: '重命名' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Ready' });
+    const name = within(dialog).getByLabelText('资源名称');
+    await user.clear(name);
+    await user.type(name, 'Hero angle');
+    await user.click(within(dialog).getByRole('button', { name: '保存名称' }));
+    expect(await screen.findByText('已重命名为“Hero angle”。')).toBeVisible();
+    expect(backend.requests.find(
+      (request) => request.path === `/poses/${START_ID}` && request.method === 'PATCH',
+    )?.body).toEqual({ expected_revision: 1, name: 'Hero angle' });
+  });
+
+  it('plays and scrubs the Motion simulation without calling a robot playback endpoint', async () => {
+    const user = userEvent.setup();
+    const backend = mockLibraryBackend();
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    const detail = await openMotionDetail(user);
+    fireEvent.change(detail.getByRole('slider', { name: '仿真进度' }), {
+      target: { value: '1' },
+    });
+    expect(detail.getByText('00:01.0 / 00:02.3')).toBeVisible();
+    await user.click(detail.getByRole('button', { name: '仿真播放' }));
+    expect(detail.getByRole('button', { name: '暂停仿真' })).toBeEnabled();
+    await user.click(detail.getByRole('button', { name: '暂停仿真' }));
+    expect(detail.getByRole('button', { name: '仿真播放' })).toBeEnabled();
+    expect(
+      backend.requestsMatching('/play').filter(
+        (request) => request.path.endsWith('/play') && request.method === 'POST',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('uses an honest graceful fallback when a card preview renderer is unavailable', async () => {
+    const user = userEvent.setup();
+    mockLibraryBackend();
+    renderLibrary();
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    expect(await screen.findByText('仿真预览暂不可用')).toBeVisible();
+    expect(screen.getByRole('button', { name: '打开动作详情 · Pick and place' })).toBeEnabled();
   });
 
   it('preflights, renders the responsive trajectory, and drives every playback transition', async () => {
@@ -827,9 +919,7 @@ describe('Stage 5 Library', () => {
     const backend = mockLibraryBackend();
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    await user.click(await screen.findByRole('button', { name: '播放' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    const controls = within(dialog);
+    const controls = await openSafetyPlayback(user);
 
     await user.click(controls.getByRole('button', { name: '运行预检' }));
     expect(await controls.findByText('预检通过')).toBeVisible();
@@ -863,7 +953,9 @@ describe('Stage 5 Library', () => {
       rate: 1.5,
     });
     expect(screen.getByLabelText('名称')).toBeDisabled();
-    expect(screen.getByRole('link', { name: '在编排中打开' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('link', { name: '在 Studio 中编辑' })).toHaveAttribute(
+      'href', `/studio?motion=${MOTION_ID}`,
+    );
     expect(screen.getByRole('button', { name: '复制' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '删除' })).toBeDisabled();
 
@@ -898,9 +990,7 @@ describe('Stage 5 Library', () => {
     mockLibraryBackend({ preflightPassed: false });
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    await user.click(await screen.findByRole('button', { name: '播放' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    const controls = within(dialog);
+    const controls = await openSafetyPlayback(user);
 
     await user.click(controls.getByRole('button', { name: '运行预检' }));
     expect(await controls.findByText('预检未通过')).toBeVisible();
@@ -936,12 +1026,9 @@ describe('Stage 5 Library', () => {
     });
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    const cardPlay = await screen.findByRole('button', { name: '播放' });
-    await waitFor(() => expect(screen.getByRole('button', { name: '复制' })).toBeDisabled());
-    expect(cardPlay).toBeEnabled();
-    await user.click(cardPlay);
-    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    const controls = within(dialog);
+    const controls = await openSafetyPlayback(user);
+    await waitFor(() => expect(controls.getByRole('button', { name: '复制' })).toBeDisabled());
+    expect(controls.getByRole('button', { name: '仿真播放' })).toBeEnabled();
 
     expect(controls.getByText('42%')).toBeVisible();
     expect(controls.getByText('0.95 秒 / 2.25 秒')).toBeVisible();
@@ -1002,8 +1089,7 @@ describe('Stage 5 Library', () => {
     });
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    await user.click(await screen.findByRole('button', { name: '播放' }));
-    const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
+    const controls = await openSafetyPlayback(user);
     await waitFor(() => expect(controls.getByRole('button', { name: '暂停' })).toBeEnabled());
 
     await user.click(controls.getByRole('button', { name: '暂停' }));
@@ -1030,8 +1116,7 @@ describe('Stage 5 Library', () => {
     const backend = mockLibraryBackend({ playbackStatus: preflighting });
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    await user.click(await screen.findByRole('button', { name: '播放' }));
-    const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
+    const controls = await openSafetyPlayback(user);
     await waitFor(() => expect(controls.getAllByText('预检中').length).toBeGreaterThan(0));
 
     expect(controls.getByRole('button', { name: '运行预检' })).toBeDisabled();
@@ -1071,8 +1156,7 @@ describe('Stage 5 Library', () => {
     const backend = mockLibraryBackend({ preflightResponse: pendingPreflight });
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    await user.click(await screen.findByRole('button', { name: '播放' }));
-    const controls = within(await screen.findByRole('dialog', { name: 'Pick and place' }));
+    const controls = await openSafetyPlayback(user);
 
     await user.click(controls.getByRole('button', { name: '运行预检' }));
     await waitFor(
@@ -1104,9 +1188,7 @@ describe('Stage 5 Library', () => {
     const backend = mockLibraryBackend();
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    await user.click(await screen.findByRole('button', { name: '播放' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    const controls = within(dialog);
+    const controls = await openSafetyPlayback(user);
     await user.click(controls.getByRole('button', { name: '运行预检' }));
     await controls.findByText('预检通过');
     await waitFor(() => expect(controls.getByRole('button', { name: '播放' })).toBeEnabled());
@@ -1125,10 +1207,10 @@ describe('Stage 5 Library', () => {
       await oldPoll;
     });
     expect(controls.getAllByText('播放中').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: '复制' })).toBeDisabled();
+    expect(controls.getByRole('button', { name: '复制' })).toBeDisabled();
   });
 
-  it('disables preflight and card playback for offline-quality robot state', async () => {
+  it('keeps simulation available but disables safety execution for offline-quality robot state', async () => {
     const user = userEvent.setup();
     mockLibraryBackend();
     renderLibrary(runtime({
@@ -1136,12 +1218,10 @@ describe('Stage 5 Library', () => {
       robot: { ...robotFor('V2', true), stale: true } as NonNullable<RuntimeStatus['robot']>,
     }));
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    expect(await screen.findByRole('button', { name: '播放' })).toBeDisabled();
-    expect(screen.getByText('暂时无法播放 · 机械臂状态已经过期')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '查看详情' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    expect(within(dialog).getByRole('button', { name: '运行预检' })).toBeDisabled();
-    expect(within(dialog).getByText('暂时无法播放 · 机械臂状态已经过期')).toBeVisible();
+    const detail = await openSafetyPlayback(user);
+    expect(detail.getByRole('button', { name: '仿真播放' })).toBeEnabled();
+    expect(detail.getByRole('button', { name: '运行预检' })).toBeDisabled();
+    expect(detail.getByText('暂时无法播放 · 机械臂状态已经过期')).toBeVisible();
   });
 
   it('ignores a late trajectory preview after Motion details close', async () => {
@@ -1153,11 +1233,10 @@ describe('Stage 5 Library', () => {
     const backend = mockLibraryBackend({ previewResponse: pendingPreview });
     renderLibrary();
     await user.click(screen.getByRole('tab', { name: '运动' }));
-    await user.click(await screen.findByRole('button', { name: '播放' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Pick and place' });
-    await user.click(within(dialog).getByRole('button', { name: '运行预检' }));
-    expect(await within(dialog).findByText('正在加载有边界的轨迹预览…')).toBeVisible();
-    await user.click(within(dialog).getByRole('button', { name: '关闭详情' }));
+    const detail = await openSafetyPlayback(user);
+    await user.click(detail.getByRole('button', { name: '运行预检' }));
+    expect(await detail.findByText('正在加载有边界的轨迹预览…')).toBeVisible();
+    await user.click(detail.getByRole('button', { name: '关闭资源详情' }));
 
     await act(async () => {
       resolvePreview(jsonResponse(trajectoryPreview));
@@ -1165,7 +1244,7 @@ describe('Stage 5 Library', () => {
     });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '轨迹预览' })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: '播放' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: '打开动作详情 · Pick and place' })).toBeEnabled());
     expect(backend.requestsMatching('/trajectory/')).toHaveLength(1);
   });
 
@@ -1238,10 +1317,8 @@ describe('Stage 5 Library', () => {
     );
 
     expect(await screen.findByText('资源库离线')).toBeVisible();
-    expect(screen.getAllByRole('button', { name: '前往' })[0]).toBeDisabled();
-    expect(screen.getAllByText(/暂时无法前往 · 后端离线/)[0]).toBeVisible();
-    expect(screen.getAllByRole('button', { name: '复制' })[0]).toBeDisabled();
-    expect(screen.getAllByRole('button', { name: '删除' })[0]).toBeDisabled();
+    expect(screen.getByRole('button', { name: '更多操作 · Ready' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '更多操作 · Drop' })).toBeDisabled();
   });
 
   it('shows initial loading and ignores a late response from an aborted filter generation', async () => {

@@ -202,15 +202,17 @@ Start with the [documentation index](docs/README.md). Key entry points:
 
 The latest candidate verification passes:
 
-- Backend: 633 tests.
-- Frontend: 231 tests across 19 files.
+- Backend: 670 tests.
+- Frontend: 296 tests across 31 files.
 - Hardware/camera/commissioning isolation: 140 tests.
 - Ruff, Ruff format, strict mypy, ESLint, TypeScript, Vite production build,
   deterministic schemas, lock/dependency checks, secret scan, `pip-audit`, and
   `npm audit`.
 
-The exact final candidate commit and CI runs are recorded in the Draft PR and final
-handoff.
+The historical release-candidate commit and CI runs are recorded in the Draft PR and final
+handoff. The newer local Figma redesign and V1/V2 Viewer verification is recorded in the
+[frontend redesign report](docs/stage-reports/frontend-figma-redesign.md) and remains
+uncommitted.
 
 ## Known limitations
 
@@ -223,8 +225,9 @@ handoff.
 - Read-only live preview is intentionally not object detection, tracking, recording, or
   evidence that Real Vision Follow is ready.
 - Desktop/Tauri packaging is not implemented.
-- The project license decision remains pending, and Legacy asset redistribution rights
-  must not be assumed.
+- The project license decision remains pending. The user's direct ownership and use
+  authorization for the V1/V2 robot models is recorded in `THIRD_PARTY_NOTICES.md`;
+  rights for unrelated Legacy assets must not be assumed.
 
 ## Roadmap
 
@@ -235,6 +238,7 @@ acceptance, Vision tuning, and optional desktop packaging. See the
 
 ## License and third-party notice
 
-No repository license has been selected. Project license decision pending. Do not assume
-redistribution rights for Legacy assets. Dependency and provenance notes are recorded in
+No repository license has been selected. Project license decision pending. The V1/V2
+robot-model permission basis is recorded, but do not assume rights for unrelated Legacy
+assets. Dependency and provenance notes are recorded in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

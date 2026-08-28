@@ -1,4 +1,3 @@
-import { PageIntro } from '../components/PageIntro';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
 import { VisionCanvas } from '../features/vision/VisionCanvas';
 import { VisionControls } from '../features/vision/VisionControls';
@@ -14,18 +13,40 @@ export function VisionPage() {
       : workspace.capabilities
         ? '实时相机'
         : '等待图像源';
+  const sourceOperational = workspace.status?.source_state === 'READY' ||
+    workspace.status?.source_state === 'STREAMING';
+  const sourceHealthy = workspace.online &&
+    workspace.statusReachable &&
+    workspace.capabilities?.source.available === true &&
+    sourceOperational;
+  const sourceId = workspace.capabilities?.source.provider_id ?? '';
 
   return (
     <div className="page vision-page">
-      <PageIntro
-        title="视觉"
-        description={workspace.readOnlyLiveCamera
-          ? '预览明确配置的本地相机；不会录像，也不会驱动机械臂。'
-          : '选择并跟踪目标，通过后端能力门控执行视觉跟随。'}
-        detail={workspace.readOnlyLiveCamera
-          ? '只有你主动操作后才会打开相机；目标选择、检测、跟踪和跟随保持禁用。'
-          : '画面身份、检测器能力、目标新鲜度和运动安全入口会在每一步保持可见。'}
-      />
+      <header className="vision-page-intro">
+        <div>
+          <h1>视觉监控</h1>
+          <p>{workspace.readOnlyLiveCamera
+            ? '预览明确配置的本地相机；不会录像，也不会驱动机械臂。'
+            : '选择目标、检查跟踪状态，并通过安全入口执行视觉跟随。'}</p>
+        </div>
+        <label className={`vision-source-selector${sourceHealthy ? ' vision-source-selector--healthy' : ''}`}>
+          <span className="visually-hidden">图像源</span>
+          <span aria-hidden="true" className="vision-source-selector__dot" />
+          <select
+            aria-label="图像源"
+            disabled
+            title={sourceId ? '后端当前只提供一个已配置图像源' : '正在等待后端图像源'}
+            value={sourceId}
+          >
+            {sourceId ? (
+              <option value={sourceId}>{sourceId}</option>
+            ) : (
+              <option value="">等待图像源</option>
+            )}
+          </select>
+        </label>
+      </header>
       <div className="vision-safety-strip" role="status">
         <span>{sourceMode}</span>
         <span>相机策略：{workspace.capabilities?.camera_access_policy ?? '待加载'}</span>
@@ -35,7 +56,9 @@ export function VisionPage() {
             ? '只读'
             : workspace.runtimeMode}</span>
         <span>{workspace.runtimeMode === 'REAL'
-          ? workspace.realVisionCapability.allowed
+          ? workspace.runtimePolicy === 'READ_ONLY'
+            ? `只读 · 禁止运动 · ${workspace.realVisionCapability.reason}`
+            : workspace.realVisionCapability.allowed
             ? '真机跟随已授权'
             : `真机跟随已阻止 · ${workspace.realVisionCapability.reason}`
           : '真机跟随已阻止'}</span>

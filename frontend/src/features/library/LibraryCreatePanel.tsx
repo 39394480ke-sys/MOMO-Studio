@@ -65,7 +65,7 @@ export function PoseCaptureForm({
   }
 
   return (
-    <section className="library-create-panel" aria-labelledby="capture-pose-heading">
+    <section className="library-create-panel" aria-labelledby="capture-pose-heading" id="capture-pose-panel">
       <header>
         <div>
           <p className="section-kicker">当前状态</p>
@@ -210,7 +210,7 @@ export function MotionCreateForm({
   const unavailable = poses.length < 2;
 
   return (
-    <section className="library-create-panel" aria-labelledby="create-motion-heading">
+    <section className="library-create-panel" aria-labelledby="create-motion-heading" id="create-motion-panel">
       <header>
         <div>
           <p className="section-kicker">内嵌快照</p>

@@ -106,8 +106,8 @@ The complete physical process is the separate
 - The release composition has no physical Kinematics snapshot provider and does not
   promote persisted Kinematics evidence after restart.
 - Tauri/desktop packaging is not implemented.
-- The repository license decision is pending; Legacy redistribution rights are not
-  established.
+- The repository license decision is pending. Later direct user authorization covers the
+  V1/V2 robot-model assets; rights for unrelated Legacy material are not established.
 - `DeviceDiagnosticsService` retains one recorded P3 service-concentration debt; it is
   not a release-candidate safety bypass.
 

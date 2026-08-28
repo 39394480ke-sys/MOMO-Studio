@@ -16,14 +16,14 @@ import {
   type RealCapabilityAvailability,
 } from '../components/realSessionContext';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
-import { CartesianControlPanel } from '../features/control/CartesianControlPanel';
 import { CommandStatusPanel } from '../features/control/CommandStatusPanel';
 import { ControlSafetyBar } from '../features/control/ControlSafetyBar';
 import { DirectJointControlPanel } from '../features/control/DirectJointControlPanel';
-import { JointControlPanel } from '../features/control/JointControlPanel';
 import { MotionParametersPanel } from '../features/control/MotionParametersPanel';
+import { ProductMotionControlPanel } from '../features/control/ProductMotionControlPanel';
 import {
   createIdempotencyKey,
+  quaternionToRpyDegrees,
   rpyDegreesToQuaternion,
 } from '../features/control/controlMath';
 import type { MotionAvailability } from '../features/control/controlTypes';
@@ -33,6 +33,7 @@ import { useForwardKinematics } from '../features/control/useForwardKinematics';
 import { useInverseKinematics } from '../features/control/useInverseKinematics';
 import { useMotionCommands } from '../features/control/useMotionCommands';
 import { useRobotSocket } from '../features/control/useRobotSocket';
+import { Robot3DViewer } from '../features/robot-viewer';
 
 type CartesianKind = 'translation' | 'rotation';
 type Axis = keyof Vector3;
@@ -240,6 +241,11 @@ export function ControlPage() {
     commands.stopUncertain ||
     runtime.pendingAction !== null ||
     (commands.command !== null && !TERMINAL_COMMAND_STATES.has(commands.command.state));
+  const stopAllowed =
+    (dryRunWorkspace || safetyAvailability.allowed || motionLocked) &&
+    backendOnline &&
+    !effectiveStale &&
+    commands.pending !== 'stop';
 
   const requestContext = useCallback(
     (kind: string, requiredAvailability: MotionAvailability): MotionRequestContext | null => {
@@ -418,7 +424,7 @@ export function ControlPage() {
   return (
     <div className="page control-workspace">
       <PageIntro
-        title="控制"
+        title="机器人控制"
         description={directCommissioningControl
           ? '用于现场逐项验收真实机械臂的受限控制工作区。'
           : '用于直接控制机器人运动的安全门控仿真工作区。'}
@@ -453,7 +459,7 @@ export function ControlPage() {
         backendOnline={backendOnline}
         lifecyclePending={runtime.pendingAction}
         lifecycleAllowed={dryRunWorkspace}
-        stopAllowed={dryRunWorkspace || safetyAvailability.allowed || motionLocked}
+        stopAllowed={stopAllowed}
         modeLabel={runtime.hardwareAccessPolicy === 'READ_ONLY'
           ? 'READ ONLY'
           : runtime.controlMode === 'DRY RUN'
@@ -470,87 +476,119 @@ export function ControlPage() {
         stale={effectiveStale}
       /> : null}
 
-      {!directCommissioningControl ? <section className="control-overview" aria-labelledby="active-robot-title">
-        <div className="section-heading section-heading--compact">
-          <div>
-          <p className="section-kicker">活动机器人</p>
-            <h2 id="active-robot-title">{robot ? `${robot.robot_id} · ${robot.variant}` : '等待后端'}</h2>
-          </div>
-          <div className={`connection-state connection-state--${robot?.connection_state.toLowerCase() ?? 'pending'}`}>
-            <span aria-hidden="true" />
-            {robot?.connection_state ?? 'PENDING'}
-          </div>
-        </div>
-        <dl className="runtime-facts">
-          <div><dt>模式</dt><dd>{robot?.control_mode ?? 'DRY_RUN'}</dd></div>
-          <div><dt>配置</dt><dd>{robot?.profile_verification_status ?? '待确认'}</dd></div>
-          <div><dt>校准</dt><dd>{runtime.calibration?.status ?? robot?.calibration_status ?? '待确认'}</dd></div>
-          <div><dt>更新时间</dt><dd>{formatUpdatedAt(robot?.updated_at)}</dd></div>
-        </dl>
-      </section> : null}
-
-      {!directCommissioningControl ? <div className="control-workspace-grid">
-        {robot && definitions.length > 0 ? (
-          <JointControlPanel
-            activeJog={deadman.active}
-            availability={jointAvailability}
-            definitions={definitions}
-            holdHandlers={deadman.handlersFor}
-            onMoveJoints={moveAllJoints}
-            onResetTargets={inputs.resetJointTargets}
-            onStepJog={stepJoint}
-            onTargetChange={inputs.updateJointTarget}
-            parameters={inputs.parameters}
-            pending={commands.pending}
-            motionLocked={motionLocked}
-            robot={robot}
-            startingJog={deadman.starting}
-            targets={inputs.jointTargets}
-          />
-        ) : (
-          <section className="control-panel control-panel--joints">
-            <p className="empty-state">加载匹配的机器人配置后将显示关节控制。</p>
+      {!directCommissioningControl ? (
+        <div className="control-workspace-grid control-product-grid">
+          <section className="robot-preview-panel" aria-labelledby="robot-preview-title">
+            <header className="product-panel-header">
+              <h2 id="robot-preview-title">机械臂预览</h2>
+              <span className="product-status-pill">Base frame</span>
+            </header>
+            {robot && runtime.profile ? (
+              <Robot3DViewer
+                ariaLabel={`${robot.variant} 机械臂实时状态三维视图`}
+                className="control-robot-viewer"
+                enabledJointIds={runtime.profile.profile.enabled_joints}
+                jointDefinitions={definitions}
+                jointPositions={robot.positions}
+                jointUnits={robot.units}
+                variant={robot.variant}
+              />
+            ) : (
+              <div className="robot-viewer-placeholder" role="status">
+                <p>正在等待机器人 Profile 与状态。</p>
+                <small>SIMULATION ONLY · 视图不拥有运动控制权</small>
+              </div>
+            )}
           </section>
-        )}
 
-        <CartesianControlPanel
-          availability={cartesianAvailability}
-          fk={kinematics.fk}
-          fkLoading={kinematics.loading}
-          frame={inputs.frame}
-          ikError={ik.error}
-          ikPending={ik.pending}
-          ikResult={ik.result}
-          onCartesianJog={cartesianJog}
-          onFrameChange={inputs.setFrame}
-          onMovePose={moveToPose}
-          onPositionChange={inputs.updatePosition}
-          onRotationChange={inputs.updateRotation}
-          onSolveIk={solveIk}
-          parameters={inputs.parameters}
-          pending={commands.pending}
-          motionLocked={motionLocked}
-          target={inputs.poseTarget}
-        />
+          {robot && definitions.length > 0 ? (
+            <ProductMotionControlPanel
+              activeJog={deadman.active}
+              cartesianAvailability={cartesianAvailability}
+              definitions={definitions}
+              fk={kinematics.fk}
+              frame={inputs.frame}
+              holdHandlers={deadman.handlersFor}
+              ikError={ik.error}
+              ikPending={ik.pending}
+              ikResult={ik.result}
+              jointAvailability={jointAvailability}
+              jointTargets={inputs.jointTargets}
+              motionLocked={motionLocked}
+              onCartesianJog={cartesianJog}
+              onFrameChange={inputs.setFrame}
+              onHome={home}
+              onJointTargetChange={inputs.updateJointTarget}
+              onMoveJoints={moveAllJoints}
+              onMovePose={moveToPose}
+              onParameterChange={inputs.updateParameter}
+              onPositionChange={inputs.updatePosition}
+              onRotationChange={inputs.updateRotation}
+              onSolveIk={solveIk}
+              onStepJog={stepJoint}
+              onStop={stop}
+              parameters={inputs.parameters}
+              pending={commands.pending}
+              poseTarget={inputs.poseTarget}
+              robot={robot}
+              startingJog={deadman.starting}
+              stopAllowed={stopAllowed}
+            />
+          ) : (
+            <section className="product-motion-panel">
+              <p className="empty-state">加载匹配的机器人配置后将显示关节控制。</p>
+            </section>
+          )}
 
-        <div className="control-workspace-sidebar">
-          <MotionParametersPanel
-            availability={jointAvailability}
-            onChange={inputs.updateParameter}
-            onHome={home}
-            parameters={inputs.parameters}
-            pending={commands.pending}
-            motionLocked={motionLocked}
-          />
-          <CommandStatusPanel
-            command={commands.command}
-            commandError={commands.error}
-            fkError={kinematics.error}
-            rejectedPreflight={commands.rejectedPreflight}
-            robotError={null}
-          />
+          <section className="control-summary-panel control-end-effector" aria-labelledby="end-effector-title">
+            <header className="product-panel-header"><h2 id="end-effector-title">末端执行器</h2></header>
+            {kinematics.fk ? (() => {
+              const tcp = kinematics.fk.tcp_pose;
+              const rotation = quaternionToRpyDegrees(tcp.orientation_quaternion_xyzw);
+              return (
+                <dl className="end-effector-metrics">
+                  <div><dt>X</dt><dd>{tcp.position_mm.x.toFixed(1)} mm</dd></div>
+                  <div><dt>Roll</dt><dd>{rotation.x.toFixed(1)}°</dd></div>
+                  <div><dt>Y</dt><dd>{tcp.position_mm.y.toFixed(1)} mm</dd></div>
+                  <div><dt>Pitch</dt><dd>{rotation.y.toFixed(1)}°</dd></div>
+                  <div><dt>Z</dt><dd>{tcp.position_mm.z.toFixed(1)} mm</dd></div>
+                  <div><dt>Yaw</dt><dd>{rotation.z.toFixed(1)}°</dd></div>
+                </dl>
+              );
+            })() : <p className="empty-state">正在等待 FK 状态。</p>}
+          </section>
+
+          <section className="control-summary-panel control-runtime-summary" aria-labelledby="runtime-summary-title">
+            <header className="product-panel-header"><h2 id="runtime-summary-title">状态</h2></header>
+            <dl className="runtime-summary-list">
+              <div><dt>运行状态</dt><dd><span className="product-status-pill">{robot?.connected ? '待机' : '未连接'}</span></dd></div>
+              <div><dt>力矩</dt><dd>不可用</dd></div>
+              <div><dt>位置回读</dt><dd><span className={socket.connectionState === 'open' ? 'product-status-pill product-status-pill--success' : 'product-status-pill'}>{socket.connectionState === 'open' ? 'WebSocket 正常' : 'REST 同步'}</span></dd></div>
+              <div><dt>状态序列</dt><dd>{stateSequence ?? '—'}</dd></div>
+              <div><dt>更新时间</dt><dd>{formatUpdatedAt(robot?.updated_at)}</dd></div>
+            </dl>
+          </section>
+
+          <div className="control-product-advanced control-workspace-sidebar">
+            <MotionParametersPanel
+              availability={jointAvailability}
+              motionLocked={motionLocked}
+              onChange={inputs.updateParameter}
+              onHome={home}
+              parameters={inputs.parameters}
+              pending={commands.pending}
+              showHome={false}
+            />
+            <CommandStatusPanel
+              command={commands.command}
+              commandError={commands.error}
+              fkError={kinematics.error}
+              rejectedPreflight={commands.rejectedPreflight}
+              robotError={null}
+            />
+          </div>
         </div>
-      </div> : null}
+      ) : null}
     </div>
   );
 }

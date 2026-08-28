@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -10,20 +18,11 @@ import {
 } from 'lucide-react';
 
 import type { MotionKeyframe } from '../../api/types';
-
-interface TimelineMarker {
-  frame: MotionKeyframe;
-  index: number;
-  time: number;
-}
-
-interface TimelineSegment {
-  duration: number;
-  from: MotionKeyframe;
-  to: MotionKeyframe;
-  isDefault: boolean;
-  mode: string;
-}
+import {
+  clampTransitionDuration,
+  timelineData,
+  timeFromTrackPointer,
+} from './studioTimelineMath';
 
 interface StudioTimelineProps {
   disabled: boolean;
@@ -44,40 +43,12 @@ interface StudioTimelineProps {
   onReorder: (frameId: string, targetIndex: number) => void;
   onScrollChange: (scrollS: number) => void;
   onSelect: (frameId: string) => void;
+  onTransitionDurationChange: (frameId: string, durationS: number) => void;
   onZoomChange: (zoom: number) => void;
 }
 
 function edgeId(from: string, to: string): string {
   return `${from}->${to}`;
-}
-
-function timelineData(frames: MotionKeyframe[]): {
-  duration: number;
-  markers: TimelineMarker[];
-  segments: TimelineSegment[];
-} {
-  let cursor = 0;
-  const markers: TimelineMarker[] = [];
-  const segments: TimelineSegment[] = [];
-  frames.forEach((frame, index) => {
-    if (index > 0) {
-      const previous = frames[index - 1];
-      const transition = frame.incoming_transition;
-      if (previous && transition) {
-        segments.push({
-          duration: transition.duration_s,
-          from: previous,
-          to: frame,
-          isDefault: false,
-          mode: transition.motion_mode,
-        });
-        cursor += transition.duration_s;
-      }
-    }
-    markers.push({ frame, index, time: cursor });
-    cursor += frame.hold_s;
-  });
-  return { duration: cursor, markers, segments };
 }
 
 function markerLeft(time: number, duration: number): string {
@@ -105,9 +76,19 @@ export function StudioTimeline({
   onReorder,
   onScrollChange,
   onSelect,
+  onTransitionDurationChange,
   onZoomChange,
 }: StudioTimelineProps) {
   const [draggedFrameId, setDraggedFrameId] = useState<string | null>(null);
+  const [durationDraft, setDurationDraft] = useState<{ frameId: string; value: number } | null>(null);
+  const durationDragRef = useRef<{
+    frameId: string;
+    pointerId: number;
+    startDuration: number;
+    startX: number;
+    value: number;
+  } | null>(null);
+  const playheadPointerRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const data = useMemo(() => timelineData(frames), [frames]);
   const totalDuration = Math.max(data.duration, 0.01);
@@ -139,6 +120,79 @@ export function StudioTimeline({
       event.preventDefault();
       onMove(frameId, 1);
     }
+  };
+
+  const durationFor = (frameId: string, persisted: number) =>
+    durationDraft?.frameId === frameId ? durationDraft.value : persisted;
+
+  const beginDurationDrag = (
+    event: PointerEvent<HTMLButtonElement>,
+    frameId: string,
+    durationS: number,
+  ) => {
+    if (disabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.currentTarget.setPointerCapture === 'function') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    const drag = {
+      frameId,
+      pointerId: event.pointerId,
+      startDuration: durationS,
+      startX: event.clientX,
+      value: durationS,
+    };
+    durationDragRef.current = drag;
+    setDurationDraft({ frameId, value: durationS });
+  };
+
+  const updateDurationDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = durationDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const pixelsPerSecond = Math.max(24, (trackWidth - 168) / totalDuration);
+    const value = clampTransitionDuration(
+      drag.startDuration + (event.clientX - drag.startX) / pixelsPerSecond,
+    );
+    durationDragRef.current = { ...drag, value };
+    setDurationDraft({ frameId: drag.frameId, value });
+  };
+
+  const finishDurationDrag = (event: PointerEvent<HTMLButtonElement>, commit: boolean) => {
+    const drag = durationDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (
+      typeof event.currentTarget.hasPointerCapture === 'function' &&
+      event.currentTarget.hasPointerCapture(event.pointerId) &&
+      typeof event.currentTarget.releasePointerCapture === 'function'
+    ) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    durationDragRef.current = null;
+    setDurationDraft(null);
+    if (commit && drag.value !== drag.startDuration) {
+      onTransitionDurationChange(drag.frameId, drag.value);
+    }
+  };
+
+  const setPlayheadFromPointer = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    onPlayheadChange(timeFromTrackPointer(event.clientX, rect.left, rect.width, totalDuration));
+  };
+
+  const beginPlayheadDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (disabled || event.button !== 0) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.studio-keyframe, .studio-transition-resize')) return;
+    event.preventDefault();
+    if (typeof event.currentTarget.setPointerCapture === 'function') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    playheadPointerRef.current = event.pointerId;
+    setPlayheadFromPointer(event);
   };
 
   return (
@@ -237,7 +291,29 @@ export function StudioTimeline({
           ref={scrollRef}
           tabIndex={0}
         >
-          <div className="studio-timeline-track" style={{ width: `${trackWidth}px` }}>
+          <div
+            className="studio-timeline-track"
+            onPointerCancel={(event) => {
+              if (playheadPointerRef.current === event.pointerId) playheadPointerRef.current = null;
+            }}
+            onPointerDown={beginPlayheadDrag}
+            onPointerMove={(event) => {
+              if (playheadPointerRef.current === event.pointerId) setPlayheadFromPointer(event);
+            }}
+            onPointerUp={(event) => {
+              if (playheadPointerRef.current !== event.pointerId) return;
+              setPlayheadFromPointer(event);
+              playheadPointerRef.current = null;
+              if (
+                typeof event.currentTarget.hasPointerCapture === 'function' &&
+                event.currentTarget.hasPointerCapture(event.pointerId) &&
+                typeof event.currentTarget.releasePointerCapture === 'function'
+              ) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            style={{ width: `${trackWidth}px` }}
+          >
             <div className="studio-time-ruler" aria-hidden="true">
               {Array.from({ length: 9 }, (_, index) => (
                 <span key={index} style={{ left: `${4 + index * 11.5}%` }}>
@@ -246,10 +322,13 @@ export function StudioTimeline({
               ))}
             </div>
 
-            <div
-              aria-hidden="true"
+            <button
+              aria-label="拖动时间轴播放头"
               className="studio-playhead"
+              disabled={disabled}
               style={{ left: markerLeft(Math.min(playheadS, totalDuration), totalDuration) }}
+              title={`${Math.min(playheadS, totalDuration).toFixed(2)} 秒`}
+              type="button"
             />
 
             <ol className="studio-keyframe-track">
@@ -272,8 +351,35 @@ export function StudioTimeline({
                         className={`studio-segment-chip${isDefault ? ' studio-segment-chip--default' : ''}`}
                         title={isDefault ? '新相邻帧使用编辑器默认过渡' : '保留原有相邻帧过渡'}
                       >
-                        {incoming.motion_mode === 'CARTESIAN_LINEAR' ? 'TCP 直线' : '关节'} · {incoming.duration_s.toFixed(2)} 秒
-                        {isDefault ? ' · 默认' : ''}
+                        <span>
+                          {incoming.motion_mode === 'CARTESIAN_LINEAR' ? 'TCP 直线' : '关节'} · {durationFor(frame.id, incoming.duration_s).toFixed(2)} 秒
+                          {isDefault ? ' · 默认' : ''}
+                        </span>
+                        <button
+                          aria-label={`调整第 ${index} 段过渡时长`}
+                          aria-valuemax={600}
+                          aria-valuemin={0.05}
+                          aria-valuenow={durationFor(frame.id, incoming.duration_s)}
+                          className="studio-transition-resize"
+                          disabled={disabled}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                            event.preventDefault();
+                            const delta = (event.shiftKey ? 0.5 : 0.05) * (event.key === 'ArrowLeft' ? -1 : 1);
+                            onTransitionDurationChange(
+                              frame.id,
+                              clampTransitionDuration(incoming.duration_s + delta),
+                            );
+                          }}
+                          onPointerCancel={(event) => finishDurationDrag(event, false)}
+                          onPointerDown={(event) => beginDurationDrag(event, frame.id, incoming.duration_s)}
+                          onPointerMove={updateDurationDrag}
+                          onPointerUp={(event) => finishDurationDrag(event, true)}
+                          title="左右拖动调整时长；方向键微调，Shift + 方向键大步调整"
+                          type="button"
+                        >
+                          <span aria-hidden="true" />
+                        </button>
                       </span>
                     ) : null}
                     <button

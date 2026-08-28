@@ -35,7 +35,7 @@ export function ControlSafetyBar({
   onStop,
 }: ControlSafetyBarProps) {
   const lifecycleBusy = lifecyclePending !== null;
-  const stopDisabled = !stopAllowed || !backendOnline || stale || motionPending === 'stop';
+  const stopDisabled = !stopAllowed;
   return (
     <section className="control-safety-bar" aria-label="运行安全控制">
       <div className="control-safety-bar__status">

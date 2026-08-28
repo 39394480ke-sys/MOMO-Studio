@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,20 +19,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('MOMO Studio Stage 8 release-candidate shell', () => {
+describe('MOMO Studio product shell', () => {
   it.each([
-    ['/control', '控制'],
-    ['/studio', '编排'],
-    ['/library', '资源库'],
-    ['/vision', '视觉'],
-    ['/settings', '设置'],
-  ])('provides the %s route', async (path, heading) => {
+    ['/control', '机器人控制', '机器人工作区'],
+    ['/studio', '编排', '运动工作区'],
+    ['/library', '资源库', '位姿与运动'],
+    ['/vision', '视觉监控', '监看与跟随'],
+    ['/settings', '设置', '系统与安全'],
+  ])('provides the %s route', async (path, heading, workspace) => {
     mockStage3Backend();
     renderRoute(path);
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeVisible();
-    expect(screen.getByText('MOMO Studio 0.1.0-rc1')).toBeVisible();
-    expect(screen.getByText('仿真运行已验证')).toBeVisible();
-    expect(screen.getByText('真实硬件现场验收待完成')).toBeVisible();
+    const header = screen.getByLabelText('系统状态');
+    expect(within(header).getByText(workspace)).toBeVisible();
+    expect(within(header).getByText('V2')).toBeVisible();
+    expect(within(header).getByText('Connected')).toBeVisible();
+    expect(screen.getByText('Robot: V2')).toBeVisible();
+    expect(screen.getByText('J10 0.0 mm')).toBeVisible();
+    expect(screen.getByText('J11 0.0°')).toBeVisible();
+    expect(screen.getByText('Backend Online · DRY RUN')).toBeVisible();
   });
 
   it('opens the active Studio timeline authoring workspace', async () => {
@@ -49,18 +54,22 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     const user = userEvent.setup();
     mockStage3Backend({ connected: false });
     renderRoute('/settings');
-    expect(await screen.findByText('V2 · 一条直线导轨 + 五个旋转关节')).toBeVisible();
+    expect(await screen.findByText('一条直线导轨 + 五个旋转关节')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'V1' }));
-    expect(await screen.findByText('V1 · 五个旋转关节 · 无直线导轨')).toBeVisible();
-    expect(await screen.findByText('J11, J12, J13, J14, J15')).toBeVisible();
-    expect(screen.queryByText('J10')).not.toBeInTheDocument();
+    expect(await screen.findByText('五个旋转关节 · 无直线导轨')).toBeVisible();
+    const enabledJoints = screen.getByLabelText('启用关节与运动范围');
+    for (const jointId of ['J11', 'J12', 'J13', 'J14', 'J15']) {
+      expect(within(enabledJoints).getByText(jointId)).toBeVisible();
+    }
+    expect(within(enabledJoints).queryByText('J10')).not.toBeInTheDocument();
+    expect(screen.getByText('Robot: V1')).toBeVisible();
   });
 
   it('renders V1 Control as five keyed joint cards without J10', async () => {
     mockStage3Backend({ variant: 'V1' });
     renderRoute('/control');
     expect(await screen.findByLabelText('J11 target (deg)')).toBeVisible();
-    expect(screen.getAllByRole('article')).toHaveLength(5);
+    expect(screen.getAllByRole('slider')).toHaveLength(5);
     expect(screen.queryByLabelText(/J10 target/)).not.toBeInTheDocument();
   });
 
@@ -68,13 +77,13 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     const user = userEvent.setup();
     const backend = mockStage3Backend({ connected: false });
     renderRoute('/control');
-    expect(await screen.findByText('DISCONNECTED')).toBeVisible();
+    expect(await screen.findByText('Disconnected')).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: '连接' }));
-    expect(await screen.findByText('CONNECTED')).toBeVisible();
+    expect(await screen.findByText('Connected')).toBeVisible();
     await user.click(screen.getByRole('button', { name: '停止运动' }));
     await user.click(screen.getByRole('button', { name: '断开连接' }));
-    expect(await screen.findByText('DISCONNECTED')).toBeVisible();
+    expect(await screen.findByText('Disconnected')).toBeVisible();
 
     expect(backend.requestsFor('/robot/connect')).toHaveLength(1);
     expect(backend.requestsFor('/motion/stop')).toHaveLength(1);
@@ -85,7 +94,7 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     const user = userEvent.setup();
     mockStage3Backend({ connected: false, connectError: true });
     renderRoute('/control');
-    await screen.findByText('DISCONNECTED');
+    await screen.findByText('Disconnected');
     await user.click(screen.getByRole('button', { name: '连接' }));
     expect(await screen.findByText(/The active Dry Run robot is already connected/)).toBeVisible();
   });
@@ -93,7 +102,7 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
   it('preserves telemetry but disables motion when a later refresh becomes stale', async () => {
     const backend = mockStage3Backend();
     renderRoute('/control');
-    expect(await screen.findByLabelText('J10 target (mm)')).toBeEnabled();
+    await waitFor(() => expect(screen.getByLabelText('J10 target (mm)')).toBeEnabled());
     backend.goOffline();
     await waitFor(
       () => expect(screen.getByText('后端不可用 · 正在显示过期状态')).toBeVisible(),
@@ -108,9 +117,10 @@ describe('MOMO Studio Stage 8 release-candidate shell', () => {
     vi.stubGlobal('WebSocket', undefined);
     renderRoute('/control');
     expect((await screen.findAllByText('后端不可用')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Offline')).toBeVisible();
     expect(screen.getAllByText('DRY RUN').length).toBeGreaterThan(0);
-    expect(screen.getByText('真实运动已禁用')).toBeVisible();
+    expect(screen.getByLabelText('DRY RUN 仿真模式，真实运动已禁用')).toBeVisible();
     expect(screen.getByRole('button', { name: '停止运动' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '移动到位姿' })).not.toBeInTheDocument();
   });
 });

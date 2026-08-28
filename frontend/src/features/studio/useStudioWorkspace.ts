@@ -49,6 +49,11 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
   const [playheadS, setPlayheadS] = useState(0);
   const [timelineZoom, setTimelineZoom] = useState(1);
   const [timelineScrollS, setTimelineScrollS] = useState(0);
+  const setBoundedPlayheadS = useCallback((value: number) => {
+    setPlayheadS((current) => Number.isFinite(value)
+      ? Math.min(600, Math.max(0, value))
+      : current);
+  }, []);
   const editorRef = useRef(editor);
   editorRef.current = editor;
 
@@ -99,7 +104,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
   ) => {
     if (editorRef.current.document.frames.length >= MAX_STUDIO_FRAMES) {
       setError(`编排草稿最多支持 ${MAX_STUDIO_FRAMES} 个关键帧。`);
-      return;
+      return false;
     }
     setAction('capture');
     setError(null);
@@ -115,8 +120,10 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
         label: `Capture ${editorRef.current.document.frames.length + 1}`,
         snapshot,
       });
+      return true;
     } catch (caught) {
       setError(message(caught));
+      return false;
     } finally {
       setAction((currentAction) => currentAction === 'capture' ? null : currentAction);
     }
@@ -236,9 +243,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
     savedMotion: draftSession.savedMotion,
     selectedFrame,
     selectedFrameIndex,
-    setPlayheadS: (value: number) => setPlayheadS((current) =>
-      Number.isFinite(value) ? Math.min(600, Math.max(0, value)) : current
-    ),
+    setPlayheadS: setBoundedPlayheadS,
     setPoseSearch: poseInsertionSession.setPoseSearch,
     setTimelineScrollS: (value: number) => setTimelineScrollS((current) =>
       Number.isFinite(value) ? Math.min(600, Math.max(0, value)) : current

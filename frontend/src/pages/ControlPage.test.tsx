@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -47,6 +47,7 @@ async function waitForMotionReady() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   ControllableWebSocket.instances = [];
@@ -54,6 +55,7 @@ afterEach(() => {
 
 describe('Stage 3 Control workspace', () => {
   it('never reuses Dry Run motion or lifecycle routes in REAL / READ_ONLY commissioning', async () => {
+    const user = userEvent.setup();
     const backend = mockStage3Backend({
       controlMode: 'REAL',
       hardwareAccessPolicy: 'READ_ONLY',
@@ -67,13 +69,16 @@ describe('Stage 3 Control workspace', () => {
     expect(screen.getByRole('button', { name: '连接' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '断开连接' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '停止运动' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '停止运动（面板）' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
     expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
     expect(backend.requestsFor('/robot/connect')).toHaveLength(0);
     expect(backend.requestsFor('/motion/joints')).toHaveLength(0);
     expect(backend.requestsFor('/motion/home')).toHaveLength(0);
+    expect(backend.requestsFor('/motion/stop')).toHaveLength(0);
   });
 
   it('enables only the backend-authorized Real capability from the global session', async () => {
@@ -90,12 +95,14 @@ describe('Stage 3 Control workspace', () => {
     await waitFor(() => expect(jointMove).toBeEnabled());
     expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '机器人回零' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Jog X positive' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '连接' })).toBeDisabled();
 
     await user.click(jointMove);
     await waitFor(() => expect(backend.requestsFor('/motion/joints')).toHaveLength(1));
+
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
+    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Jog X positive' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '连接' })).toBeDisabled();
     expect(backend.requestsFor('/motion/pose')).toHaveLength(0);
   });
 
@@ -106,10 +113,88 @@ describe('Stage 3 Control workspace', () => {
 
     expect(screen.getByLabelText('J10 target (mm)')).toBeVisible();
     expect(screen.getByLabelText('J11 target (deg)')).toBeVisible();
-    expect(screen.getByText('0.00, 0.00, 0.00 deg')).toBeVisible();
+    const endEffector = screen.getByRole('region', { name: '末端执行器' });
+    expect(within(endEffector).getByText('Roll')).toBeVisible();
+    expect(within(endEffector).getAllByText('0.0°')).toHaveLength(3);
     expect(view.container.querySelector('.control-workspace-grid')).toBeInTheDocument();
     expect(view.container.querySelector('.control-workspace-sidebar')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /record|capture|teach|playback/i })).not.toBeInTheDocument();
+  });
+
+  it('shares all five speed levels across modes and maps level 5 to bounded motion parameters', async () => {
+    const user = userEvent.setup();
+    const backend = mockStage3Backend();
+    renderControl();
+    await waitForMotionReady();
+
+    const speedGroup = screen.getByRole('radiogroup', { name: '共享速度档位' });
+    const speedLabels = ['极低', '低', '中', '高', '极高'];
+    const speedButtons = speedLabels.map((label, index) =>
+      within(speedGroup).getByRole('radio', { name: `速度 ${index + 1}：${label}` }),
+    );
+    expect(speedButtons).toHaveLength(5);
+
+    for (const speedButton of speedButtons) {
+      await user.click(speedButton);
+      expect(speedButton).toHaveAttribute('aria-checked', 'true');
+    }
+
+    const levelFive = speedButtons[4];
+    expect(levelFive).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Step J11 positive' }));
+    await waitFor(() => expect(backend.requestsFor('/motion/jog-step')).toHaveLength(1));
+    expect(backend.lastBody('/motion/jog-step')).toEqual(expect.objectContaining({
+      joint_id: 'j11', delta: 5, unit: 'deg', speed_scale: 1,
+    }));
+
+    await user.click(screen.getByRole('button', { name: 'Step J10 positive' }));
+    await waitFor(() => expect(backend.requestsFor('/motion/jog-step')).toHaveLength(2));
+    expect(backend.lastBody('/motion/jog-step')).toEqual(expect.objectContaining({
+      joint_id: 'j10', delta: 15, unit: 'mm', speed_scale: 1,
+    }));
+
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
+    expect(levelFive).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Jog X positive' }));
+    await waitFor(() => expect(backend.requestsFor('/motion/cartesian-jog')).toHaveLength(1));
+    expect(backend.lastBody('/motion/cartesian-jog')).toEqual(expect.objectContaining({
+      delta_position_mm: { x: 15, y: 0, z: 0 },
+      delta_rotation_deg: { x: 0, y: 0, z: 0 },
+      speed_scale: 1,
+    }));
+
+    await user.click(screen.getByRole('button', { name: 'Jog Rz positive' }));
+    await waitFor(() => expect(backend.requestsFor('/motion/cartesian-jog')).toHaveLength(2));
+    expect(backend.lastBody('/motion/cartesian-jog')).toEqual(expect.objectContaining({
+      delta_position_mm: { x: 0, y: 0, z: 0 },
+      delta_rotation_deg: { x: 0, y: 0, z: 5 },
+      speed_scale: 1,
+    }));
+
+    await user.click(screen.getByRole('button', { name: 'Joint' }));
+    expect(levelFive).toHaveAttribute('aria-checked', 'true');
+
+    const jointHold = screen.getByRole('button', { name: 'Step J11 positive' });
+    fireEvent.pointerDown(jointHold, { pointerId: 51 });
+    await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
+    expect(backend.lastBody('/motion/jog/start')).toEqual(expect.objectContaining({
+      joint_id: 'j11', speed_units_s: 45, unit: 'deg', speed_scale: 1,
+    }));
+    fireEvent.pointerUp(jointHold, { pointerId: 51 });
+    await waitFor(() => {
+      expect(backend.requestsFor(`/motion/jog/${stage3Ids.jogSessionId}/stop`)).toHaveLength(1);
+    });
+
+    const railHold = screen.getByRole('button', { name: 'Step J10 positive' });
+    await waitFor(() => expect(railHold).toBeEnabled());
+    fireEvent.pointerDown(railHold, { pointerId: 52 });
+    await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(2));
+    expect(backend.lastBody('/motion/jog/start')).toEqual(expect.objectContaining({
+      joint_id: 'j10', speed_units_s: 50, unit: 'mm', speed_scale: 1,
+    }));
+    fireEvent.pointerUp(railHold, { pointerId: 52 });
   });
 
   it('submits exact joint, step, Cartesian, IK, pose, and Home DTOs', async () => {
@@ -119,8 +204,7 @@ describe('Stage 3 Control workspace', () => {
     await waitForMotionReady();
 
     const j10 = screen.getByLabelText('J10 target (mm)');
-    await user.clear(j10);
-    await user.type(j10, '42.5');
+    fireEvent.change(j10, { target: { value: '42.5' } });
     await user.click(screen.getByRole('button', { name: '移动全部关节' }));
     await waitFor(() => expect(backend.requestsFor('/motion/joints')).toHaveLength(1));
     expect(backend.lastBody('/motion/joints')).toEqual(expect.objectContaining({
@@ -144,6 +228,7 @@ describe('Stage 3 Control workspace', () => {
       joint_id: 'j10', delta: -5, unit: 'mm', duration_s: 1,
     }));
 
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
     await user.click(screen.getByRole('button', { name: 'TOOL' }));
     await user.click(screen.getByRole('button', { name: 'Jog Rz positive' }));
     await waitFor(() => expect(backend.requestsFor('/motion/cartesian-jog')).toHaveLength(1));
@@ -173,7 +258,7 @@ describe('Stage 3 Control workspace', () => {
       position_only: false,
       maximum_iterations: 200,
     });
-    expect(await screen.findByText('逆解可达')).toBeVisible();
+    expect(await screen.findByText(/逆解可达/)).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: '移动到位姿' }));
     await waitFor(() => expect(backend.requestsFor('/motion/pose')).toHaveLength(1));
@@ -203,12 +288,13 @@ describe('Stage 3 Control workspace', () => {
   it('keeps motion disabled while disconnected, but leaves connection available', async () => {
     mockStage3Backend({ connected: false });
     renderControl();
-    expect(await screen.findByText('DISCONNECTED')).toBeVisible();
+    await screen.findByRole('heading', { name: '机器人控制' });
     expect(screen.getByRole('button', { name: '连接' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J10 positive' })).toBeDisabled();
     expect(screen.getByLabelText('J10 target (mm)')).toBeDisabled();
     expect(screen.getByLabelText('关节单步 (deg)')).toBeDisabled();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Cartesian' }));
     expect(screen.getByRole('button', { name: '检查逆解' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
   });
@@ -228,25 +314,28 @@ describe('Stage 3 Control workspace', () => {
     expect((await screen.findAllByText('机器人生命周期操作进行中 · 运动已禁用')).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Hold J11 positive jog' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
     expect(screen.getByRole('button', { name: '检查逆解' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '停止运动' })).toBeEnabled();
 
     releaseDisconnect();
-    expect(await screen.findByText('DISCONNECTED')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('button', { name: '连接' })).toBeEnabled());
   });
 
   it('fails closed when an HTTP 200 RobotStatus explicitly reports stale', async () => {
+    const user = userEvent.setup();
     mockStage3Backend({ robotStale: true });
     renderControl();
 
     expect(await screen.findByText('机器人状态已过期 · 运动已禁用')).toBeVisible();
     expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Step J10 positive' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
     expect(screen.getByRole('button', { name: '检查逆解' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '停止运动' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '停止运动（面板）' })).toBeDisabled();
   });
 
   it('immediately disables motion when a live WebSocket RobotStatus becomes stale', async () => {
@@ -277,13 +366,50 @@ describe('Stage 3 Control workspace', () => {
     expect(screen.getByRole('button', { name: 'Step J11 positive' })).toBeDisabled();
   });
 
+  it('cancels a pending hold before its threshold when the motion gate closes', async () => {
+    const backend = mockStage3Backend();
+    vi.stubGlobal('WebSocket', ControllableWebSocket);
+    renderControl();
+    await waitForMotionReady();
+    const webSocket = ControllableWebSocket.instances[0];
+    expect(webSocket).toBeDefined();
+
+    act(() => webSocket?.emit('open'));
+    vi.useFakeTimers();
+    const hold = screen.getByRole('button', { name: 'Step J11 positive' });
+    fireEvent.pointerDown(hold, { pointerId: 91 });
+
+    act(() => {
+      webSocket?.emit('message', new MessageEvent('message', {
+        data: JSON.stringify({
+          robot_status: { ...robotFor('V2', true), stale: true },
+          tcp_pose: {
+            frame: 'base',
+            position_mm: { x: 101, y: 202, z: 303 },
+            orientation_quaternion_xyzw: { x: 0, y: 0, z: 0, w: 1 },
+          },
+          state_sequence: 7,
+          hardware_accessed: false,
+        }),
+      }));
+    });
+
+    expect(hold).toBeDisabled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(backend.requestsFor('/motion/jog/start')).toHaveLength(0);
+    expect(backend.requestsFor('/motion/jog-step')).toHaveLength(0);
+  });
+
   it('shows unreachable IK evidence and structured IK request errors', async () => {
     const user = userEvent.setup();
     mockStage3Backend({ ikSuccess: false });
     const first = renderControl();
     await waitForMotionReady();
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
     await user.click(screen.getByRole('button', { name: '检查逆解' }));
-    expect(await screen.findByText('逆解不可达')).toBeVisible();
+    expect(await screen.findByText(/逆解不可达/)).toBeVisible();
     expect(screen.getByText('UNREACHABLE')).toBeVisible();
     expect(screen.getByText('No solution within limits')).toBeVisible();
 
@@ -291,6 +417,7 @@ describe('Stage 3 Control workspace', () => {
     mockStage3Backend({ ikError: true });
     renderControl();
     await waitForMotionReady();
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
     await user.click(screen.getByRole('button', { name: '检查逆解' }));
     expect(await screen.findByText(/IK_INVALID_TARGET: IK target is outside/)).toBeVisible();
   });
@@ -373,6 +500,7 @@ describe('Stage 3 Control workspace', () => {
 
     await user.click(screen.getByRole('button', { name: 'Step J11 positive' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled());
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
     expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '机器人回零' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '停止运动' })).toBeEnabled();
@@ -385,6 +513,7 @@ describe('Stage 3 Control workspace', () => {
     await user.click(screen.getByRole('button', { name: '停止运动' }));
     await waitFor(() => expect(backend.requestsFor('/motion/stop')).toHaveLength(1));
     expect(await screen.findByText('CANCELLED')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Joint' }));
     expect(screen.getByRole('button', { name: '移动全部关节' })).toBeEnabled();
   });
 
@@ -407,9 +536,11 @@ describe('Stage 3 Control workspace', () => {
       expect(await screen.findByText('CANCELLED')).toBeVisible();
       expect(await screen.findByText(new RegExp(`Motion Stop returned ${stopResult}`))).toBeVisible();
       expect(screen.getAllByText(/运动安全状态不确定/).length).toBeGreaterThan(0);
-      expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: 'Cartesian' }));
       expect(screen.getByRole('button', { name: '移动到位姿' })).toBeDisabled();
       expect(screen.getByRole('button', { name: '停止运动' })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: 'Joint' }));
+      expect(screen.getByRole('button', { name: '移动全部关节' })).toBeDisabled();
       expect(backend.requestsFor(`/motion/commands/${stage3Ids.commandId}`).length).toBeGreaterThan(0);
     },
   );
@@ -418,7 +549,7 @@ describe('Stage 3 Control workspace', () => {
     const backend = mockStage3Backend({ polledCommandStates: ['RUNNING'] });
     renderControl();
     await waitForMotionReady();
-    const hold = screen.getByRole('button', { name: 'Hold J10 positive jog' });
+    const hold = screen.getByRole('button', { name: 'Step J10 positive' });
 
     fireEvent.pointerDown(hold, { pointerId: 1 });
     await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
@@ -452,7 +583,7 @@ describe('Stage 3 Control workspace', () => {
     const backend = mockStage3Backend({ polledCommandStates: ['RUNNING'] });
     renderControl();
     await waitForMotionReady();
-    const hold = screen.getByRole('button', { name: 'Hold J11 negative jog' });
+    const hold = screen.getByRole('button', { name: 'Step J11 negative' });
     fireEvent.pointerDown(hold, { pointerId: 2 });
     await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
     release(hold);
@@ -465,7 +596,7 @@ describe('Stage 3 Control workspace', () => {
     const backend = mockStage3Backend({ polledCommandStates: ['RUNNING'] });
     renderControl();
     await waitForMotionReady();
-    const hold = screen.getByRole('button', { name: 'Hold J12 positive jog' });
+    const hold = screen.getByRole('button', { name: 'Step J12 positive' });
     fireEvent.pointerDown(hold, { pointerId: 3 });
     await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
     fireEvent(window, new Event('pagehide'));
@@ -480,7 +611,7 @@ describe('Stage 3 Control workspace', () => {
     const backend = mockStage3Backend({ polledCommandStates: ['RUNNING'] });
     renderControl();
     await waitForMotionReady();
-    const hold = screen.getByRole('button', { name: 'Hold J13 negative jog' });
+    const hold = screen.getByRole('button', { name: 'Step J13 negative' });
     fireEvent.pointerDown(hold, { pointerId: 4 });
     await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
     fireEvent.lostPointerCapture(hold, { pointerId: 4 });
@@ -493,7 +624,7 @@ describe('Stage 3 Control workspace', () => {
     const backend = mockStage3Backend({ heartbeatError: true, polledCommandStates: ['RUNNING'] });
     renderControl();
     await waitForMotionReady();
-    const hold = screen.getByRole('button', { name: 'Hold J12 positive jog' });
+    const hold = screen.getByRole('button', { name: 'Step J12 positive' });
     fireEvent.pointerDown(hold, { pointerId: 3 });
     await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
     await waitFor(() => expect(screen.getByText(/JOG_LEASE_EXPIRED/)).toBeVisible(), { timeout: 700 });

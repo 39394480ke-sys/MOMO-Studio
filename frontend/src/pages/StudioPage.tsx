@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, LoaderCircle, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { PageIntro } from '../components/PageIntro';
@@ -17,11 +17,15 @@ import { StudioToolbar } from '../features/studio/StudioToolbar';
 import { StudioViewer } from '../features/studio/StudioViewer';
 import { useStudioWorkspace } from '../features/studio/useStudioWorkspace';
 import { useForwardKinematics } from '../features/control/useForwardKinematics';
+import { sampleTrajectoryJointState } from '../features/studio/studioViewerState';
 
 type Confirmation =
   | { type: 'new' }
   | { type: 'goto'; frameId: string }
   | null;
+
+const EMPTY_JOINT_IDS: readonly string[] = [];
+const EMPTY_JOINT_DEFINITIONS: readonly never[] = [];
 
 export function StudioPage() {
   const runtime = useRuntimeStatus();
@@ -43,6 +47,35 @@ export function StudioPage() {
     socketStateSequence: null,
   });
   const frameLimitReached = workspace.keyframes.length >= 1000;
+  const viewerProfile = useMemo(() => {
+    const profile = runtime.profile?.profile ?? null;
+    return profile?.variant === workspace.editor.document.robotVariant ? profile : null;
+  }, [runtime.profile, workspace.editor.document.robotVariant]);
+  const viewerEnabledJointIds = viewerProfile?.enabled_joints ?? EMPTY_JOINT_IDS;
+  const viewerJointDefinitions = viewerProfile?.joint_definitions ?? EMPTY_JOINT_DEFINITIONS;
+  const sampledViewerState = useMemo(
+    () => sampleTrajectoryJointState(
+      workspace.preview,
+      workspace.playheadS,
+      viewerEnabledJointIds,
+    ),
+    [viewerEnabledJointIds, workspace.playheadS, workspace.preview],
+  );
+  const studioPlayback = workspace.playback;
+  const playbackBelongsHere = Boolean(
+    workspace.savedMotion &&
+    (!studioPlayback?.motion_id || studioPlayback.motion_id === workspace.savedMotion.id),
+  );
+  const playbackUsesLiveState = playbackBelongsHere &&
+    (studioPlayback?.state === 'PLAYING' || studioPlayback?.state === 'PAUSED');
+  const selectedSnapshot = workspace.selectedFrame?.pose_snapshot.joint_state ?? null;
+  const viewerJointPositions = playbackUsesLiveState && runtime.robot
+    ? runtime.robot.positions
+    : sampledViewerState?.positions ?? selectedSnapshot?.positions ?? runtime.robot?.positions ?? {};
+  const viewerJointUnits = playbackUsesLiveState && runtime.robot
+    ? runtime.robot.units
+    : sampledViewerState?.units ?? selectedSnapshot?.units ?? runtime.robot?.units ?? {};
+  const setStudioPlayheadS = workspace.setPlayheadS;
 
   useEffect(() => {
     if (
@@ -53,6 +86,12 @@ export function StudioPage() {
     ) return;
     setSearchParams({ draft: workspace.draft.id }, { replace: true });
   }, [entryKey, searchParams, setSearchParams, workspace.draft, workspace.initializing, workspace.loadedEntryKey]);
+
+  useEffect(() => {
+    if (!playbackBelongsHere) return;
+    if (studioPlayback?.state !== 'PLAYING' && studioPlayback?.state !== 'PAUSED') return;
+    setStudioPlayheadS(studioPlayback.elapsed_s);
+  }, [playbackBelongsHere, setStudioPlayheadS, studioPlayback?.elapsed_s, studioPlayback?.state]);
 
   const openSaveAs = () => {
     setSaveAsName(`${workspace.editor.document.name || '未命名运动'} 副本`);
@@ -171,7 +210,8 @@ export function StudioPage() {
         </div>
       ) : null}
 
-      <StudioViewer
+      <div className="studio-primary-grid">
+        <StudioViewer
         action={workspace.action}
         compileDisabledReason={workspace.compileDisabledReason}
         compileError={null}
@@ -202,33 +242,11 @@ export function StudioPage() {
         selectedFrame={workspace.selectedFrame}
         studioCommand={workspace.studioCommand}
         validateDisabledReason={workspace.validateDisabledReason}
-      />
-
-      <div className="studio-editor-grid">
-        <StudioTimeline
-          disabled={workspace.action !== null}
-          defaultEdgeIds={workspace.defaultEdgeIds}
-          frameLimitReached={frameLimitReached}
-          frames={workspace.keyframes}
-          initialScrollS={workspace.timelineScrollS}
-          runtimeMode={runtime.controlMode}
-          onAddAfter={(frameId) => workspace.startPoseInsertion('after', frameId)}
-          onAddBefore={(frameId) => workspace.startPoseInsertion('before', frameId)}
-          onDelete={(frameId) => workspace.edit({ type: 'frame/delete', frameId })}
-          onDuplicate={(frameId) => workspace.edit({ type: 'frame/duplicate', frameId, duplicateFrameId: crypto.randomUUID() })}
-          onMove={(frameId, direction) => workspace.edit({
-            type: 'frame/move',
-            frameId,
-            direction: direction < 0 ? 'backward' : 'forward',
-          })}
-          onPlayheadChange={workspace.setPlayheadS}
-          onReorder={(frameId, toIndex) => workspace.edit({ type: 'frame/reorder', frameId, toIndex })}
-          onScrollChange={workspace.setTimelineScrollS}
-          onSelect={(frameId) => workspace.edit({ type: 'selection/set', frameId })}
-          onZoomChange={workspace.setTimelineZoom}
-          playheadS={workspace.playheadS}
-          selectedFrameId={workspace.editor.selectedFrameId}
-          zoom={workspace.timelineZoom}
+        viewerEnabledJointIds={viewerEnabledJointIds}
+        viewerJointDefinitions={viewerJointDefinitions}
+        viewerJointPositions={viewerJointPositions}
+        viewerJointUnits={viewerJointUnits}
+        viewerVariant={workspace.editor.document.robotVariant}
         />
 
         <StudioInspector
@@ -256,12 +274,49 @@ export function StudioPage() {
         />
       </div>
 
+      <div className="studio-editor-grid">
+        <StudioTimeline
+          disabled={workspace.action !== null}
+          defaultEdgeIds={workspace.defaultEdgeIds}
+          frameLimitReached={frameLimitReached}
+          frames={workspace.keyframes}
+          initialScrollS={workspace.timelineScrollS}
+          runtimeMode={runtime.controlMode}
+          onAddAfter={(frameId) => workspace.startPoseInsertion('after', frameId)}
+          onAddBefore={(frameId) => workspace.startPoseInsertion('before', frameId)}
+          onDelete={(frameId) => workspace.edit({ type: 'frame/delete', frameId })}
+          onDuplicate={(frameId) => workspace.edit({ type: 'frame/duplicate', frameId, duplicateFrameId: crypto.randomUUID() })}
+          onMove={(frameId, direction) => workspace.edit({
+            type: 'frame/move',
+            frameId,
+            direction: direction < 0 ? 'backward' : 'forward',
+          })}
+          onPlayheadChange={workspace.setPlayheadS}
+          onReorder={(frameId, toIndex) => workspace.edit({ type: 'frame/reorder', frameId, toIndex })}
+          onScrollChange={workspace.setTimelineScrollS}
+          onSelect={(frameId) => workspace.edit({ type: 'selection/set', frameId })}
+          onTransitionDurationChange={(frameId, durationS) => workspace.edit({ type: 'edge/set-duration', toFrameId: frameId, durationS })}
+          onZoomChange={workspace.setTimelineZoom}
+          playheadS={workspace.playheadS}
+          selectedFrameId={workspace.editor.selectedFrameId}
+          zoom={workspace.timelineZoom}
+        />
+
+      </div>
+
       {workspace.poseInsertion ? (
         <StudioPosePicker
-          busy={workspace.posesBusy}
+          busy={workspace.posesBusy || workspace.action === 'capture'}
           error={workspace.poseError}
           onChoose={(pose) => void workspace.addPose(pose)}
           onClose={workspace.closePoseInsertion}
+          onCapture={() => {
+            const insertion = workspace.poseInsertion;
+            if (!insertion) return;
+            void workspace.capture(insertion.position, insertion.anchorFrameId).then((captured) => {
+              if (captured) workspace.closePoseInsertion();
+            });
+          }}
           onSearchChange={workspace.setPoseSearch}
           placement={workspace.poseInsertion.position}
           poses={workspace.poses}

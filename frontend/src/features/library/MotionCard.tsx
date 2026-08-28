@@ -1,159 +1,167 @@
-import { Copy, ExternalLink, Play, Trash2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { MotionSummary } from '../../api/types';
-import { formatEntityDate } from './libraryFormat';
+import { getMotion } from '../../api/client';
+import type { MotionEntity, MotionSummary } from '../../api/types';
+import { ResourceSimulationThumbnail } from './ResourceSimulationThumbnail';
+
+const previewCache = new Map<string, MotionEntity>();
 
 interface MotionCardProps {
   motion: MotionSummary;
   busy: boolean;
-  playBusy: boolean;
-  viewBusy: boolean;
+  selected: boolean;
   deletePending: boolean;
   onDeleteCancel: () => void;
   onDeleteConfirm: (motion: MotionSummary) => void;
   onDeleteRequest: (motion: MotionSummary) => void;
   onDuplicate: (motion: MotionSummary) => void;
-  onPlay: (motion: MotionSummary) => void;
+  onRename: (motion: MotionSummary) => void;
+  onSelect: (motion: MotionSummary) => void;
   onTagSelect: (tag: string) => void;
-  onView: (motion: MotionSummary) => void;
-  playDisabledReason: string | null;
 }
 
 export function MotionCard({
   motion,
   busy,
-  playBusy,
-  viewBusy,
+  selected,
   deletePending,
   onDeleteCancel,
   onDeleteConfirm,
   onDeleteRequest,
   onDuplicate,
-  onPlay,
+  onRename,
+  onSelect,
   onTagSelect,
-  onView,
-  playDisabledReason,
 }: MotionCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const cacheKey = `${motion.id}:${motion.revision}`;
+  const [preview, setPreview] = useState<MotionEntity | null>(() => previewCache.get(cacheKey) ?? null);
+  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'error'>(preview ? 'idle' : 'loading');
+  const cardRef = useRef<HTMLElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const titleId = `motion-title-${motion.id}`;
 
+  useEffect(() => {
+    if (previewCache.has(cacheKey)) return undefined;
+    const host = cardRef.current;
+    if (!host || typeof IntersectionObserver === 'undefined') {
+      setPreviewState('error');
+      return undefined;
+    }
+    const controller = new AbortController();
+    let disposed = false;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      setPreviewState('loading');
+      void getMotion(motion.id, controller.signal)
+        .then((entity) => {
+          if (disposed) return;
+          previewCache.set(cacheKey, entity);
+          setPreview(entity);
+          setPreviewState('idle');
+        })
+        .catch(() => {
+          if (!disposed && !controller.signal.aborted) setPreviewState('error');
+        });
+    }, { rootMargin: '160px' });
+    observer.observe(host);
+    return () => {
+      disposed = true;
+      controller.abort();
+      observer.disconnect();
+    };
+  }, [cacheKey, motion.id]);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [menuOpen]);
+
   return (
-    <article aria-labelledby={titleId} className="library-card library-card--motion">
-      <header className="library-card__header">
-        <div>
-          <span className="entity-kind">运动 · {motion.robot_variant}</span>
-          <h3 id={titleId}>{motion.name}</h3>
+    <article
+      aria-labelledby={titleId}
+      className={selected ? 'library-card library-card--selected' : 'library-card'}
+      data-resource-id={motion.id}
+      ref={cardRef}
+    >
+      <button
+        aria-label={`打开动作详情 · ${motion.name}`}
+        aria-pressed={selected}
+        className="library-card__select"
+        onClick={() => onSelect(motion)}
+        type="button"
+      >
+        <div className="library-card__visual">
+          <ResourceSimulationThumbnail
+            label={`${motion.name} 真实动作仿真缩略图`}
+            loading={previewState === 'loading'}
+            motion={preview}
+            unavailable={previewState === 'error'}
+          />
+          <span>{motion.keyframe_count} 帧 · {motion.total_duration_s.toFixed(1)} s</span>
         </div>
-        <span className="entity-revision">版本 {motion.revision}</span>
-      </header>
-
-      {motion.description ? <p className="library-card__description">{motion.description}</p> : null}
-
-      <dl className="entity-facts entity-facts--motion">
-        <div>
-          <dt>创建时间</dt>
-          <dd>{formatEntityDate(motion.created_at)}</dd>
-        </div>
-        <div>
-          <dt>关键帧</dt>
-          <dd>{motion.keyframe_count}</dd>
-        </div>
-        <div>
-          <dt>总时长</dt>
-          <dd>{motion.total_duration_s.toFixed(2)} 秒</dd>
-        </div>
-        <div>
-          <dt>运动类型</dt>
-          <dd>{motion.motion_types.length > 0 ? motion.motion_types.join(' · ') : '无过渡'}</dd>
-        </div>
-      </dl>
-
-      <div aria-label={`${motion.name} 的标签`} className="entity-tags">
-        {motion.tags.length > 0 ? (
-          motion.tags.map((tag) => (
-            <button key={tag} onClick={() => onTagSelect(tag)} type="button">
-              {tag}
-            </button>
-          ))
-        ) : (
-          <span>无标签</span>
-        )}
-      </div>
-
-      <code className="entity-id" title={motion.id}>ID {motion.id}</code>
-
-      <div className="library-card__actions">
-        <button className="command-button" disabled={viewBusy} onClick={() => onView(motion)} type="button">
-          查看详情
-        </button>
-        <Link
-          aria-disabled={busy}
-          className="command-button command-button--primary"
-          onClick={(event) => {
-            if (busy) event.preventDefault();
-          }}
-          tabIndex={busy ? -1 : undefined}
-          to={`/studio?motion=${encodeURIComponent(motion.id)}`}
-        >
-          <ExternalLink aria-hidden="true" />
-          在编排中打开
-        </Link>
-        <button
-          aria-describedby={playDisabledReason ? `play-reason-${motion.id}` : undefined}
-          className="command-button"
-          disabled={playBusy || playDisabledReason !== null}
-          onClick={() => onPlay(motion)}
-          title={playDisabledReason ?? '打开此运动的播放流程'}
-          type="button"
-        >
-          <Play aria-hidden="true" />
-          播放
-        </button>
-        {playDisabledReason ? (
-          <span className="visually-hidden" id={`play-reason-${motion.id}`}>
-            播放不可用：{playDisabledReason}
-          </span>
-        ) : null}
-        <button
-          className="command-button"
-          disabled={busy}
-          onClick={() => onDuplicate(motion)}
-          type="button"
-        >
-          <Copy aria-hidden="true" />
-          复制
-        </button>
-        <button
-          className="command-button command-button--danger"
-          disabled={busy}
-          onClick={() => onDeleteRequest(motion)}
-          type="button"
-        >
-          <Trash2 aria-hidden="true" />
-          删除
-        </button>
-      </div>
-      {playDisabledReason ? <p className="stage-boundary-note">暂时无法播放 · {playDisabledReason}</p> : null}
-
-      {deletePending ? (
-        <div aria-labelledby={`delete-motion-${motion.id}`} className="delete-confirmation" role="alertdialog">
-          <strong id={`delete-motion-${motion.id}`}>删除“{motion.name}”？</strong>
-          <p>这会删除已保存的运动，但不会删除任何来源机位。</p>
+        <div className="library-card__copy">
           <div>
-            <button className="command-button" disabled={busy} onClick={onDeleteCancel} type="button">
-              取消
-            </button>
-            <button
-              className="command-button command-button--danger-solid"
-              disabled={busy}
-              onClick={() => onDeleteConfirm(motion)}
-              type="button"
-            >
-              确认删除
-            </button>
+            <h3 id={titleId}>{motion.name}</h3>
+            <p>运动 · {motion.robot_variant}</p>
           </div>
+          <small>{motion.motion_types.length > 0 ? motion.motion_types.join(' · ') : 'HOLD'}</small>
         </div>
-      ) : null}
+      </button>
+
+      <div className="library-card__footer">
+        <div aria-label={`${motion.name} 的标签`} className="entity-tags">
+          {motion.tags.length > 0 ? motion.tags.slice(0, 2).map((tag) => (
+            <button key={tag} onClick={() => onTagSelect(tag)} type="button">{tag}</button>
+          )) : <span>MOTION</span>}
+        </div>
+        <div className="resource-more" ref={menuRef}>
+          <button
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-label={`更多操作 · ${motion.name}`}
+            className="resource-more__trigger"
+            disabled={busy}
+            onClick={() => setMenuOpen((open) => !open)}
+            type="button"
+          >
+            <MoreHorizontal aria-hidden="true" />
+          </button>
+          {menuOpen ? (
+            <div aria-label={`${motion.name} 管理操作`} className="resource-more__menu" role="menu">
+              {deletePending ? (
+                <div className="resource-more__confirmation" role="alertdialog" aria-label={`删除“${motion.name}”？`}>
+                  <strong>删除这个动作？</strong>
+                  <span>来源机位不会被删除。</span>
+                  <div>
+                    <button onClick={onDeleteCancel} type="button">取消</button>
+                    <button className="is-danger" onClick={() => onDeleteConfirm(motion)} type="button">确认删除</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button onClick={() => { setMenuOpen(false); onRename(motion); }} role="menuitem" type="button"><Pencil aria-hidden="true" />重命名</button>
+                  <button onClick={() => { setMenuOpen(false); onDuplicate(motion); }} role="menuitem" type="button"><Copy aria-hidden="true" />复制</button>
+                  <button className="is-danger" onClick={() => onDeleteRequest(motion)} role="menuitem" type="button"><Trash2 aria-hidden="true" />删除</button>
+                </>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </div>
     </article>
   );
 }

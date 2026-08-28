@@ -1,24 +1,20 @@
-import { Copy, Navigation, Plus, Trash2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { PoseSummary } from '../../api/types';
-import { formatEntityDate } from './libraryFormat';
+import { ResourceSimulationThumbnail } from './ResourceSimulationThumbnail';
 
 interface PoseCardProps {
   pose: PoseSummary;
   busy: boolean;
+  selected: boolean;
   deletePending: boolean;
-  gotoDisabledReason: string | null;
-  gotoPending: boolean;
-  runtimeMode: 'DRY RUN' | 'REAL';
   onDeleteCancel: () => void;
   onDeleteConfirm: (pose: PoseSummary) => void;
   onDeleteRequest: (pose: PoseSummary) => void;
   onDuplicate: (pose: PoseSummary) => void;
-  onGotoCancel: () => void;
-  onGotoConfirm: (pose: PoseSummary) => void;
-  onGotoRequest: (pose: PoseSummary) => void;
-  onView: (pose: PoseSummary) => void;
+  onRename: (pose: PoseSummary) => void;
+  onSelect: (pose: PoseSummary) => void;
   onTagSelect: (tag: string) => void;
 }
 
@@ -29,164 +25,108 @@ function number(value: number): string {
 export function PoseCard({
   pose,
   busy,
+  selected,
   deletePending,
-  gotoDisabledReason,
-  gotoPending,
-  runtimeMode,
   onDeleteCancel,
   onDeleteConfirm,
   onDeleteRequest,
   onDuplicate,
-  onGotoCancel,
-  onGotoConfirm,
-  onGotoRequest,
+  onRename,
+  onSelect,
   onTagSelect,
-  onView,
 }: PoseCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const titleId = `pose-title-${pose.id}`;
   const position = pose.tcp_pose.position_mm;
-  const joints = Object.entries(pose.joint_state.positions);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [menuOpen]);
 
   return (
-    <article aria-labelledby={titleId} className="library-card library-card--pose">
-      <header className="library-card__header">
-        <div>
-          <span className="entity-kind">机位 · {pose.robot_variant}</span>
-          <h3 id={titleId}>{pose.name}</h3>
+    <article
+      aria-labelledby={titleId}
+      className={selected ? 'library-card library-card--selected' : 'library-card'}
+      data-resource-id={pose.id}
+    >
+      <button
+        aria-label={`打开机位详情 · ${pose.name}`}
+        aria-pressed={selected}
+        className="library-card__select"
+        onClick={() => onSelect(pose)}
+        type="button"
+      >
+        <div className="library-card__visual">
+          <ResourceSimulationThumbnail
+            label={`${pose.name} 真实姿态仿真缩略图`}
+            pose={pose}
+          />
+          <span>{pose.robot_variant} · {Object.keys(pose.joint_state.positions).length} 关节</span>
         </div>
-        <span className="entity-revision">版本 {pose.revision}</span>
-      </header>
-
-      {pose.description ? <p className="library-card__description">{pose.description}</p> : null}
-
-      <dl className="entity-facts">
-        <div>
-          <dt>捕获时间</dt>
-          <dd>{formatEntityDate(pose.created_at)}</dd>
-        </div>
-        <div>
-          <dt>TCP · {pose.tcp_pose.frame}</dt>
-          <dd>
+        <div className="library-card__copy">
+          <div>
+            <h3 id={titleId}>{pose.name}</h3>
+            <p>机位 · {pose.robot_variant}</p>
+          </div>
+          <small>
             X {number(position.x)} · Y {number(position.y)} · Z {number(position.z)} mm
-          </dd>
+          </small>
         </div>
-        <div className="entity-facts__wide">
-          <dt>关节</dt>
-          <dd className="entity-joints">
-            {joints.map(([jointId, value]) => (
-              <span key={jointId}>
-                {jointId.toUpperCase()} {number(value)} {pose.joint_state.units[jointId]}
-              </span>
-            ))}
-          </dd>
-        </div>
-      </dl>
+      </button>
 
-      <div aria-label={`${pose.name} 的标签`} className="entity-tags">
-        {pose.tags.length > 0 ? (
-          pose.tags.map((tag) => (
-            <button key={tag} onClick={() => onTagSelect(tag)} type="button">
-              {tag}
-            </button>
-          ))
-        ) : (
-          <span>无标签</span>
-        )}
+      <div className="library-card__footer">
+        <div aria-label={`${pose.name} 的标签`} className="entity-tags">
+          {pose.tags.length > 0 ? pose.tags.slice(0, 2).map((tag) => (
+            <button key={tag} onClick={() => onTagSelect(tag)} type="button">{tag}</button>
+          )) : <span>POSE</span>}
+        </div>
+        <div className="resource-more" ref={menuRef}>
+          <button
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-label={`更多操作 · ${pose.name}`}
+            className="resource-more__trigger"
+            disabled={busy}
+            onClick={() => setMenuOpen((open) => !open)}
+            type="button"
+          >
+            <MoreHorizontal aria-hidden="true" />
+          </button>
+          {menuOpen ? (
+            <div aria-label={`${pose.name} 管理操作`} className="resource-more__menu" role="menu">
+              {deletePending ? (
+                <div className="resource-more__confirmation" role="alertdialog" aria-label={`删除“${pose.name}”？`}>
+                  <strong>删除这个机位？</strong>
+                  <span>运动中的内嵌快照不会改变。</span>
+                  <div>
+                    <button onClick={onDeleteCancel} type="button">取消</button>
+                    <button className="is-danger" onClick={() => onDeleteConfirm(pose)} type="button">确认删除</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button onClick={() => { setMenuOpen(false); onRename(pose); }} role="menuitem" type="button"><Pencil aria-hidden="true" />重命名</button>
+                  <button onClick={() => { setMenuOpen(false); onDuplicate(pose); }} role="menuitem" type="button"><Copy aria-hidden="true" />复制</button>
+                  <button className="is-danger" onClick={() => onDeleteRequest(pose)} role="menuitem" type="button"><Trash2 aria-hidden="true" />删除</button>
+                </>
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
-
-      <code className="entity-id" title={pose.id}>ID {pose.id}</code>
-
-      <div className="library-card__actions">
-        <button className="command-button" disabled={busy} onClick={() => onView(pose)} type="button">
-          查看详情
-        </button>
-        <button
-          className="command-button command-button--primary"
-          disabled={busy || gotoDisabledReason !== null}
-          onClick={() => onGotoRequest(pose)}
-          title={gotoDisabledReason ?? `通过已审核的${runtimeMode === 'REAL' ? '真机能力' : '仿真'}入口提交此快照`}
-          type="button"
-        >
-          <Navigation aria-hidden="true" />
-          前往
-        </button>
-        <Link
-          aria-disabled={busy}
-          className="command-button"
-          onClick={(event) => {
-            if (busy) event.preventDefault();
-          }}
-          tabIndex={busy ? -1 : undefined}
-          to={`/studio?pose=${encodeURIComponent(pose.id)}`}
-        >
-          <Plus aria-hidden="true" />
-          添加到编排
-        </Link>
-        <button
-          className="command-button"
-          disabled={busy}
-          onClick={() => onDuplicate(pose)}
-          type="button"
-        >
-          <Copy aria-hidden="true" />
-          复制
-        </button>
-        <button
-          className="command-button command-button--danger"
-          disabled={busy}
-          onClick={() => onDeleteRequest(pose)}
-          type="button"
-        >
-          <Trash2 aria-hidden="true" />
-          删除
-        </button>
-      </div>
-
-      {gotoDisabledReason ? <p className="stage-boundary-note">暂时无法前往 · {gotoDisabledReason}</p> : null}
-
-      {gotoPending ? (
-        <div aria-labelledby={`goto-pose-${pose.id}`} className="goto-confirmation" role="alertdialog">
-          <strong id={`goto-pose-${pose.id}`}>前往“{pose.name}”？</strong>
-          <p>
-            {runtimeMode === 'REAL'
-              ? '通过后端授权的真机关节运动入口提交关节运动。'
-              : '通过唯一的仿真安全入口提交关节运动；不会启用实体硬件。'}
-          </p>
-          <div>
-            <button className="command-button" disabled={busy} onClick={onGotoCancel} type="button">
-              取消
-            </button>
-            <button
-              className="command-button command-button--primary"
-              disabled={busy}
-              onClick={() => onGotoConfirm(pose)}
-              type="button"
-            >
-              确认{runtimeMode === 'REAL' ? '真机' : '仿真'}前往
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {deletePending ? (
-        <div aria-labelledby={`delete-pose-${pose.id}`} className="delete-confirmation" role="alertdialog">
-          <strong id={`delete-pose-${pose.id}`}>删除“{pose.name}”？</strong>
-          <p>已有运动会保留其内嵌快照；这里只删除这个命名机位。</p>
-          <div>
-            <button className="command-button" disabled={busy} onClick={onDeleteCancel} type="button">
-              取消
-            </button>
-            <button
-              className="command-button command-button--danger-solid"
-              disabled={busy}
-              onClick={() => onDeleteConfirm(pose)}
-              type="button"
-            >
-              确认删除
-            </button>
-          </div>
-        </div>
-      ) : null}
     </article>
   );
 }

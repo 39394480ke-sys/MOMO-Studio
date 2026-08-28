@@ -12,6 +12,7 @@ export interface LibraryFilters {
 interface LibraryToolbarProps {
   filters: LibraryFilters;
   disabled: boolean;
+  kindLabel: '机位' | '运动';
   onChange: (filters: LibraryFilters) => void;
 }
 
@@ -26,7 +27,7 @@ const SORT_OPTIONS: Array<{
   { label: '名称 Z–A', sort: 'name', order: 'desc' },
 ];
 
-export function LibraryToolbar({ filters, disabled, onChange }: LibraryToolbarProps) {
+export function LibraryToolbar({ filters, disabled, kindLabel, onChange }: LibraryToolbarProps) {
   const selectedSort = `${filters.sort}:${filters.order}`;
 
   return (
@@ -39,7 +40,7 @@ export function LibraryToolbar({ filters, disabled, onChange }: LibraryToolbarPr
             disabled={disabled}
             maxLength={200}
             onChange={(event) => onChange({ ...filters, search: event.target.value })}
-            placeholder="名称或说明"
+            placeholder={`搜索${kindLabel}名称、说明…`}
             type="search"
             value={filters.search}
           />

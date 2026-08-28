@@ -73,6 +73,11 @@ describe('Stage 7 Vision workspace', () => {
     const view = renderVision();
 
     expect((await screen.findAllByText('SYNTHETIC_ONLY')).length).toBeGreaterThan(0);
+    const sourceSelector = screen.getByRole('combobox', { name: '图像源' });
+    expect(sourceSelector).toBeDisabled();
+    expect(Array.from((sourceSelector as HTMLSelectElement).options).map((option) => option.text))
+      .toEqual(['synthetic-frame-source']);
+    expect(screen.queryByRole('option', { name: /USB|Built-in/i })).not.toBeInTheDocument();
     expect(screen.getAllByText('synthetic-frame-source').length).toBeGreaterThan(0);
     expect(screen.getByText('opencv-haar-face')).toBeVisible();
     expect(screen.getByText('Optional OpenCV provider is not installed.')).toBeVisible();

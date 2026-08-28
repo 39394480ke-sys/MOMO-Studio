@@ -10,6 +10,7 @@ interface MotionParametersPanelProps {
   motionLocked: boolean;
   onChange: <Key extends keyof ControlParameters>(key: Key, value: ControlParameters[Key]) => void;
   onHome: () => Promise<void>;
+  showHome?: boolean;
 }
 
 const parameterFields: Array<{
@@ -37,6 +38,7 @@ export function MotionParametersPanel({
   motionLocked,
   onChange,
   onHome,
+  showHome = true,
 }: MotionParametersPanelProps) {
   const disabled = !availability.allowed || pending !== null || motionLocked;
   const [confirmingHome, setConfirmingHome] = useState(false);
@@ -73,15 +75,15 @@ export function MotionParametersPanel({
           </label>
         ))}
       </div>
-      <button
+      {showHome ? <button
         className="command-button command-button--home"
         disabled={disabled}
         onClick={() => setConfirmingHome(true)}
         type="button"
       >
         <Home aria-hidden="true" /> {pending === 'home' ? '提交中…' : '机器人回零'}
-      </button>
-      {confirmingHome ? (
+      </button> : null}
+      {showHome && confirmingHome ? (
         <div aria-label="确认回零" className="home-confirmation" role="alertdialog">
           <strong>让所有已启用关节回零？</strong>
           <p>此操作仍受仿真运行安全门控保护。</p>
@@ -100,7 +102,7 @@ export function MotionParametersPanel({
           </div>
         </div>
       ) : null}
-      <p className="control-hint">回零需要明确确认，并且仍须通过仿真运行预检。</p>
+      {showHome ? <p className="control-hint">回零需要明确确认，并且仍须通过仿真运行预检。</p> : null}
     </section>
   );
 }

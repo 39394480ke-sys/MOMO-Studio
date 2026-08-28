@@ -41,6 +41,8 @@ Historical Stage reports are evidence records, not the current product guide.
   conflicts, and limits.
 - [Legacy action import](legacy-action-import.md) — explicit-source, default-dry-run
   migration tooling.
+- [Legacy pose import](legacy-pose-import.md) — explicit-variant, default-dry-run named
+  pose migration tooling.
 
 ## Vision
 
@@ -99,6 +101,7 @@ The Legacy source is read-only evidence pinned at commit
 - [Legacy robot-core characterization](legacy-robot-core-characterization.md)
 - [Legacy Kinematics characterization](legacy-kinematics-characterization.md)
 - [Legacy action import](legacy-action-import.md)
+- [Legacy pose import](legacy-pose-import.md)
 
 ## Architecture decision records
 
@@ -125,3 +128,4 @@ Stage reports preserve implementation history and point-in-time evidence:
 - [Commissioning authorization fix](stage-reports/commissioning-authorization-fix.md)
 - [Final pre-merge hardening](stage-reports/final-pre-merge-hardening.md)
 - [Autonomous V1 completion](stage-reports/autonomous-v1-completion.md)
+- [Legacy V2 Library Import](stage-reports/legacy-v2-library-import.md)

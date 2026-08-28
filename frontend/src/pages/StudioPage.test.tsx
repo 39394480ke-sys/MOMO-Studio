@@ -964,6 +964,29 @@ describe('Stage 6 Studio workspace', () => {
     });
   });
 
+  it('traps focus in the add-keyframe drawer and restores its trigger after Escape', async () => {
+    const user = userEvent.setup();
+    mockStudioBackend({ draft: draft(0) });
+    renderStudio();
+
+    const trigger = await screen.findByRole('button', { name: '添加第一个关键帧' });
+    await user.click(trigger);
+    const search = await screen.findByLabelText('搜索已保存机位');
+    const close = screen.getByRole('button', { name: '关闭机位选择器' });
+    const last = screen.getByRole('button', { name: /Saved Pose/ });
+    expect(search).toHaveFocus();
+
+    last.focus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(last).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: '在当前关键帧后添加' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('serializes Pose insertion so its dialog cannot switch workspaces mid-request', async () => {
     const user = userEvent.setup();
     const backend = mockStudioBackend({ deferPose: true });

@@ -1,5 +1,5 @@
-import { AlertTriangle, FolderOpen, Plus, SaveAll, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { AlertTriangle, FolderOpen, Plus, Radio, SaveAll, X } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 
 import type { PoseSummary } from '../../api/types';
 
@@ -9,15 +9,24 @@ interface DialogFrameProps {
   children: React.ReactNode;
   labelledBy: string;
   onClose: () => void;
+  variant?: 'modal' | 'drawer';
 }
 
-function DialogFrame({ children, labelledBy, onClose }: DialogFrameProps) {
+function DialogFrame({ children, labelledBy, onClose, variant = 'modal' }: DialogFrameProps) {
   const dialogRef = useRef<HTMLElement | null>(null);
+  // Capture the trigger during render, before an autoFocus child is committed.
+  // Reading it inside the effect is too late: React may already have focused the
+  // drawer input, leaving no stable element to restore after Escape.
+  const returnFocusRef = useRef<HTMLElement | null>(
+    typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  useLayoutEffect(() => {
+    const previousFocus = returnFocusRef.current;
     const dialog = dialogRef.current;
     const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>(
       'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
@@ -54,11 +63,11 @@ function DialogFrame({ children, labelledBy, onClose }: DialogFrameProps) {
   }, []);
 
   return (
-    <div className="studio-dialog-backdrop" role="presentation" onMouseDown={onClose}>
+    <div className={`studio-dialog-backdrop studio-dialog-backdrop--${variant}`} role="presentation" onMouseDown={onClose}>
       <section
         aria-labelledby={labelledBy}
         aria-modal="true"
-        className="studio-dialog"
+        className={`studio-dialog studio-dialog--${variant}`}
         onMouseDown={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -78,6 +87,7 @@ interface PosePickerProps {
   search: string;
   onChoose: (pose: PoseSummary) => void;
   onClose: () => void;
+  onCapture: () => void;
   onSearchChange: (search: string) => void;
 }
 
@@ -89,10 +99,11 @@ export function StudioPosePicker({
   search,
   onChoose,
   onClose,
+  onCapture,
   onSearchChange,
 }: PosePickerProps) {
   return (
-    <DialogFrame labelledBy="studio-pose-picker-heading" onClose={busy ? () => undefined : onClose}>
+    <DialogFrame labelledBy="studio-pose-picker-heading" onClose={busy ? () => undefined : onClose} variant="drawer">
       <header className="studio-dialog__header">
         <div>
           <p className="section-kicker">机位资源库</p>
@@ -102,6 +113,20 @@ export function StudioPosePicker({
           <X aria-hidden="true" />
         </button>
       </header>
+      <button
+        className="studio-capture-card"
+        disabled={busy}
+        onClick={onCapture}
+        type="button"
+      >
+        <span className="studio-capture-card__icon"><Radio aria-hidden="true" /></span>
+        <span>
+          <strong>捕获当前姿态</strong>
+          <small>通过后端统一状态快照入口添加；不会直接读取或控制硬件。</small>
+        </span>
+        <Plus aria-hidden="true" />
+      </button>
+      <div className="studio-drawer-divider"><span>或从机位库选择</span></div>
       <label className="studio-field">
         <span>搜索已保存机位</span>
         <input
