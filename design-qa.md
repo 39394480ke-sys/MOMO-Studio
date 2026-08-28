@@ -136,10 +136,26 @@ Long timelines use local horizontal scrolling inside the Timeline instead of exp
 ## Automated verification
 
 - Studio interaction and state tests cover timing edits, minimum spacing, no crossing, synchronization, simulation playback, no hardware calls, duplicate/delete, hidden zero hold, save, undo, and redo.
-- Frontend: 68 suites, 305/305 tests passed.
+- Frontend: 68 suites, 307/307 tests passed.
 - Backend: 670/670 tests passed.
 - TypeScript, ESLint, Ruff, and mypy passed.
 - Frontend production build and repository `make build` passed. Vite reports only the existing large-chunk advisory.
+
+## Keyframe selection and first-frame refinement
+
+- Source visual truth: `/var/folders/9w/9q5gs7cx7ssgwmhs27wzkxfh0000gn/T/codex-clipboard-f7f8581a-6011-4f8c-a717-b9476e9384c9.png`, 1177×787 px, plus the user's explicit state direction that selected markers are filled and unselected markers are hollow.
+- Browser implementation captures: `keyframe-selected-k2.jpg` and `keyframe-start-mode-disabled.jpg`, each 1471×1250 px from a 1177×1000 CSS viewport. The in-app browser capture surface adds unused right/bottom pixels; comparisons use the rendered page region only.
+- Full-state comparison: `keyframe-selection-state-comparison.jpg`.
+- Focused timeline comparison: `keyframe-marker-focused-comparison.jpg` clearly shows K2 changing from the former hollow/ambiguous state to a purple filled selected marker, while K1, K3, and K4 remain hollow.
+- K1 browser state shows `进入运动模式` as a gray disabled control with `起始关键帧（无进入运动）`; selecting K2 restores the enabled `JOINT`/`CARTESIAN_LINEAR` choices.
+- Fonts and typography, layout rhythm, product tokens, 3D image quality, and surrounding copy remain unchanged. The state-only styling uses the existing MOMO purple, surface, border, and muted-text tokens.
+- Browser interactions tested: K1, K2, and K3 selection; playhead/Inspector synchronization; first-frame disabled mode; non-first-frame enabled mode. Console errors/warnings: 0.
+
+### Comparison history
+
+1. The supplied current-state screenshot used an ambiguous marker convention in which the selected frame was not represented by a clear purple fill.
+2. Marker fills were inverted so hollow means unselected and purple filled means selected; the first-frame mode was given an explicit disabled presentation and truthful empty-state copy.
+3. The post-fix focused comparison has no remaining actionable P0/P1/P2 difference for this requested refinement.
 
 ## Result
 

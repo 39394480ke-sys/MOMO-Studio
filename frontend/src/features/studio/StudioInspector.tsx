@@ -143,19 +143,23 @@ export function StudioInspector({
               </span>
             </label>
             {!transition ? (
-              <p className="studio-field-note" id="first-frame-transition-note">第一个关键帧从 00:00 开始。</p>
+              <p className="studio-field-note" id="first-frame-transition-note">第一个关键帧从 00:00 开始，没有进入过渡。</p>
             ) : null}
 
             <label className="studio-field">
-              <span>运动模式</span>
+              <span>进入运动模式</span>
               <select
                 aria-label="进入过渡的运动模式"
                 disabled={busy || !transition}
                 onChange={(event) => onModeChange(frame.id, event.target.value as MotionMode)}
-                value={transition?.motion_mode ?? 'JOINT'}
+                value={transition?.motion_mode ?? ''}
               >
-                <option value="JOINT">JOINT</option>
-                <option value="CARTESIAN_LINEAR">CARTESIAN_LINEAR</option>
+                {!transition ? <option value="">起始关键帧（无进入运动）</option> : (
+                  <>
+                    <option value="JOINT">JOINT</option>
+                    <option value="CARTESIAN_LINEAR">CARTESIAN_LINEAR</option>
+                  </>
+                )}
               </select>
             </label>
 

@@ -52,6 +52,14 @@ function renderTimeline(options?: {
 }
 
 describe('StudioTimeline product interactions', () => {
+  it('renders the selected keyframe as the only filled marker state', () => {
+    renderTimeline();
+
+    expect(screen.getByRole('button', { name: /关键帧 1：K1/ })).toHaveClass('studio-keyframe-marker--selected');
+    expect(screen.getByRole('button', { name: /关键帧 2：K2/ })).not.toHaveClass('studio-keyframe-marker--selected');
+    expect(screen.getByRole('button', { name: /关键帧 3：K3/ })).not.toHaveClass('studio-keyframe-marker--selected');
+  });
+
   it('moves a keyframe in time with one bounded authoring callback', async () => {
     const user = userEvent.setup();
     const onMoveFrameTime = vi.fn();

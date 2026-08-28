@@ -875,6 +875,23 @@ describe('Stage 6 Studio workspace', () => {
     expect(screen.queryByLabelText(/停留/)).not.toBeInTheDocument();
   });
 
+  it('disables the incoming motion mode for the first keyframe only', async () => {
+    const user = userEvent.setup();
+    mockStudioBackend();
+    renderStudio();
+
+    const first = await screen.findByRole('button', { name: /关键帧 1：Frame A/ });
+    expect(first).toHaveClass('studio-keyframe-marker--selected');
+    const mode = screen.getByLabelText('进入过渡的运动模式');
+    expect(mode).toBeDisabled();
+    expect(mode).toHaveValue('');
+    expect(screen.getByText('起始关键帧（无进入运动）')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: /关键帧 2：Frame B/ }));
+    expect(mode).toBeEnabled();
+    expect(mode).toHaveValue('JOINT');
+  });
+
   it('keeps the timeline simulation-only in Commissioning READ ONLY', async () => {
     const backend = mockStudioBackend();
     renderStudio(

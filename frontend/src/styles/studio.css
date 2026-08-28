@@ -281,6 +281,14 @@
   font-weight: 600;
 }
 
+.studio-field > select:disabled {
+  border-color: var(--color-border);
+  background: var(--color-workspace);
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .studio-number-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -571,15 +579,16 @@
   width: 13px;
   height: 13px;
   display: block;
-  border: 3px solid var(--color-surface);
+  border: 2px solid var(--studio-purple);
   border-radius: 50%;
-  background: var(--studio-purple);
-  box-shadow: 0 0 0 2px var(--studio-purple);
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px rgb(31 35 48 / 10%);
 }
 
 .studio-keyframe-marker--selected .studio-keyframe-dot {
-  background: #fff;
-  box-shadow: 0 0 0 3px var(--studio-purple), 0 4px 12px rgb(118 87 232 / 30%);
+  border-color: var(--studio-purple);
+  background: var(--studio-purple);
+  box-shadow: 0 0 0 3px rgb(118 87 232 / 18%), 0 4px 12px rgb(118 87 232 / 30%);
 }
 
 .studio-keyframe-label {
