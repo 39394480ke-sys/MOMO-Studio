@@ -160,3 +160,63 @@ Long timelines use local horizontal scrolling inside the Timeline instead of exp
 ## Result
 
 final result: passed
+
+---
+
+# Studio Responsive Timeline and Last-frame Extension — Design QA
+
+## Scope and evidence
+
+- Source visual truth: `/var/folders/9w/9q5gs7cx7ssgwmhs27wzkxfh0000gn/T/codex-clipboard-66b07458-601f-4486-81a7-df7420b4cb2b.png` (685×111 px). This is the supplied defect baseline: the ruler ends early and leaves an uncovered region at the right.
+- Implementation URL: `http://127.0.0.1:5173/studio?draft=6ea9af28-08fe-4a3d-a980-083318834a85`.
+- Browser implementation screenshot: `docs/stage-reports/evidence/studio-timeline-responsive/studio-timeline-responsive-1440x960.jpg` (1800×1200 capture surface).
+- Density-normalized implementation: `docs/stage-reports/evidence/studio-timeline-responsive/studio-timeline-responsive-1440x960-normalized.jpg` (1440×960 rendered page region for the 1440×960 CSS viewport).
+- Focused combined comparison: `docs/stage-reports/evidence/studio-timeline-responsive/studio-timeline-reference-vs-implementation.png`. The 685×111 source was normalized to 1147×186; the implementation Timeline was cropped to the same 1147×186 region. The supplied screenshot and current draft have different playhead/keyframe times, so comparison is limited to the requested ruler coverage, track geometry, and right-side space.
+- State: local Vite app, existing four-keyframe V2 draft, DRY_RUN, short-motion non-scrolling state. No hardware route was invoked.
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain for this requested change.
+
+- Fonts and typography: ruler labels, Motion heading, transport labels, frame labels, and segment durations continue to use the existing Studio type scale and hierarchy. Tail-space ticks use the same formatting and optical weight.
+- Spacing and layout rhythm: the ruler and track now cover the complete measured Timeline viewport at both target widths. The final frame retains visible tail space instead of being pinned to the right edge. Border, padding, track height, and surrounding panel rhythm are unchanged.
+- Colors and visual tokens: existing Studio surface, divider, purple selection/segment, muted ruler, and red playhead tokens are preserved. No new visual token drift was introduced.
+- Image quality and asset fidelity: this change adds no image assets and leaves the real URDF/STL viewer unchanged. The comparison uses a lossless focused PNG so ruler and marker alignment remain readable.
+- Copy and content: real draft labels, transition durations, and total motion duration remain data-driven. The ruler may extend beyond the true motion duration to expose the requested tail buffer; transport output and playhead bounds still report the true motion duration.
+- Responsiveness: at 1280×800, the short-motion track measured 998.24 px against a 998 px scroll viewport; at 1440×960 it measured 1176.99 px against a 1177 px viewport. The 1.25 px outer-border remainder is covered by the Timeline panel and produces no visible blank ruler area. Document-level horizontal overflow was 0 px at both sizes.
+- Interaction: real-page keyboard extension moved K4 from 2.60 s to 2.65 s, and one Undo restored it to 2.60 s. Component-level pointer testing covers final-frame edge extension, `requestAnimationFrame` auto-scroll, and a single committed edit. Interior-frame crossing, K1 locking, 0.05 s spacing, Inspector synchronization, and playhead clamping remain covered by regression tests.
+
+## Full-view and focused comparison
+
+The 1440×960 full view confirms that Viewer, Inspector, Timeline, and the app shell retain their established proportions with no page-level horizontal overflow. The focused combined comparison is required because the source only shows the Timeline strip; it clearly shows the defect baseline ending its ruler early, while the implementation carries the ruler and lavender track treatment through the full available width and keeps useful space after the final keyframe.
+
+## Comparison history
+
+1. The supplied baseline exposed a P2 responsive defect: the time ruler was width-bound to the motion duration, leaving a large uncovered right-side region after the page widened, and the last frame had no practical extension area.
+2. Timeline layout was split into measured viewport width, true motion duration, view duration, track width, and pixels-per-second. A bounded 15% tail buffer and minimum readable long-motion density were added.
+3. Last-frame dragging now locks the initial time scale, grows the track near the 40 px right-edge zone, auto-scrolls locally, and commits once on release. The final focused comparison and 1280/1440 browser metrics show no remaining P0/P1/P2 issue.
+
+## Verification
+
+- Browser sizes: 1280×800 and 1440×960, plus live resize between them.
+- Browser console: 0 error-level entries; only Vite/React development messages were present.
+- Frontend tests: 31 files, 312/312 tests passed.
+- Studio Timeline focused tests: 16/16 passed.
+- TypeScript, ESLint, and Vite production build passed. Vite reports only the existing large-chunk advisory.
+- Safety: frontend-only change; no API, schema, PoseSnapshot, calibration, serial, servo, or real-motion boundary changed.
+
+## Follow-up polish
+
+No P3 visual follow-up is required for this scope.
+
+## Implementation checklist
+
+- [x] Short motions fill the measured Timeline viewport.
+- [x] Long motions preserve at least 112 px/s and scroll only inside Timeline.
+- [x] Tail buffer is 15% of motion duration, clamped to 0.5–2 s.
+- [x] Ruler uses view duration; playhead and transport use true motion duration.
+- [x] Final frame can extend later and auto-scrolls at the right edge.
+- [x] Middle-frame ordering, K1 locking, minimum spacing, and atomic history semantics remain intact.
+- [x] No page-level horizontal overflow or console error is present at target sizes.
+
+final result: passed

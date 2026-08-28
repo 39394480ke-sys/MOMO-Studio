@@ -23,6 +23,88 @@ export interface TimelineTimeEdit {
 }
 
 export const MIN_TIMELINE_SPACING_S = 0.05;
+export const TIMELINE_TRACK_PADDING_PX = 56;
+export const MIN_TIMELINE_TRACK_WIDTH_PX = 760;
+export const MIN_TIMELINE_PIXELS_PER_SECOND = 112;
+export const TIMELINE_EDGE_SCROLL_ZONE_PX = 40;
+
+export interface TimelineViewportLayout {
+  motionDurationS: number;
+  pixelsPerSecond: number;
+  trackWidthPx: number;
+  trailingDurationS: number;
+  viewDurationS: number;
+}
+
+export function timelineTrailingDuration(motionDurationS: number): number {
+  const boundedDuration = Math.max(0, Number.isFinite(motionDurationS) ? motionDurationS : 0);
+  return Math.min(2, Math.max(0.5, boundedDuration * 0.15));
+}
+
+/**
+ * Short motions expand to the available viewport. Long motions retain a
+ * readable time density and overflow only inside the timeline scroller.
+ * A locked scale keeps last-frame dragging visually stable while the track
+ * grows beneath the pointer.
+ */
+export function timelineViewportLayout(
+  motionDurationS: number,
+  viewportWidthPx: number,
+  lockedPixelsPerSecond?: number,
+): TimelineViewportLayout {
+  const motionDuration = Math.max(0.05, Number.isFinite(motionDurationS) ? motionDurationS : 0.05);
+  const viewportWidth = Math.max(
+    1,
+    Number.isFinite(viewportWidthPx) ? viewportWidthPx : 0,
+  );
+  const trailingDuration = timelineTrailingDuration(motionDuration);
+  const minimumViewDuration = Math.max(1, motionDuration + trailingDuration);
+  const usableViewportWidth = Math.max(1, viewportWidth - TIMELINE_TRACK_PADDING_PX * 2);
+
+  if (lockedPixelsPerSecond !== undefined && lockedPixelsPerSecond > 0) {
+    const pixelsPerSecond = lockedPixelsPerSecond;
+    const viewDuration = Math.max(minimumViewDuration, usableViewportWidth / pixelsPerSecond);
+    const trackWidth = Math.max(
+      viewportWidth,
+      TIMELINE_TRACK_PADDING_PX * 2 + viewDuration * pixelsPerSecond,
+    );
+    return {
+      motionDurationS: motionDuration,
+      pixelsPerSecond,
+      trackWidthPx: trackWidth,
+      trailingDurationS: viewDuration - motionDuration,
+      viewDurationS: viewDuration,
+    };
+  }
+
+  const readableTrackWidth = TIMELINE_TRACK_PADDING_PX * 2
+    + minimumViewDuration * MIN_TIMELINE_PIXELS_PER_SECOND;
+  const trackWidth = Math.max(viewportWidth, readableTrackWidth);
+  const pixelsPerSecond = Math.max(
+    MIN_TIMELINE_PIXELS_PER_SECOND,
+    (trackWidth - TIMELINE_TRACK_PADDING_PX * 2) / minimumViewDuration,
+  );
+  const viewDuration = (trackWidth - TIMELINE_TRACK_PADDING_PX * 2) / pixelsPerSecond;
+  return {
+    motionDurationS: motionDuration,
+    pixelsPerSecond,
+    trackWidthPx: trackWidth,
+    trailingDurationS: viewDuration - motionDuration,
+    viewDurationS: viewDuration,
+  };
+}
+
+export function timelineEdgeScrollSpeed(
+  clientX: number,
+  viewportRightPx: number,
+  edgeZonePx = TIMELINE_EDGE_SCROLL_ZONE_PX,
+): number {
+  if (!Number.isFinite(clientX) || !Number.isFinite(viewportRightPx) || edgeZonePx <= 0) return 0;
+  const penetration = clientX - (viewportRightPx - edgeZonePx);
+  if (penetration <= 0) return 0;
+  const intensity = Math.min(1.5, penetration / edgeZonePx);
+  return 2 + 14 * intensity;
+}
 
 export function timelineData(frames: MotionKeyframe[]): {
   duration: number;
@@ -143,10 +225,11 @@ export function formatTimelineTime(timeS: number): string {
 export function timeFromTrackPointer(
   clientX: number,
   trackLeft: number,
-  trackWidth: number,
-  durationS: number,
+  pixelsPerSecond: number,
+  maximumTimeS: number,
 ): number {
-  const usableWidth = Math.max(1, trackWidth - 168);
-  const ratio = Math.min(1, Math.max(0, (clientX - trackLeft - 84) / usableWidth));
-  return Math.round(ratio * Math.max(0, durationS) * 100) / 100;
+  const rawTime = (clientX - trackLeft - TIMELINE_TRACK_PADDING_PX)
+    / Math.max(1, pixelsPerSecond);
+  const bounded = Math.min(Math.max(0, maximumTimeS), Math.max(0, rawTime));
+  return Math.round(bounded * 100) / 100;
 }

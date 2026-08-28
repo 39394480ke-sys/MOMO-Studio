@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,7 +13,12 @@ import type { MotionKeyframe } from '../../api/types';
 import {
   formatTimelineTime,
   framesWithTimelineTimeEdit,
+  MIN_TIMELINE_TRACK_WIDTH_PX,
+  TIMELINE_TRACK_PADDING_PX,
+  timelineEdgeScrollSpeed,
   timelineData,
+  timelineViewportLayout,
+  timeFromTrackPointer,
   timelineTimeEdit,
 } from './studioTimelineMath';
 
@@ -35,12 +41,13 @@ interface StudioTimelineProps {
 }
 
 interface FrameDrag {
+  clientX: number;
   frameId: string;
+  isLast: boolean;
+  pixelsPerSecond: number;
   pointerId: number;
   timeS: number;
 }
-
-const TRACK_PADDING_PX = 56;
 
 function boundedPlayhead(playheadS: number, durationS: number): number {
   return Math.min(Math.max(0, durationS), Math.max(0, playheadS));
@@ -64,10 +71,15 @@ export function StudioTimeline({
   onSelect,
 }: StudioTimelineProps) {
   const [frameDrag, setFrameDrag] = useState<FrameDrag | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(MIN_TIMELINE_TRACK_WIDTH_PX);
   const frameDragRef = useRef<FrameDrag | null>(null);
+  const framesRef = useRef(frames);
+  const onPlayheadChangeRef = useRef(onPlayheadChange);
   const playheadPointerRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
+  framesRef.current = frames;
+  onPlayheadChangeRef.current = onPlayheadChange;
   const draftEdit = useMemo(
     () => frameDrag ? timelineTimeEdit(frames, frameDrag.frameId, frameDrag.timeS) : null,
     [frameDrag, frames],
@@ -77,18 +89,52 @@ export function StudioTimeline({
     [draftEdit, frames],
   );
   const data = useMemo(() => timelineData(displayFrames), [displayFrames]);
-  const totalDuration = Math.max(data.duration, 0.05);
-  const trackWidth = Math.max(760, TRACK_PADDING_PX * 2 + totalDuration * 112);
-  const usableWidth = trackWidth - TRACK_PADDING_PX * 2;
-  const pixelsPerSecond = usableWidth / totalDuration;
+  const layout = useMemo(
+    () => timelineViewportLayout(
+      data.duration,
+      viewportWidth,
+      frameDrag?.isLast ? frameDrag.pixelsPerSecond : undefined,
+    ),
+    [data.duration, frameDrag?.isLast, frameDrag?.pixelsPerSecond, viewportWidth],
+  );
+  const motionDuration = layout.motionDurationS;
+  const viewDuration = layout.viewDurationS;
+  const trackWidth = layout.trackWidthPx;
+  const pixelsPerSecond = layout.pixelsPerSecond;
 
-  const leftForTime = (timeS: number) => TRACK_PADDING_PX + timeS * pixelsPerSecond;
-  const timeFromPointer = (clientX: number) => {
+  const leftForTime = (timeS: number) => TIMELINE_TRACK_PADDING_PX + timeS * pixelsPerSecond;
+  const timeFromPointer = (
+    clientX: number,
+    maximumTimeS: number,
+    scale = pixelsPerSecond,
+  ) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect) return 0;
-    const localX = clientX - rect.left - TRACK_PADDING_PX;
-    return Math.round(Math.min(totalDuration, Math.max(0, localX / pixelsPerSecond)) * 100) / 100;
+    return timeFromTrackPointer(clientX, rect.left, scale, maximumTimeS);
   };
+
+  const hasFrames = frames.length > 0;
+
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const updateWidth = (nextWidth = node.clientWidth) => {
+      if (nextWidth <= 0) return;
+      setViewportWidth((current) => Math.abs(current - nextWidth) >= 1 ? nextWidth : current);
+    };
+    updateWidth();
+    if (typeof ResizeObserver === 'undefined') {
+      const onResize = () => updateWidth();
+      window.addEventListener('resize', onResize);
+      return () => window.removeEventListener('resize', onResize);
+    }
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? node.clientWidth;
+      updateWidth(width);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasFrames]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -96,6 +142,42 @@ export function StudioTimeline({
     const intended = Math.max(0, initialScrollS * pixelsPerSecond);
     if (Math.abs(node.scrollLeft - intended) > 2) node.scrollLeft = intended;
   }, [initialScrollS, pixelsPerSecond]);
+
+  useEffect(() => {
+    if (!frameDrag?.isLast) return;
+    let animationFrame = 0;
+    const tick = () => {
+      const drag = frameDragRef.current;
+      const scroll = scrollRef.current;
+      const track = trackRef.current;
+      if (!drag?.isLast || !scroll || !track) return;
+      const viewportRect = scroll.getBoundingClientRect();
+      const speedPx = timelineEdgeScrollSpeed(drag.clientX, viewportRect.right);
+      if (speedPx > 0) {
+        const pointerTime = timeFromTrackPointer(
+          drag.clientX,
+          track.getBoundingClientRect().left,
+          drag.pixelsPerSecond,
+          Number.MAX_SAFE_INTEGER,
+        );
+        const timing = timelineTimeEdit(
+          framesRef.current,
+          drag.frameId,
+          Math.max(pointerTime, drag.timeS + speedPx / drag.pixelsPerSecond),
+        );
+        if (timing && timing.timeS > drag.timeS) {
+          const next = { ...drag, timeS: timing.timeS };
+          frameDragRef.current = next;
+          setFrameDrag(next);
+          onPlayheadChangeRef.current(timing.timeS);
+        }
+        scroll.scrollLeft += speedPx;
+      }
+      animationFrame = window.requestAnimationFrame(tick);
+    };
+    animationFrame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [frameDrag?.frameId, frameDrag?.isLast]);
 
   const selectFrame = (frameId: string, timeS: number) => {
     onSelect(frameId);
@@ -112,7 +194,14 @@ export function StudioTimeline({
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const drag = { frameId, pointerId: event.pointerId, timeS };
+    const drag = {
+      clientX: event.clientX,
+      frameId,
+      isLast: index === frames.length - 1,
+      pixelsPerSecond,
+      pointerId: event.pointerId,
+      timeS,
+    };
     frameDragRef.current = drag;
     setFrameDrag(drag);
     selectFrame(frameId, timeS);
@@ -122,9 +211,15 @@ export function StudioTimeline({
     const drag = frameDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const timing = timelineTimeEdit(frames, drag.frameId, timeFromPointer(event.clientX));
+    const moved = { ...drag, clientX: event.clientX };
+    frameDragRef.current = moved;
+    const timing = timelineTimeEdit(
+      frames,
+      drag.frameId,
+      timeFromPointer(event.clientX, Number.MAX_SAFE_INTEGER, drag.pixelsPerSecond),
+    );
     if (!timing) return;
-    const next = { ...drag, timeS: timing.timeS };
+    const next = { ...moved, timeS: timing.timeS };
     frameDragRef.current = next;
     setFrameDrag(next);
     onPlayheadChange(timing.timeS);
@@ -163,7 +258,7 @@ export function StudioTimeline({
   };
 
   const setPlayheadFromPointer = (event: PointerEvent<HTMLDivElement>) => {
-    onPlayheadChange(timeFromPointer(event.clientX));
+    onPlayheadChange(timeFromPointer(event.clientX, motionDuration));
   };
 
   const beginPlayheadDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -177,7 +272,7 @@ export function StudioTimeline({
   };
 
   const tickCount = 5;
-  const currentTime = boundedPlayhead(playheadS, totalDuration);
+  const currentTime = boundedPlayhead(playheadS, motionDuration);
 
   return (
     <section aria-busy={disabled} aria-labelledby="studio-timeline-heading" className="studio-timeline-panel">
@@ -193,7 +288,7 @@ export function StudioTimeline({
           <button aria-label="暂停仿真预览" disabled={disabled || !isPlaying} onClick={onPause} type="button">
             <Pause aria-hidden="true" /> <span>Pause</span>
           </button>
-          <output aria-live="polite">{formatTimelineTime(currentTime)} / {formatTimelineTime(totalDuration)}</output>
+          <output aria-live="polite">{formatTimelineTime(currentTime)} / {formatTimelineTime(motionDuration)}</output>
         </div>
         <button className="command-button studio-add-keyframe" disabled={disabled || frameLimitReached} onClick={onAdd} type="button">
           <Plus aria-hidden="true" /> 添加关键帧
@@ -232,11 +327,11 @@ export function StudioTimeline({
               if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId);
             }}
             ref={trackRef}
-            style={{ width: `${trackWidth}px` }}
+            style={{ minWidth: '100%', width: `${trackWidth}px` }}
           >
             <div className="studio-time-ruler" aria-hidden="true">
               {Array.from({ length: tickCount + 1 }, (_, index) => {
-                const timeS = totalDuration * index / tickCount;
+                const timeS = viewDuration * index / tickCount;
                 return <span key={index} style={{ left: `${leftForTime(timeS)}px` }}>{formatTimelineTime(timeS)}</span>;
               })}
             </div>
@@ -256,7 +351,7 @@ export function StudioTimeline({
               })}
             </div>
 
-            <div aria-label="拖动时间轴播放头" aria-valuemax={totalDuration} aria-valuemin={0} aria-valuenow={currentTime} className="studio-playhead" role="slider" style={{ left: `${leftForTime(currentTime)}px` }} tabIndex={0}>
+            <div aria-label="拖动时间轴播放头" aria-valuemax={motionDuration} aria-valuemin={0} aria-valuenow={currentTime} className="studio-playhead" role="slider" style={{ left: `${leftForTime(currentTime)}px` }} tabIndex={0}>
               <span>{formatTimelineTime(currentTime)}</span>
             </div>
 
