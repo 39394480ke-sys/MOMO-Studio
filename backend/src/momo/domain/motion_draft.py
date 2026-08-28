@@ -183,8 +183,6 @@ class MotionDraft(BaseModel):
             raise ValueError("source_motion_id and source_motion_revision must be set together")
         if self.source_metadata is not None and self.source_motion_id is None:
             raise ValueError("source_metadata requires a coherent source Motion identity")
-        if self.trusted_legacy_snapshot_sha256 and self.source_metadata is None:
-            raise ValueError("trusted Legacy snapshots require typed source_metadata")
         if self.updated_at < self.created_at:
             raise ValueError("updated_at cannot be earlier than created_at")
 

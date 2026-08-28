@@ -135,14 +135,18 @@ def test_imported_snapshot_trust_registry_is_bounded_unique_and_round_trips() ->
             source_metadata=metadata,
             trusted_legacy_snapshot_sha256=[digest, digest],
         )
-    with pytest.raises(ValidationError, match="require typed source_metadata"):
-        MotionDraft(
-            name="Unowned registry",
-            robot_variant=RobotVariant.V2,
-            source_motion_id=source_id,
-            source_motion_revision=1,
-            trusted_legacy_snapshot_sha256=[digest],
-        )
+    library_composition = MotionDraft(
+        name="Server-recognized Legacy Pose composition",
+        robot_variant=RobotVariant.V2,
+        trusted_legacy_snapshot_sha256=[digest],
+        keyframes=[MotionKeyframe(label="Imported Pose", pose_snapshot=imported_snapshot)],
+    )
+    assert library_composition.source_metadata is None
+    assert library_composition.trusted_legacy_snapshot_sha256 == [digest]
+    assert (
+        MotionDraft.model_validate(library_composition.model_dump(mode="python"))
+        == library_composition
+    )
 
 
 def test_default_edge_metadata_must_match_a_current_exact_editor_default() -> None:

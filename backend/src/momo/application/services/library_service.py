@@ -422,13 +422,10 @@ class LibraryApplicationService:
         self._reject_client_owned_provenance(
             tuple(keyframe.pose_snapshot for keyframe in motion.keyframes)
         )
-        candidate_trust = (
-            trusted_legacy_snapshot_sha256 if motion.source_metadata is not None else frozenset()
-        )
         for keyframe in motion.keyframes:
             await self._validate_client_snapshot(
                 keyframe.pose_snapshot,
-                trusted_legacy_snapshot_sha256=candidate_trust,
+                trusted_legacy_snapshot_sha256=trusted_legacy_snapshot_sha256,
             )
         async with self._motion_mutation_lock:
             if expected_revision is None:

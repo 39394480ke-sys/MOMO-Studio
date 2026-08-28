@@ -72,8 +72,8 @@ def draft_from_data(data: object) -> MotionDraft:
 def trusted_legacy_snapshot_digests(
     draft: MotionDraft,
 ) -> TrustedLegacySnapshotDigests:
-    if draft.source_metadata is None:
-        return frozenset()
+    # The registry is server-owned and may originate either from an imported Motion or
+    # from exact Legacy Pose entities selected in Studio. API commands cannot inject it.
     return frozenset(draft.trusted_legacy_snapshot_sha256)
 
 

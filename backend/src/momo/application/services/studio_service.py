@@ -135,9 +135,13 @@ class StudioApplicationService:
         return draft
 
     async def create_draft(self, request: MotionDraftCreateCommand) -> MotionDraft:
+        trusted_legacy_snapshot_sha256 = await self._trusted_library_legacy_snapshots(
+            request.keyframes,
+            inherited=frozenset(),
+        )
         await self._validate_client_keyframes(
             request.keyframes,
-            trusted_legacy_snapshot_sha256=frozenset(),
+            trusted_legacy_snapshot_sha256=trusted_legacy_snapshot_sha256,
         )
         now = self.clock.now()
         draft = draft_from_data(
@@ -148,6 +152,7 @@ class StudioApplicationService:
                 "keyframes": request.keyframes,
                 "playback_defaults": request.playback_defaults,
                 "tags": request.tags,
+                "trusted_legacy_snapshot_sha256": sorted(trusted_legacy_snapshot_sha256),
                 "editor_metadata": request.editor_metadata,
                 "created_at": now,
                 "updated_at": now,
@@ -200,9 +205,13 @@ class StudioApplicationService:
             self._require_revision(
                 current.revision, request.expected_revision, entity="MotionDraft"
             )
+            trusted_legacy_snapshot_sha256 = await self._trusted_library_legacy_snapshots(
+                request.keyframes,
+                inherited=trusted_legacy_snapshot_digests(current),
+            )
             await self._validate_client_keyframes(
                 request.keyframes,
-                trusted_legacy_snapshot_sha256=trusted_legacy_snapshot_digests(current),
+                trusted_legacy_snapshot_sha256=trusted_legacy_snapshot_sha256,
             )
             updated = draft_from_data(
                 {
@@ -216,7 +225,7 @@ class StudioApplicationService:
                     "playback_defaults": request.playback_defaults,
                     "tags": request.tags,
                     "source_metadata": current.source_metadata,
-                    "trusted_legacy_snapshot_sha256": (current.trusted_legacy_snapshot_sha256),
+                    "trusted_legacy_snapshot_sha256": sorted(trusted_legacy_snapshot_sha256),
                     "editor_metadata": request.editor_metadata,
                     "revision": current.revision + 1,
                     "created_at": current.created_at,
@@ -561,6 +570,37 @@ class StudioApplicationService:
                     "Draft snapshot is incompatible with its declared robot contract",
                     details={"checks": sorted(set(checks))},
                 )
+
+    async def _trusted_library_legacy_snapshots(
+        self,
+        keyframes: Sequence[MotionKeyframe],
+        *,
+        inherited: TrustedLegacySnapshotDigests,
+    ) -> TrustedLegacySnapshotDigests:
+        """Trust exact null-sequence snapshots already owned by the Legacy Pose library.
+
+        A client cannot extend the registry directly. Recognition requires the keyframe's
+        provenance UUID to resolve to a server-side Pose tagged by the reviewed importer,
+        and the embedded immutable snapshot must remain byte-semantically identical.
+        Runtime contract, joint, fingerprint, and recomputed-TCP checks still run below.
+        """
+
+        trusted = set(inherited)
+        for keyframe in keyframes:
+            snapshot = keyframe.pose_snapshot
+            if snapshot.state_sequence is not None:
+                continue
+            digest = legacy_snapshot_sha256(snapshot)
+            if digest in trusted or keyframe.source_pose_id is None:
+                continue
+            try:
+                source_pose = await self.library.get_pose(keyframe.source_pose_id)
+            except EntityNotFoundError:
+                continue
+            if "legacy-import" not in source_pose.tags or source_pose.snapshot != snapshot:
+                continue
+            trusted.add(digest)
+        return frozenset(trusted)
 
     @staticmethod
     def _require_revision(

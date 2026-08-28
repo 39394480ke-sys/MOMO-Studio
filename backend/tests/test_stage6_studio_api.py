@@ -12,6 +12,8 @@ import pytest
 
 from momo.domain.enums import MotionCommandSource
 from momo.domain.motion import LegacyImportMetadata, Motion
+from momo.domain.motion_draft import legacy_snapshot_sha256
+from momo.domain.pose import Pose, PoseSnapshot
 from tests.stage4_helpers import api_request
 from tests.stage6_helpers import make_stage6_app
 
@@ -1381,6 +1383,85 @@ def test_imported_draft_exact_snapshot_trust_and_provenance_survive_save_flows(
             saved_as.json()["draft"]["trusted_legacy_snapshot_sha256"]
             == draft["trusted_legacy_snapshot_sha256"]
         )
+
+    asyncio.run(scenario())
+
+
+def test_exact_imported_library_pose_is_server_trusted_when_added_to_studio(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        app = make_stage6_app(tmp_path)
+        captured = await connect_and_capture(app)
+        legacy_snapshot_data = deepcopy(captured)
+        legacy_snapshot_data["state_sequence"] = None
+        legacy_snapshot = PoseSnapshot.model_validate(legacy_snapshot_data)
+        source_pose = Pose(
+            name="Reviewed Legacy V2 Pose",
+            description="Imported by the reviewed Legacy Pose workflow.",
+            snapshot=legacy_snapshot,
+            tags=["legacy-import", "legacy-v2"],
+        )
+        await app.state.library_service.poses.save(source_pose)
+
+        created = await api_request(
+            app,
+            "POST",
+            "/api/v1/studio/drafts",
+            json_data=create_body(name="Legacy Pose composition"),
+        )
+        assert created.status_code == 201, created.text
+        draft = created.json()
+        frames = keyframes(legacy_snapshot.model_dump(mode="json"))
+        for frame in frames:
+            frame["source_pose_id"] = str(source_pose.id)
+
+        autosaved = await api_request(
+            app,
+            "PUT",
+            f"/api/v1/studio/drafts/{draft['id']}",
+            json_data=autosave_body(draft, keyframes=frames),
+        )
+        assert autosaved.status_code == 200, autosaved.text
+        trusted_draft = autosaved.json()
+        assert trusted_draft["trusted_legacy_snapshot_sha256"] == [
+            legacy_snapshot_sha256(legacy_snapshot)
+        ]
+
+        altered_frames = deepcopy(frames)
+        altered_frames[0]["pose_snapshot"]["captured_at"] = "2026-01-01T00:00:00Z"
+        altered = await api_request(
+            app,
+            "PUT",
+            f"/api/v1/studio/drafts/{draft['id']}",
+            json_data=autosave_body(trusted_draft, keyframes=altered_frames),
+        )
+        assert altered.status_code == 422
+        assert "state_sequence" in altered.json()["details"]["checks"]
+
+        compiled = await api_request(
+            app,
+            "POST",
+            f"/api/v1/studio/drafts/{draft['id']}/compile",
+            json_data={"expected_revision": trusted_draft["revision"]},
+        )
+        assert compiled.status_code == 200, compiled.text
+        assert compiled.json()["preflight"]["passed"] is True
+
+        saved_as = await api_request(
+            app,
+            "POST",
+            f"/api/v1/studio/drafts/{draft['id']}/save-as",
+            json_data={
+                "expected_revision": trusted_draft["revision"],
+                "name": "Legacy Pose composition",
+            },
+        )
+        assert saved_as.status_code == 201, saved_as.text
+        assert saved_as.json()["motion"]["source_metadata"] is None
+        assert saved_as.json()["draft"]["trusted_legacy_snapshot_sha256"] == [
+            legacy_snapshot_sha256(legacy_snapshot)
+        ]
 
     asyncio.run(scenario())
 

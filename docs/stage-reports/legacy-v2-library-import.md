@@ -55,6 +55,23 @@ sequence, hardware snapshot, and calibration fingerprint.
 Runtime entity files remain under ignored `data/poses` and `data/motions`; they are not
 committed product fixtures.
 
+## Studio trust decision
+
+The reviewed `legacy-import` Pose entities may be selected as Studio keyframes even
+though their immutable snapshots intentionally have `state_sequence=null`. Trust is
+granted only by the backend when `source_pose_id` resolves to a server-owned Pose with
+the `legacy-import` tag and the embedded snapshot is exactly identical to that Pose.
+The resulting snapshot digest is stored in the draft's server-owned trust registry;
+clients still cannot submit or extend that registry directly.
+
+This does not relax Profile, Kinematics, enabled-joint/unit, logical-limit, null
+hardware/Calibration, or recomputed-TCP checks. Editing any field of the embedded
+snapshot changes its digest and is rejected. A Studio composition can therefore retain
+Pose-level provenance without pretending to be a single imported Legacy action or
+fabricating a live robot state sequence. Motion Draft schema version remains `1.0.0`;
+the generated JSON Schema is unchanged because this decision narrows service-owned
+trust semantics rather than changing serialized fields.
+
 ## Verification
 
 - Importer regression tests: 22 passed.
