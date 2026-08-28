@@ -37,7 +37,7 @@ class CalibrationService:
                 real_readiness=RealReadiness.BLOCKED_BY_STAGE_POLICY,
                 blocking_reasons=[
                     "No calibration document is configured",
-                    "Stage 2 hardware access policy is DISABLED",
+                    "Stage 3 hardware access policy is DISABLED",
                 ],
             )
 
@@ -62,7 +62,7 @@ class CalibrationService:
         else:
             status = CalibrationStatus.VALID_FOR_DRY_RUN
 
-        reasons = ["Stage 2 hardware access policy is DISABLED"]
+        reasons = ["Stage 3 hardware access policy is DISABLED"]
         if calibration.template:
             reasons.append("Template calibration cannot authorize real hardware")
         if not variant_match:

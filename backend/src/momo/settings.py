@@ -1,13 +1,15 @@
-"""Stage 2 configuration loading with an enforced hardware-access safety gate."""
+"""Configuration loading with independent robot-hardware and camera safety gates."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Self
+from typing import Annotated, Any, Self
+from unicodedata import normalize
+from urllib.parse import urlsplit
 
 import yaml
-from pydantic import field_validator, model_validator
+from pydantic import Field, SecretStr, StringConstraints, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -15,14 +17,62 @@ from pydantic_settings import (
 )
 
 from momo import __version__
+from momo.domain.commissioning import CommissioningSafetyEnvelope
 from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
+from momo.domain.security import is_loopback_host, normalize_origin
+from momo.domain.vision import CameraAccessPolicy
+
+_STORAGE_DIRECTORY_FIELDS = (
+    "runtime_state_directory",
+    "profile_directory",
+    "calibration_directory",
+    "real_calibration_directory",
+    "field_acceptance_directory",
+    "commissioning_test_evidence_directory",
+    "kinematics_verification_directory",
+    "kinematics_model_directory",
+    "pose_directory",
+    "motion_library_directory",
+    "motion_draft_directory",
+    "backup_restore_journal_directory",
+    "audit_directory",
+)
+
+
+def _portable_path_key(path: Path) -> tuple[str, ...]:
+    """Conservatively identify aliases on the supported macOS filesystem.
+
+    APFS is commonly case-insensitive and Unicode-normalizing. Rejecting those
+    aliases on every platform is safer than allowing two repositories to
+    quarantine each other's documents after their directories are created.
+    """
+
+    return tuple(normalize("NFC", part).casefold() for part in path.parts)
+
+
+def _storage_paths_overlap(left: Path, right: Path) -> bool:
+    left_key = _portable_path_key(left)
+    right_key = _portable_path_key(right)
+    portable_overlap = (
+        left_key == right_key
+        or left_key == right_key[: len(left_key)]
+        or right_key == left_key[: len(right_key)]
+    )
+    if portable_overlap:
+        return True
+    try:
+        return left.exists() and right.exists() and left.samefile(right)
+    except OSError:
+        return False
 
 
 class Settings(BaseSettings):
     """Runtime settings.
 
     Environment variables use the ``MOMO_`` prefix and outrank YAML/init values.
-    Stage 2 rejects both real motion and every non-disabled hardware access policy.
+    Stage 8 accepts capability-bearing values for readiness evaluation, but the
+    composition root remains deny-by-default and no single setting can construct a
+    hardware adapter.
     """
 
     model_config = SettingsConfigDict(
@@ -36,12 +86,104 @@ class Settings(BaseSettings):
     version: str = __version__
     control_mode: ControlMode = ControlMode.DRY_RUN
     real_motion_enabled: bool = False
-    serial_port: str = ""
+    commissioning_motion_test_enabled: bool = False
+    raw_direction_test_enabled: bool = False
+    robot_unit_id: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            max_length=64,
+            pattern=r"^(?:|[A-Za-z0-9][A-Za-z0-9._-]{2,63})$",
+        ),
+    ] = ""
+    software_commit: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=7, max_length=64),
+    ] = "unknown"
+    serial_port: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256)] = ""
     active_robot_variant: RobotVariant = RobotVariant.V2
     hardware_access_policy: HardwareAccessPolicy = HardwareAccessPolicy.DISABLED
+    hardware_startup_enabled: bool = False
+    hardware_local_config_enabled: bool = False
+    feetech_read_only_adapter_enabled: bool = False
+    feetech_raw_direction_adapter_enabled: bool = False
+    feetech_commissioning_motion_adapter_enabled: bool = False
+    servo_ids: tuple[int, ...] = ()
+    servo_protocol: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, max_length=32, pattern=r"^[A-Za-z0-9._-]*$"),
+    ] = ""
+    operator_session_ttl_s: int = Field(default=300, strict=True, ge=30, le=900)
+    camera_access_policy: CameraAccessPolicy = CameraAccessPolicy.SYNTHETIC_ONLY
+    live_camera_device_id: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, max_length=128),
+    ] = ""
+    live_camera_local_config_enabled: bool = False
     runtime_state_directory: str = "data/runtime/robots"
     profile_directory: str = "robot_profiles"
     calibration_directory: str = "calibration/examples"
+    real_calibration_directory: str = "data/calibration"
+    field_acceptance_directory: str = "data/field-acceptance"
+    commissioning_test_evidence_directory: str = "data/commissioning-tests"
+    kinematics_verification_directory: str = "data/kinematics-verification"
+    field_acceptance_checklist_version: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    ] = "1"
+    kinematics_verification_checklist_version: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    ] = "1"
+    commissioning_safety_envelope: CommissioningSafetyEnvelope = Field(
+        default_factory=CommissioningSafetyEnvelope
+    )
+    kinematics_model_directory: str = "kinematics_models"
+    pose_directory: str = "data/poses"
+    motion_library_directory: str = "data/motions"
+    motion_draft_directory: str = "data/drafts"
+    backup_restore_journal_directory: str = "data/restore"
+    audit_directory: str = "data/audit"
+    motion_update_hz: float = Field(default=25.0, ge=20, le=100)
+    jog_lease_ttl_ms: int = Field(default=400, ge=250, le=500)
+    robot_state_freshness_limit_s: float = Field(default=5.0, gt=0, le=60)
+    vision_source_id: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+        ),
+    ] = "synthetic-stage7"
+    vision_frame_width_px: int = Field(default=640, strict=True, ge=64, le=1280)
+    vision_frame_height_px: int = Field(default=360, strict=True, ge=64, le=720)
+    vision_max_fps: float = Field(default=12.0, gt=0.0, le=30.0)
+    vision_max_stream_clients: int = Field(default=4, strict=True, ge=1, le=16)
+    server_host: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = (
+        "127.0.0.1"
+    )
+    server_port: int = Field(default=8000, strict=True, ge=1024, le=65535)
+    lan_enabled: bool = False
+    lan_auth_token: SecretStr = Field(default_factory=lambda: SecretStr(""), repr=False)
+    local_allowed_origins: tuple[str, ...] = (
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    )
+    lan_allowed_origins: tuple[str, ...] = ()
+    api_body_max_bytes: int = Field(
+        default=32 * 1024 * 1024,
+        strict=True,
+        ge=1024,
+        le=32 * 1024 * 1024,
+    )
+    control_rate_limit_per_minute: int = Field(default=120, strict=True, ge=1, le=600)
+    serve_frontend_static: bool = False
+    frontend_dist_directory: str = "frontend/dist"
 
     @classmethod
     def settings_customise_sources(
@@ -84,26 +226,113 @@ class Settings(BaseSettings):
             return value.strip().replace("-", "_").replace(" ", "_").upper()
         return value
 
-    @field_validator("real_motion_enabled")
+    @field_validator("camera_access_policy", mode="before")
     @classmethod
-    def enforce_stage_two_safety_lock(cls, value: bool) -> bool:
-        if value:
-            raise ValueError("real_motion_enabled is locked to false throughout Stage 2")
-        return False
+    def normalize_camera_access(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().replace("-", "_").replace(" ", "_").upper()
+        return value
+
+    @field_validator("servo_ids", mode="before")
+    @classmethod
+    def normalize_servo_ids(cls, value: object) -> object:
+        if value is None or value == "":
+            return ()
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @field_validator("servo_ids")
+    @classmethod
+    def validate_servo_ids(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if len(value) > 32:
+            raise ValueError("servo_ids accepts at most 32 explicit IDs")
+        if any(isinstance(item, bool) or item < 1 or item > 253 for item in value):
+            raise ValueError("servo_ids must contain integers from 1 to 253")
+        if len(set(value)) != len(value):
+            raise ValueError("servo_ids must be unique")
+        return value
+
+    @field_validator("local_allowed_origins", "lan_allowed_origins", mode="before")
+    @classmethod
+    def normalize_origins(cls, value: object) -> object:
+        if value is None or value == "":
+            return ()
+        if isinstance(value, list):
+            return tuple(value)
+        return value
 
     @model_validator(mode="after")
-    def enforce_stage_two_capability_gate(self) -> Self:
-        if self.control_mode is not ControlMode.DRY_RUN:
-            raise ValueError("Stage 2 requires control_mode=DRY_RUN")
-        if self.hardware_access_policy is not HardwareAccessPolicy.DISABLED:
+    def validate_release_candidate_settings(self) -> Self:
+        if self.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED and (
+            not self.live_camera_device_id or not self.live_camera_local_config_enabled
+        ):
             raise ValueError(
-                "Stage 2 requires hardware_access=DISABLED; no hardware adapter is available"
+                "LIVE_CAMERA_ALLOWED requires live_camera_device_id and explicit "
+                "local configuration"
             )
+        if (
+            self.live_camera_local_config_enabled
+            and self.camera_access_policy is not CameraAccessPolicy.LIVE_CAMERA_ALLOWED
+        ):
+            raise ValueError("live_camera_local_config_enabled requires LIVE_CAMERA_ALLOWED")
+        if self.vision_frame_width_px * self.vision_frame_height_px > 1280 * 720:
+            raise ValueError("Vision resolution must not exceed 1280x720 pixels")
+        if self.lan_enabled:
+            token = self.lan_auth_token.get_secret_value()
+            if len(token) < 32:
+                raise ValueError("LAN mode requires a strong token of at least 32 characters")
+            if not self.lan_allowed_origins:
+                raise ValueError("LAN mode requires at least one strict allowed Origin")
+            if any(
+                origin == "*" or "*" in origin or not origin.startswith(("http://", "https://"))
+                for origin in self.lan_allowed_origins
+            ):
+                raise ValueError("LAN Origins must be explicit HTTP(S) origins without wildcards")
+        elif self.server_host not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError("A non-loopback server_host requires explicit LAN mode")
+        if not self.local_allowed_origins or any(
+            not is_loopback_host(urlsplit(normalize_origin(origin)).hostname or "")
+            for origin in self.local_allowed_origins
+        ):
+            raise ValueError("Local Origins must be explicit loopback HTTP origins")
+        root = repository_root()
+        resolved = {
+            field: (
+                path.resolve()
+                if (path := Path(getattr(self, field))).is_absolute()
+                else (root / path).resolve()
+            )
+            for field in _STORAGE_DIRECTORY_FIELDS
+        }
+        fields = tuple(resolved)
+        for index, left_name in enumerate(fields):
+            left = resolved[left_name]
+            for right_name in fields[index + 1 :]:
+                right = resolved[right_name]
+                if _storage_paths_overlap(left, right):
+                    raise ValueError(
+                        "Configured storage directories must not overlap: "
+                        f"{left_name} and {right_name}"
+                    )
+        if self.serve_frontend_static:
+            frontend_path = Path(self.frontend_dist_directory)
+            frontend = (
+                frontend_path.resolve()
+                if frontend_path.is_absolute()
+                else (root / frontend_path).resolve()
+            )
+            for storage_name, storage in resolved.items():
+                if _storage_paths_overlap(frontend, storage):
+                    raise ValueError(
+                        "frontend_dist_directory must not overlap a private storage "
+                        f"directory: {storage_name}"
+                    )
         return self
 
     @property
     def hardware_access(self) -> HardwareAccessPolicy:
-        """Backwards-compatible name used by Stage 2 internal callers."""
+        """Backwards-compatible name used by internal callers."""
 
         return self.hardware_access_policy
 
@@ -134,12 +363,153 @@ def load_settings(
     """Load default YAML, then optional local YAML, then ``MOMO_*`` environment values.
 
     A missing YAML file is allowed for installed packages. The environment remains the
-    final authority except that the Stage 2 safety gates can never be overridden.
+    final authority except that the Stage 3 safety gates can never be overridden.
     """
 
     root = repository_root()
     default_path = default_config_path or root / "config" / "default.yaml"
-    local_path = local_config_path or root / "config" / "local.yaml"
     values = _read_yaml(default_path)
-    values.update(_read_yaml(local_path))
-    return Settings.model_validate(values)
+    local_values: dict[str, Any] = {}
+    # Ignored/local configuration is capability-bearing and must never be inspected
+    # implicitly. A caller must provide the exact path deliberately.
+    if local_config_path is not None:
+        local_values = _read_yaml(local_config_path)
+        values.update(local_values)
+    settings = Settings.model_validate(values)
+    if settings.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED:
+        local_policy = local_values.get("camera_access_policy")
+        normalized_policy = (
+            local_policy.strip().replace("-", "_").replace(" ", "_").upper()
+            if isinstance(local_policy, str)
+            else local_policy
+        )
+        local_device = local_values.get("live_camera_device_id")
+        if (
+            normalized_policy != CameraAccessPolicy.LIVE_CAMERA_ALLOWED.value
+            or local_values.get("live_camera_local_config_enabled") is not True
+            or not isinstance(local_device, str)
+            or local_device.strip() != settings.live_camera_device_id
+        ):
+            raise ValueError(
+                "Live camera capability requires camera policy and device identifier "
+                "from the explicitly supplied local config"
+            )
+    if settings.hardware_local_config_enabled:
+        local_ids = local_values.get("servo_ids")
+        if isinstance(local_ids, list):
+            local_ids = tuple(local_ids)
+        if (
+            local_values.get("hardware_local_config_enabled") is not True
+            or local_values.get("robot_unit_id") != settings.robot_unit_id
+            or local_values.get("serial_port") != settings.serial_port
+            or local_ids != settings.servo_ids
+            or local_values.get("servo_protocol") != settings.servo_protocol
+        ):
+            raise ValueError(
+                "Hardware local authorization requires the exact device, explicit IDs, "
+                "protocol, and robot_unit_id in the explicitly supplied local config"
+            )
+        if not settings.robot_unit_id:
+            raise ValueError("Real hardware local authorization requires robot_unit_id")
+    if settings.feetech_read_only_adapter_enabled:
+        if local_values.get("feetech_read_only_adapter_enabled") is not True:
+            raise ValueError("Feetech read-only adapter must be explicitly enabled by local config")
+        if not settings.hardware_local_config_enabled:
+            raise ValueError("Feetech read-only adapter requires hardware local authorization")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Feetech read-only adapter requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.READ_ONLY:
+            raise ValueError("Feetech read-only adapter requires READ_ONLY hardware policy")
+        if settings.hardware_startup_enabled is not True:
+            raise ValueError("Feetech read-only adapter requires hardware startup authorization")
+        if (
+            settings.real_motion_enabled
+            or settings.commissioning_motion_test_enabled
+            or settings.raw_direction_test_enabled
+        ):
+            raise ValueError("Feetech read-only adapter cannot enable any real motion")
+        if settings.servo_protocol != "STS3215":
+            raise ValueError("Feetech read-only adapter supports only STS3215")
+    if settings.commissioning_motion_test_enabled:
+        if local_values.get("commissioning_motion_test_enabled") is not True:
+            raise ValueError(
+                "Commissioning motion testing must be explicitly enabled by local config"
+            )
+        local_envelope = local_values.get("commissioning_safety_envelope")
+        if local_envelope is not None:
+            # Model validation above enforces the immutable compile-time maxima.
+            CommissioningSafetyEnvelope.model_validate(local_envelope)
+        if (
+            local_values.get("software_commit") != settings.software_commit
+            or settings.software_commit == "unknown"
+        ):
+            raise ValueError(
+                "Commissioning motion testing requires an explicit software_commit "
+                "from local config"
+            )
+    if settings.raw_direction_test_enabled:
+        if local_values.get("raw_direction_test_enabled") is not True:
+            raise ValueError("Raw direction testing must be explicitly enabled by local config")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Raw direction testing requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raise ValueError("Raw direction testing requires FULL hardware policy")
+        if (
+            local_values.get("software_commit") != settings.software_commit
+            or settings.software_commit == "unknown"
+        ):
+            raise ValueError(
+                "Raw direction testing requires an explicit software_commit from local config"
+            )
+    if settings.feetech_raw_direction_adapter_enabled:
+        if local_values.get("feetech_raw_direction_adapter_enabled") is not True:
+            raise ValueError(
+                "Feetech Raw direction adapter must be explicitly enabled by local config"
+            )
+        if not settings.hardware_local_config_enabled:
+            raise ValueError("Feetech Raw direction adapter requires local hardware authorization")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Feetech Raw direction adapter requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raise ValueError("Feetech Raw direction adapter requires FULL hardware policy")
+        if not settings.hardware_startup_enabled or not settings.raw_direction_test_enabled:
+            raise ValueError(
+                "Feetech Raw direction adapter requires startup and Raw test authorization"
+            )
+        if settings.real_motion_enabled or settings.commissioning_motion_test_enabled:
+            raise ValueError(
+                "Feetech Raw direction adapter cannot enable production or commissioning motion"
+            )
+        if settings.feetech_read_only_adapter_enabled:
+            raise ValueError("Only one Feetech adapter mode may be enabled at a time")
+        if settings.servo_protocol != "STS3215":
+            raise ValueError("Feetech Raw direction adapter supports only STS3215")
+    if settings.feetech_commissioning_motion_adapter_enabled:
+        if local_values.get("feetech_commissioning_motion_adapter_enabled") is not True:
+            raise ValueError(
+                "Feetech commissioning adapter must be explicitly enabled by local config"
+            )
+        if not settings.hardware_local_config_enabled:
+            raise ValueError("Feetech commissioning adapter requires local hardware authorization")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Feetech commissioning adapter requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raise ValueError("Feetech commissioning adapter requires FULL hardware policy")
+        if not settings.hardware_startup_enabled or not settings.commissioning_motion_test_enabled:
+            raise ValueError(
+                "Feetech commissioning adapter requires startup and commissioning authorization"
+            )
+        if settings.real_motion_enabled or settings.raw_direction_test_enabled:
+            raise ValueError(
+                "Feetech commissioning adapter cannot enable production or Raw-direction motion"
+            )
+        if (
+            settings.feetech_read_only_adapter_enabled
+            or settings.feetech_raw_direction_adapter_enabled
+        ):
+            raise ValueError("Only one Feetech adapter mode may be enabled at a time")
+        if settings.servo_protocol != "STS3215":
+            raise ValueError("Feetech commissioning adapter supports only STS3215")
+    if settings.lan_enabled and local_values.get("lan_enabled") is not True:
+        raise ValueError("LAN mode must be explicitly enabled by the supplied local config")
+    return settings

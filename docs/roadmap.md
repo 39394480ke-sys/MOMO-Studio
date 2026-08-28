@@ -1,49 +1,85 @@
-# Roadmap
+# MOMO Studio roadmap
 
-This roadmap records sequencing and safety gates. A named future capability is not present until its own Stage implements, tests, documents, and commits it.
+This roadmap starts at the `0.1.0-rc1` software candidate. It does not authorize Real
+hardware, expand the accepted first-version scope, or turn future ideas into current
+product commitments. V1 and V2 are robot variants, not software versions.
 
-## Stage 1 - Foundation
+## v0.1.0-rc1 — COMPLETE: software candidate
 
-Established the independent repository, web-first shell, domain/ports/adapters direction, product and variant contracts, immutable Pose Snapshot/Motion schemas, safe configuration, Legacy audit, initial schemas, and reproducible developer commands. It exposed metadata only and no robot lifecycle or motion behavior.
+The candidate includes the web-first local application, V1/V2 Dry Run Control, FK/IK,
+Pose/Motion Library, trajectory compiler and Playback, Studio timeline, Synthetic Vision
+Follow, and the fail-closed commissioning/Real-hardware software boundary.
 
-## Stage 2 - Robot Core and Dry Run (current)
+Software evidence is complete for user acceptance. Fake/Bomb/isolated commissioning
+evidence is not physical acceptance. Feetech goal write, Physical Stop/E-stop, Real
+Kinematics, and all capability-specific Real operation remain field gated.
 
-The current Stage is limited to robot identity, state, and safety foundations:
+## Phase A — User software acceptance
 
-- formal V1/V2 Profile repository, source/verification metadata, and stable Profile Fingerprints;
-- immutable Calibration model, read-only example repository, and structured compatibility/readiness diagnostics;
-- characterized logical/raw mapping and dynamic effective-limit calculations using synthetic data;
-- one `primary` active robot, an in-memory Dry Run driver, serialized lifecycle state machine, and monotonic compatible-runtime sequence;
-- safe Connect, idempotent Disconnect, idempotent Dry Run Stop, and disconnected-only V1/V2 switching;
-- atomic untracked runtime-state persistence with strict restore checks and corruption quarantine;
-- REST status/Profile/Calibration/diagnostic/lifecycle APIs with structured errors and `hardware_accessed=false`;
-- Control and Settings pages backed by the API, using 1 Hz polling and explicit offline/stale behavior.
+- Run the [software user-acceptance checklist](user-acceptance-checklist.md).
+- Record `ACCEPT`, `ACCEPT WITH ISSUES`, or `REJECT`.
+- Keep PR #1 Draft until the user decides.
+- Resolve only focused acceptance issues; do not reopen the architecture broadly.
 
-Stage 2 remains `DRY_RUN` with hardware access `DISABLED` and real motion false. It contains no position command, FK, IK, Jog, Move, Home, Pose workflow, Motion workflow, playback, WebSocket, camera, real hardware adapter, Calibration write, Fleet, or coordination feature.
+## Phase B — Feetech adapter verification
 
-## Stage 3 - Kinematics and Motion Safety (future)
+- Pin and review the exact SDK artifact, provenance, license, API, and supported platform.
+- Verify explicit-ID read/write mapping without scan or arbitrary register access.
+- Validate cancellation and typed Stop/Hold semantics on an isolated bench setup.
+- Keep the production write-capable factory closed until reviewed evidence exists.
 
-Stage 3 has not started. Its exact scope requires review before implementation. Candidate work includes explicit `mm`/`deg` to `m`/`rad` conversion boundaries, verified V1/V2 kinematics models, deterministic Dry Run FK/IK, reachability/residual contracts, and one application motion-safety entry point before any Joint Jog, Cartesian Jog, Move Pose, Home, or related command is exposed.
+## Phase C — Physical commissioning
 
-Stage 3 must remain hardware-isolated unless a separate hardware Stage is explicitly approved. It must not reuse the Legacy six-joint V1 assumption, treat the rail-equipped Legacy V1 URDF as authoritative, or let an API route call a driver directly. Any command surface needs cancellation/Stop semantics, concurrency tests, limit/rate checks, and browser verification.
+- Assign a stable local `robot_unit_id` for the exact robot.
+- Complete physical preparation and read-only commissioning.
+- Create and review Calibration Revision 1 for each physical unit.
+- Preserve explicit operator intent, physical E-stop readiness, and workspace controls.
 
-## Later increments
+## Phase D — Joint field acceptance
 
-1. **Pose workflow:** atomic UUID-based Pose storage, capture of complete immutable snapshots, revisions/conflicts, list/delete, and a separately reviewed Goto preflight.
-2. **Studio and Motion Library:** embedded keyframes, transition/hold/easing authoring, deterministic sampling, timeline/library persistence, compatibility reports, and safe Dry Run playback.
-3. **Reviewed hardware integration:** one physical variant at a time, verified non-template Profile and Calibration identity, optional hardware dependencies, connection/diagnostics/Stop before motion, one deny-by-default safety gateway, and explicit operator-only Real authorization.
-4. **Vision following:** camera provider, target selection/detection, freshness, EMA/dead zone, bounded planning, and immediate target-loss motion inhibition. Photography and recording remain excluded.
-5. **Packaging and deployment:** Tauri evaluation, local network authentication, backup/migration, release provenance, and third-party license review after the trust boundaries stabilize.
+- Run bounded positive and negative tests for every enabled joint.
+- Verify raw/logical mapping, direction, limits, readback, divergence, and Stop behavior.
+- Accept Joint Motion only from complete, current, exact-unit evidence.
 
-No increment adds multi-arm product UI, coordination, AI/voice control, gesture control, gripper, Teach Mode, PyBullet product UI, community, Camera Hub media management, photography, or recording unless product scope is explicitly revised.
+## Phase E — Kinematics field verification
 
-## Evidence still required
+- Add and review the physical joint-state snapshot provider.
+- Measure at least three independent TCP points for each unit/model.
+- Compare server-computed FK with physical TCP measurements and accepted thresholds.
+- Keep tracked Kinematics YAML `PROVISIONAL_DRY_RUN`; use exact-unit local evidence.
 
-- physically verified joint limits, Homes, directions, Servo IDs, scales, raw bounds, modes, and multi-turn representation for each variant;
-- an authoritative rail-less V1 model and an authoritative V2 model, including axes, TCP links, reference FK poses, IK tolerances, and asset provenance/license;
-- a reviewed production Calibration lifecycle and independent hardware identity/acceptance procedure;
-- motion sampling, rate, workspace, cancellation, Stop, and uncertain-safety contracts;
-- local-network authentication and later desktop packaging decisions;
-- source and redistribution approval for every migrated third-party line, model, mesh, or binary asset.
+## Phase F — Cartesian and Playback acceptance
 
-Each future Stage must preserve applicable earlier checks, add focused negative and isolation tests, update schemas/ADRs/audits as needed, record browser and command evidence, and stop at its approved boundary.
+- Complete Cartesian field tests only after Joint and Kinematics acceptance.
+- Accept Cartesian independently from Joint Motion.
+- Validate Joint-only and Cartesian Playback against their distinct evidence sets.
+- Keep unavailable capabilities blocked with structured reasons.
+
+## Phase G — Vision field tuning
+
+- Preserve the implemented explicit-ID read-only preview as a separate capability; it
+  is visibility evidence only, not live tracking or Real Follow acceptance.
+- Review the exact tracking/detection provider, provenance, and end-to-end latency.
+- Characterize tracking loss, end-to-end latency, dead zone, filtering, and gains.
+- Complete Vision Follow evidence only after its Joint/Kinematics prerequisites.
+- Retain automatic Stop on stale/lost/low-confidence targets and lease loss.
+
+## Phase H — Desktop packaging / Tauri
+
+- Follow the [Tauri packaging plan](tauri-packaging-plan.md).
+- Establish reproducible, signed build and update procedures.
+- Complete dependency-license collection and choose a repository license before
+  distribution.
+- Preserve loopback, authentication, storage, backup, and safety boundaries.
+
+## Phase I — Future multi-arm research
+
+- Treat this as a future product decision, not a first-version deliverable.
+- Preserve one active robot and explicit identity in the current product.
+- Do not add a global robot singleton, `arm_a` assumptions, or fleet-facing controls.
+- Require a new architecture/safety review before any multi-arm implementation.
+
+## Field procedure
+
+Physical work follows [Real-hardware field acceptance](real-hardware-acceptance.md) in
+Phase 0–10 order. No roadmap entry may be marked complete from Fake evidence alone.

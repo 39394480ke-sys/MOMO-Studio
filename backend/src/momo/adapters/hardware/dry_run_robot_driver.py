@@ -11,7 +11,7 @@ from momo.ports.runtime_state_repository import RuntimeStateRepository
 
 
 class DryRunRobotDriver:
-    """Read-only Stage 2 driver whose only state is a validated joint mapping."""
+    """Stage 3 in-memory driver whose only state is a validated joint mapping."""
 
     def __init__(
         self,
@@ -78,6 +78,16 @@ class DryRunRobotDriver:
                 for definition in self._profile.joint_definitions
             },
         ).validate_against(self._profile)
+
+    async def move_to_joint_state(self, state: JointState) -> None:
+        """Apply a reviewed canonical target to memory only."""
+
+        validated = state.validate_against(self._profile)
+        if not self._connected:
+            raise RuntimeError("Dry Run robot is not connected")
+        self._positions = dict(validated.positions)
+        self._state_sequence += 1
+        self._persist()
 
     async def stop(self) -> None:
         # A Dry Run stop is deliberately idempotent and does not synthesize motion.

@@ -1,10 +1,73 @@
 product_name: MOMO Studio
-version: 0.1.0
+version: 0.1.0-rc1
 control_mode: dry_run
 real_motion_enabled: false
+commissioning_motion_test_enabled: false
+raw_direction_test_enabled: false
+robot_unit_id: ""
+software_commit: unknown
 serial_port: ""
 active_robot_variant: V2
 hardware_access: disabled
+hardware_startup_enabled: false
+hardware_local_config_enabled: false
+feetech_read_only_adapter_enabled: false
+feetech_raw_direction_adapter_enabled: false
+feetech_commissioning_motion_adapter_enabled: false
+servo_ids: []
+servo_protocol: ""
+field_acceptance_checklist_version: "1"
+operator_session_ttl_s: 300
+camera_access_policy: synthetic_only
+live_camera_device_id: ""
+live_camera_local_config_enabled: false
 runtime_state_directory: data/runtime/robots
 profile_directory: robot_profiles
 calibration_directory: calibration/examples
+real_calibration_directory: data/calibration
+field_acceptance_directory: data/field-acceptance
+commissioning_test_evidence_directory: data/commissioning-tests
+kinematics_verification_directory: data/kinematics-verification
+kinematics_verification_checklist_version: "1"
+commissioning_safety_envelope:
+  max_active_joints: 1
+  max_command_duration_s: 2.0
+  max_session_duration_s: 300.0
+  max_revolute_delta_deg: 3.0
+  max_prismatic_delta_mm: 3.0
+  max_revolute_speed_deg_s: 50.0
+  max_prismatic_speed_mm_s: 50.0
+  max_revolute_acceleration_deg_s2: 4.0
+  max_prismatic_acceleration_mm_s2: 2.0
+  deadman_lease_ms: 400
+  max_commands_per_session: 24
+kinematics_model_directory: kinematics_models
+pose_directory: data/poses
+motion_library_directory: data/motions
+motion_draft_directory: data/drafts
+backup_restore_journal_directory: data/restore
+audit_directory: data/audit
+motion_update_hz: 25.0
+jog_lease_ttl_ms: 400
+robot_state_freshness_limit_s: 5.0
+vision_source_id: synthetic-stage7
+vision_frame_width_px: 640
+vision_frame_height_px: 360
+vision_max_fps: 12.0
+vision_max_stream_clients: 4
+server_host: 127.0.0.1
+server_port: 8000
+lan_enabled: false
+lan_auth_token: ""
+local_allowed_origins:
+  - http://127.0.0.1:4173
+  - http://localhost:4173
+  - http://127.0.0.1:5173
+  - http://localhost:5173
+  - http://127.0.0.1:8000
+  - http://localhost:8000
+lan_allowed_origins: []
+api_body_max_bytes: 33554432
+control_rate_limit_per_minute: 120
+serve_frontend_static: false
+frontend_dist_directory: frontend/dist

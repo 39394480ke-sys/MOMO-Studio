@@ -39,6 +39,14 @@ class ProfileVerificationStatus(StrEnum):
     VERIFIED_FOR_REAL = "VERIFIED_FOR_REAL"
 
 
+class KinematicsVerificationStatus(StrEnum):
+    """How far a kinematics model has been independently verified."""
+
+    PROVISIONAL_DRY_RUN = "PROVISIONAL_DRY_RUN"
+    VERIFIED_FOR_DRY_RUN = "VERIFIED_FOR_DRY_RUN"
+    VERIFIED_FOR_REAL = "VERIFIED_FOR_REAL"
+
+
 class RobotConnectionState(StrEnum):
     DISCONNECTED = "DISCONNECTED"
     CONNECTING = "CONNECTING"
@@ -96,3 +104,34 @@ class Easing(StrEnum):
     LINEAR = "LINEAR"
     SMOOTHSTEP = "SMOOTHSTEP"
     EASE_IN_OUT = "EASE_IN_OUT"
+
+
+class CartesianFrame(StrEnum):
+    BASE = "BASE"
+    TOOL = "TOOL"
+
+
+class MotionCommandSource(StrEnum):
+    CONTROL = "CONTROL"
+    LIBRARY = "LIBRARY"
+    STUDIO = "STUDIO"
+    PLAYBACK = "PLAYBACK"
+    VISION = "VISION"
+    SYSTEM = "SYSTEM"
+
+
+class MotionCommandType(StrEnum):
+    MOVE_JOINTS = "MOVE_JOINTS"
+    JOINT_JOG_STEP = "JOINT_JOG_STEP"
+    CONTINUOUS_JOG = "CONTINUOUS_JOG"
+    CARTESIAN_JOG = "CARTESIAN_JOG"
+    MOVE_POSE = "MOVE_POSE"
+    HOME = "HOME"
+
+
+class MotionCommandState(StrEnum):
+    ACCEPTED = "ACCEPTED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    FAULTED = "FAULTED"

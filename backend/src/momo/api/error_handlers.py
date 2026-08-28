@@ -20,7 +20,7 @@ def install_error_handlers(app: FastAPI) -> None:
         request: Request,
         error: RobotApplicationError,
     ) -> JSONResponse:
-        del request
+        request.state.error_code = error.code
         return _response(
             ErrorResponse(
                 code=error.code,
@@ -35,13 +35,13 @@ def install_error_handlers(app: FastAPI) -> None:
         request: Request,
         error: RequestValidationError,
     ) -> JSONResponse:
-        del request
+        request.state.error_code = "REQUEST_VALIDATION_ERROR"
         details = [
             {"location": list(item["loc"]), "message": item["msg"]} for item in error.errors()
         ]
         return _response(
             ErrorResponse(
-                code="PROFILE_INVALID",
+                code="REQUEST_VALIDATION_ERROR",
                 message="Request validation failed",
                 details={"issues": details},
             ),
@@ -50,7 +50,8 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def internal_error(request: Request, error: Exception) -> JSONResponse:
-        del request, error
+        request.state.error_code = "INTERNAL_ERROR"
+        del error
         return _response(
             ErrorResponse(
                 code="INTERNAL_ERROR",

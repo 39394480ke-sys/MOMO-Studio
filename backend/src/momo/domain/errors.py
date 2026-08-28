@@ -65,5 +65,118 @@ class RuntimeStateInvalidError(RobotApplicationError):
     status_code = 422
 
 
+class MotionPreflightError(RobotApplicationError):
+    code = "MOTION_PREFLIGHT_REJECTED"
+    status_code = 422
+
+
+class MotionConflictError(RobotApplicationError):
+    code = "MOTION_CONFLICT"
+    status_code = 409
+
+
+class MotionCommandNotFoundError(RobotApplicationError):
+    code = "MOTION_COMMAND_NOT_FOUND"
+    status_code = 404
+
+
+class IdempotencyConflictError(RobotApplicationError):
+    code = "IDEMPOTENCY_CONFLICT"
+    status_code = 409
+
+
+class JogSessionNotFoundError(RobotApplicationError):
+    code = "JOG_SESSION_NOT_FOUND"
+    status_code = 404
+
+
+class JogLeaseExpiredError(RobotApplicationError):
+    code = "JOG_LEASE_EXPIRED"
+    status_code = 409
+
+
+class EntityNotFoundError(RobotApplicationError):
+    code = "ENTITY_NOT_FOUND"
+    status_code = 404
+
+
+class EntityAlreadyExistsError(RobotApplicationError):
+    code = "ENTITY_ALREADY_EXISTS"
+    status_code = 409
+
+
+class RevisionConflictError(RobotApplicationError):
+    code = "REVISION_CONFLICT"
+    status_code = 409
+
+
+class AtomicImportCommittedError(OSError):
+    """An exact entity import became visible but directory durability is uncertain."""
+
+    def __init__(self, message: str, *, cancellation_requested: bool = False) -> None:
+        super().__init__(message)
+        self.cancellation_requested = cancellation_requested
+
+
+class EntityInvalidError(RobotApplicationError):
+    code = "ENTITY_INVALID"
+    status_code = 422
+
+
+class RepositoryCapacityError(RobotApplicationError):
+    code = "REPOSITORY_CAPACITY_EXCEEDED"
+    status_code = 507
+
+
+class CaptureStateChangedError(RobotApplicationError):
+    code = "CAPTURE_STATE_CHANGED"
+    status_code = 409
+
+
+class PoseIncompatibleError(RobotApplicationError):
+    code = "POSE_INCOMPATIBLE"
+    status_code = 422
+
+
+class PreparedTrajectoryNotFoundError(RobotApplicationError):
+    code = "PREPARED_TRAJECTORY_NOT_FOUND"
+    status_code = 404
+
+
 class HardwareMappingError(DomainValidationError):
     """A logical/raw conversion cannot be proven valid from explicit inputs."""
+
+
+class VisionFrameConflictError(RobotApplicationError):
+    """A frame-scoped request no longer targets the authoritative latest frame."""
+
+    code = "VISION_FRAME_CONFLICT"
+    status_code = 409
+
+
+class VisionProviderUnavailableError(RobotApplicationError):
+    """A requested optional provider is honestly unavailable in this process."""
+
+    code = "VISION_PROVIDER_UNAVAILABLE"
+    status_code = 503
+
+
+class VisionSelectionRequiredError(RobotApplicationError):
+    """Tracking or Follow was requested without a current selected target."""
+
+    code = "VISION_SELECTION_REQUIRED"
+    status_code = 409
+
+
+class VisionFollowConflictError(RobotApplicationError):
+    """Follow cannot start or advance because a safety precondition changed."""
+
+    code = "VISION_FOLLOW_CONFLICT"
+    status_code = 409
+
+
+class VisionFollowLeaseNotFoundError(RobotApplicationError):
+    """A Follow lease is unknown or no longer active."""
+
+    code = "VISION_FOLLOW_LEASE_NOT_FOUND"
+    status_code = 404

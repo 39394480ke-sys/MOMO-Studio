@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from math import hypot, isfinite
 from typing import TYPE_CHECKING, Annotated, Literal, Self
@@ -18,16 +19,20 @@ from pydantic import (
     model_validator,
 )
 
-from momo.domain.enums import RobotVariant
+from momo.domain.enums import DomainUnit, RobotVariant
 from momo.domain.immutable import deep_freeze_json, freeze_sequence
 from momo.domain.profiles import profile_for_validation
-from momo.domain.robot import SCHEMA_VERSION, JointState
+from momo.domain.robot import VARIANT_PRODUCT_CONTRACTS, JointId, JointState
 
 if TYPE_CHECKING:
     from momo.domain.robot import RobotProfile
 
-FiniteCoordinate = Annotated[float, Field(allow_inf_nan=False)]
+FiniteCoordinate = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+Description = Annotated[str, StringConstraints(max_length=5000)]
+Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+Fingerprint = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+POSE_SCHEMA_VERSION: Literal["2.0.0"] = "2.0.0"
 
 
 def utc_now() -> datetime:
@@ -51,6 +56,39 @@ def _require_finite_json(value: JsonValue, path: str = "hardware_snapshot") -> J
     elif isinstance(value, dict):
         for key, item in value.items():
             _require_finite_json(item, f"{path}.{key}")
+    return value
+
+
+def _require_bounded_json(
+    value: JsonValue,
+    path: str,
+    *,
+    maximum_depth: int = 8,
+    maximum_nodes: int = 2048,
+    maximum_bytes: int = 65536,
+) -> JsonValue:
+    nodes = 0
+
+    def visit(item: JsonValue, depth: int) -> None:
+        nonlocal nodes
+        nodes += 1
+        if nodes > maximum_nodes:
+            raise ValueError(f"{path} contains too many values")
+        if depth > maximum_depth:
+            raise ValueError(f"{path} nesting is too deep")
+        if isinstance(item, list):
+            for child in item:
+                visit(child, depth + 1)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                if len(key) > 200:
+                    raise ValueError(f"{path} contains an oversized key")
+                visit(child, depth + 1)
+
+    visit(value, 0)
+    encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > maximum_bytes:
+        raise ValueError(f"{path} exceeds its encoded size limit")
     return value
 
 
@@ -105,17 +143,35 @@ class TcpPose(BaseModel):
     orientation_quaternion_xyzw: QuaternionXYZW
 
 
+class SnapshotJointState(JointState):
+    """Persisted snapshot state with explicit, non-null domain units."""
+
+    units: dict[JointId, DomainUnit]
+
+
 class PoseSnapshot(BaseModel):
     """An embedded, reproducible capture independent of named Pose files."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
     robot_variant: RobotVariant
-    joint_state: JointState
+    joint_state: SnapshotJointState
     tcp_pose: TcpPose
+    profile_fingerprint: Fingerprint
+    kinematics_fingerprint: Fingerprint
+    # Live captures always record a sequence. Explicit legacy imports may use
+    # ``null`` when the source format contains no coherent observation counter.
+    state_sequence: Annotated[int, Field(strict=True, ge=0)] | None
     hardware_snapshot: dict[str, JsonValue] | None = None
-    calibration_fingerprint: str | None = None
+    calibration_fingerprint: Fingerprint | None = None
     captured_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("joint_state", mode="before")
+    @classmethod
+    def detach_and_require_snapshot_joint_state(cls, value: object) -> object:
+        if isinstance(value, JointState):
+            return value.model_dump(mode="python", round_trip=True)
+        return value
 
     @field_validator("captured_at")
     @classmethod
@@ -129,6 +185,7 @@ class PoseSnapshot(BaseModel):
     ) -> dict[str, JsonValue] | None:
         if value is not None:
             _require_finite_json(value)
+            _require_bounded_json(value, "hardware_snapshot")
             frozen = deep_freeze_json(value)
             if not isinstance(frozen, dict):  # pragma: no cover - field type guarantees this
                 raise TypeError("hardware_snapshot must be an object")
@@ -143,6 +200,15 @@ class PoseSnapshot(BaseModel):
                 self.joint_state.validate_structure_for_variant(self.robot_variant)
             except ValueError as error:
                 raise ValueError(f"snapshot joint state is invalid: {error}") from error
+            contract = VARIANT_PRODUCT_CONTRACTS[self.robot_variant]
+            expected_units = {
+                joint_id: (
+                    DomainUnit.MM if joint_id == contract.linear_rail_joint else DomainUnit.DEG
+                )
+                for joint_id in contract.enabled_joints
+            }
+            if dict(self.joint_state.units) != expected_units:
+                raise ValueError("snapshot joint_state units must exactly match the robot variant")
             return self
         try:
             self.joint_state.validate_against(profile)
@@ -167,21 +233,23 @@ class Pose(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
 
-    schema_version: Literal["1.0.0"] = SCHEMA_VERSION
+    schema_version: Literal["2.0.0"] = POSE_SCHEMA_VERSION
     id: UUID = Field(default_factory=uuid4)
     name: Name
-    description: str = ""
-    tags: list[str] = Field(default_factory=list)
+    description: Description = ""
+    tags: Annotated[list[Tag], Field(max_length=32)] = Field(default_factory=list)
     snapshot: PoseSnapshot
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
-    revision: Annotated[int, Field(ge=1)] = 1
+    revision: Annotated[int, Field(strict=True, ge=1)] = 1
 
     @field_validator("schema_version")
     @classmethod
     def require_supported_schema_version(cls, value: str) -> str:
-        if value != SCHEMA_VERSION:
-            raise ValueError(f"unsupported pose schema_version: {value}")
+        if value != POSE_SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported pose schema_version: {value}; explicit migration is required"
+            )
         return value
 
     @field_validator("created_at", "updated_at")

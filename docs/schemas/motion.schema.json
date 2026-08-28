@@ -18,50 +18,79 @@
       "title": "Easing",
       "type": "string"
     },
-    "JointState": {
+    "JsonValue": {},
+    "LegacyImportMetadata": {
       "additionalProperties": false,
-      "description": "Joint positions keyed by semantic joint ID, never by anonymous index.\n\nPositions are stored in each joint definition's ``domain_unit``. ``units`` may be\nsupplied at an external boundary for an explicit unit check; when omitted, values\nare already asserted to be in the profile's canonical domain units.",
+      "description": "Sanitized importer-owned provenance; never accepts raw servo or path data.",
       "properties": {
-        "positions": {
-          "patternProperties": {
-            "^j[1-9][0-9]*$": {
-              "type": "number"
-            }
-          },
-          "title": "Positions",
-          "type": "object"
+        "importer": {
+          "const": "momo.tools.import_legacy_actions",
+          "default": "momo.tools.import_legacy_actions",
+          "title": "Importer",
+          "type": "string"
         },
-        "units": {
+        "legacy_id": {
           "anyOf": [
             {
-              "patternProperties": {
-                "^j[1-9][0-9]*$": {
-                  "$ref": "#/$defs/DomainUnit"
-                }
-              },
-              "type": "object"
+              "maxLength": 200,
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Units"
+          "title": "Legacy Id"
+        },
+        "legacy_source": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Legacy Source"
+        },
+        "source_file_name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source File Name",
+          "type": "string"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Warnings",
+          "type": "array"
         }
       },
       "required": [
-        "positions"
+        "source_file_name",
+        "source_sha256"
       ],
-      "title": "JointState",
+      "title": "LegacyImportMetadata",
       "type": "object"
     },
-    "JsonValue": {},
     "MotionKeyframe": {
       "additionalProperties": false,
       "description": "A complete embedded snapshot plus its incoming transition metadata.",
       "properties": {
         "hold_s": {
           "default": 0.0,
+          "maximum": 600,
           "minimum": 0,
           "title": "Hold S",
           "type": "number"
@@ -83,6 +112,7 @@
           "default": null
         },
         "label": {
+          "maxLength": 200,
           "minLength": 1,
           "title": "Label",
           "type": "string"
@@ -125,6 +155,7 @@
       "properties": {
         "duration_s": {
           "exclusiveMinimum": 0,
+          "maximum": 600,
           "title": "Duration S",
           "type": "number"
         },
@@ -154,6 +185,7 @@
         "speed_multiplier": {
           "default": 1.0,
           "exclusiveMinimum": 0,
+          "maximum": 4,
           "title": "Speed Multiplier",
           "type": "number"
         }
@@ -168,6 +200,7 @@
         "calibration_fingerprint": {
           "anyOf": [
             {
+              "pattern": "^[0-9a-f]{64}$",
               "type": "string"
             },
             {
@@ -198,10 +231,32 @@
           "title": "Hardware Snapshot"
         },
         "joint_state": {
-          "$ref": "#/$defs/JointState"
+          "$ref": "#/$defs/SnapshotJointState"
+        },
+        "kinematics_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Kinematics Fingerprint",
+          "type": "string"
+        },
+        "profile_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Profile Fingerprint",
+          "type": "string"
         },
         "robot_variant": {
           "$ref": "#/$defs/RobotVariant"
+        },
+        "state_sequence": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "State Sequence"
         },
         "tcp_pose": {
           "$ref": "#/$defs/TcpPose"
@@ -210,7 +265,10 @@
       "required": [
         "robot_variant",
         "joint_state",
-        "tcp_pose"
+        "tcp_pose",
+        "profile_fingerprint",
+        "kinematics_fingerprint",
+        "state_sequence"
       ],
       "title": "PoseSnapshot",
       "type": "object"
@@ -253,6 +311,36 @@
       ],
       "title": "RobotVariant",
       "type": "string"
+    },
+    "SnapshotJointState": {
+      "additionalProperties": false,
+      "description": "Persisted snapshot state with explicit, non-null domain units.",
+      "properties": {
+        "positions": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "type": "number"
+            }
+          },
+          "title": "Positions",
+          "type": "object"
+        },
+        "units": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "$ref": "#/$defs/DomainUnit"
+            }
+          },
+          "title": "Units",
+          "type": "object"
+        }
+      },
+      "required": [
+        "positions",
+        "units"
+      ],
+      "title": "SnapshotJointState",
+      "type": "object"
     },
     "TcpPose": {
       "additionalProperties": false,
@@ -313,6 +401,7 @@
     },
     "description": {
       "default": "",
+      "maxLength": 5000,
       "title": "Description",
       "type": "string"
     },
@@ -325,6 +414,7 @@
       "items": {
         "$ref": "#/$defs/MotionKeyframe"
       },
+      "maxItems": 1000,
       "minItems": 2,
       "title": "Keyframes",
       "type": "array"
@@ -348,15 +438,29 @@
       "$ref": "#/$defs/RobotVariant"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "2.0.0",
+      "default": "2.0.0",
       "title": "Schema Version",
       "type": "string"
     },
+    "source_metadata": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LegacyImportMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "tags": {
       "items": {
+        "maxLength": 64,
+        "minLength": 1,
         "type": "string"
       },
+      "maxItems": 32,
       "title": "Tags",
       "type": "array"
     },

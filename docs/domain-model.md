@@ -2,9 +2,30 @@
 
 ## Robot identity, mode, and access
 
-`RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases. `ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 2 permits only `DRY_RUN` plus `DISABLED`; the other enum members reserve vocabulary and grant no current capability.
+`RobotVariant` is `V1` or `V2`; these are hardware variants, not software releases.
+`ControlMode` is `DRY_RUN` or `REAL`. `HardwareAccessPolicy` is a separate capability
+gate with `DISABLED`, `READ_ONLY`, and `FULL`. Stage 8 gives the Real/Full vocabulary a
+pure all-gates authorization model, but the tracked/default context remains `DRY_RUN`
+plus disabled hardware access and the default composition has no Real bus factory.
+No enum value alone grants motion capability. Camera access is independently typed as `DISABLED`,
+`SYNTHETIC_ONLY`, or `LIVE_CAMERA_ALLOWED`, with `SYNTHETIC_ONLY` as the tracked
+default. A live policy value alone neither selects nor opens a camera.
+`LIVE_CAMERA_ALLOWED` additionally requires an explicit device identifier and a boolean
+opt-in from the selected ignored local configuration file. The composition owns one
+operator-controlled source in `CLOSED`; only a confirmed open command may import the
+optional provider and acquire that device. The live session is preview-only and cannot
+create selection, detection, tracking, recording, or Follow state.
 
-`RobotId` is a validated stable identifier. The Stage 2 composition root creates one `primary` robot in a `RobotManager`; it does not expose a global robot value, `arm_a`, Fleet, or coordination semantics.
+`RobotId` is a validated stable identifier. The composition root creates one `primary`
+robot in a `RobotManager`; it does not expose a global robot value, `arm_a`, Fleet, or
+coordination semantics.
+
+`RobotUnitId` (`robot_unit_id`) identifies one physical specimen, for example
+`MOMO-V2-UNIT-001`. It comes only from ignored local configuration and is required for
+Real commissioning. It is never derived from a serial port, protocol, Servo IDs,
+hostname, or tracked example. It binds Device, Calibration, Operator Session,
+commissioning tests, Field Acceptance, Kinematics verification, production evidence,
+and audit records.
 
 ## Robot Profile
 
@@ -36,10 +57,76 @@ Profile-dependent entity validation accepts an explicitly supplied Profile or Pr
 Display name, description, template/verification/provenance fields, timestamps, schema version, URDF/TCP metadata, and the deprecated placeholder mapping are excluded. Rail capability is derived from the included variant contract rather than hashed twice. Changing display copy preserves compatibility; changing a mapping, range, Home, direction, mode, identity, or joint order produces a different fingerprint.
 
 The fingerprint is stored by Calibration and Dry Run runtime documents. It identifies an exact motion/safety Profile contract; it is not proof that the data was physically verified.
+`robot_unit_id` is deliberately excluded: the Profile identifies a variant contract,
+not one physical unit.
+
+## Kinematics model and fingerprint
+
+`KinematicsModel` is a schema-versioned, immutable, mesh-free serial chain. It contains
+the hardware variant, provenance, verification status, base and TCP frame names, ordered
+joints, presentation metadata, and a declared `kinematics_fingerprint`. Each
+`KinematicJoint` declares:
+
+- `joint_id` and explicit `REVOLUTE` or `PRISMATIC` type;
+- a finite normalized axis;
+- a finite origin translation in metres;
+- a finite normalized origin quaternion in XYZW order;
+- ordered minimum and maximum values in SI units.
+
+The model validates exact product membership and order. V1 is exactly `j11`-`j15`; V2
+is exactly `j10`-`j15`, with only J10 prismatic. Unknown, duplicate, missing, reordered,
+zero-axis, zero-quaternion, non-finite, wrong-type, or wrong-variant data fails closed.
+
+`kinematics_fingerprint` is SHA-256 over deterministic compact JSON containing schema
+version, variant, frames, and the complete ordered joint geometry/type/limits. Display
+name, description, and source prose do not affect it; any geometry, joint identity,
+frame, type, axis, origin, or limit change does. On model validation the declared
+`kinematics_fingerprint` must equal the recomputed canonical digest; a missing or
+mismatched value rejects model loading.
+
+The two initial documents are `PROVISIONAL_DRY_RUN`. This status permits deterministic
+Dry Run FK/IK and UI behavior but is an explicit blocker for Real Cartesian motion,
+Cartesian playback, and Real vision follow. A fingerprint proves exact software-model
+identity, not physical correctness.
+
+`KinematicsVerificationEvidence` is a separate ignored local overlay. It binds the exact
+unit, Profile, Calibration, Device, Kinematics fingerprint/model schema, checklist
+version, operator, software commit, frozen thresholds, and at least three
+predicted/measured TCP points with server-owned joint-state capture provenance and
+position/orientation residuals. A live current passing overlay derives effective Real
+verification without modifying the tracked YAML. Any binding/checklist/schema change
+makes it stale. In `0.1.0-rc1`, persisted files are audit-only after restart and are not
+loaded back into authorization context.
+
+## Kinematics boundary and results
+
+Product/domain joint values stay in `deg` and `mm`. `KinematicsJointState` carries only
+adapter values: radians for revolute joints and metres for prismatic joints. Conversion
+uses the active Profile's declared type/unit through named `to_kinematics_*` and
+`from_kinematics_*` functions. It never special-cases a joint name. Canonical TCP output
+uses millimetres and a normalized XYZW quaternion; the adapter boundary uses metres and
+the same quaternion ordering.
+
+`ForwardKinematicsResult` binds the TCP pose to robot identity, variant, state sequence,
+Profile fingerprint, Kinematics fingerprint, and `hardware_accessed=false`.
+`InverseKinematicsResult` distinguishes a converged solution from the best bounded
+candidate and reports iterations, position error in millimetres, optional orientation
+error in degrees, termination reason, warnings, and Kinematics fingerprint. An
+unreachable or over-residual best candidate is diagnostic evidence, not a movement
+target.
+
+Base and Tool Cartesian increments are separate typed intents. Base translation and
+rotation compose in the base frame. Tool translation is rotated by the current TCP
+orientation and Tool rotation composes in the TCP frame; it must never be interpreted as
+a Base delta.
 
 ## Calibration
 
-`CalibrationDocument` is immutable and contains `schema_version`, UUID `id`, `robot_variant`, the exact `profile_fingerprint`, `template`, timezone-aware `generated_at`, notes, and a non-empty joint list. Joint and Servo IDs must be unique.
+`CalibrationDocument` is immutable and contains `schema_version`, UUID `id`,
+`robot_unit_id` for physical Real documents, `robot_variant`, the exact
+`profile_fingerprint`, `template`, timezone-aware `generated_at`, notes, and a non-empty
+joint list. Joint and Servo IDs must be unique. Tracked templates may omit unit identity;
+a Real Calibration may not.
 
 Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE_TURN` mode, direction `-1` or `1`, optional integer Home raw, optional integer phase, and optional ordered integer raw bounds. Home must be inside provided raw bounds. A joint is complete when it has Home raw and, for multi-turn operation, phase.
 
@@ -54,7 +141,32 @@ Each `CalibrationJoint` contains `joint_id`, `servo_id`, `MULTI_TURN` or `SINGLE
 - `VALID_FOR_DRY_RUN`
 - `READY_FOR_REAL`
 
-Stage 2 never returns effective Real readiness: `real_readiness` remains `BLOCKED_BY_STAGE_POLICY`. A complete matching template can be structurally valid for diagnostics, but it cannot authorize hardware. Mapping mismatch is classified as `INCOMPLETE` and makes `calibration_valid=false`. The repository is read-only and loads only reviewed example filenames; no calibration-write use case or API exists.
+The Stage 2 diagnostic service still treats reviewed examples as read-only Dry Run
+evidence. A complete matching template can be structurally valid for diagnostics, but
+it cannot authorize hardware. Mapping mismatch is classified as `INCOMPLETE` and makes
+`calibration_valid=false`.
+
+Stage 8 adds a separate Real Calibration workflow/repository. `CalibrationRevisionRecord`
+schema `1.0.0` wraps a complete non-template document with a monotonic positive revision,
+current and previous Calibration fingerprints, source, and creation time. Saving a new
+revision preserves the prior exact bytes under a fixed variant/revision/fingerprint
+backup and atomically replaces the variant's current record. Explicit rollback reads a
+unique earlier backup and saves its content as a fresh UUID/new forward revision; it does
+not rewind revision history. Example/template Calibration cannot be saved or promoted.
+
+`CalibrationWorkflowSession` is runtime-only, bounded to one commissioning operator/device
+context, and contains a Profile-bound `CalibrationDraft` plus per-joint status. With no
+current record, `base_revision` is absent and a successful save becomes Revision 1.
+Draft present raw, logical value, direction, phase, bounds, and mode remain optional until
+explicitly captured or entered; zero is never used as an incomplete sentinel. A joint
+moves from pending through raw capture,
+preview, and explicit confirmation. The preview binds selected joint/Servo identity,
+captured raw value, entered logical value, direction, Home, phase/raw bounds, round-trip
+error, and a deterministic mapping fingerprint. It authorizes no Servo write or motion.
+Save requires every Profile-enabled joint confirmed and revalidates the current session,
+then performs the atomic persistence attempt. Once persistence starts, the coordinator
+closes/revokes hardware authorization in `finally`, including after a
+replace-then-directory-fsync failure.
 
 ## Logical and raw mapping
 
@@ -72,7 +184,85 @@ goal_raw = calibration_home_present_raw + relative_raw
 
 `logical_to_goal_raw`, `goal_raw_to_logical`, `validate_goal_raw`, and `effective_logical_limits_from_raw_bounds` are pure functions. Profile and Calibration raw bounds are intersected; the resulting raw range is converted in both directions and intersected with logical Profile limits. Inputs must be finite, scale/counts positive, direction valid, operating mode matching, Home configured, and the joint known. The rounding tolerance is derived from one half of a raw count in that joint's declared scale.
 
-These functions are characterization and future safety foundations only. Stage 2 has no API or application operation that supplies a target or emits raw commands.
+Dry Run commands never emit raw values and no API exposes raw mapping. Stage 8's
+`RealMotionExecutor` may use the same pure functions only after complete Real
+authorization, with a non-template verified Profile/Calibration and an exact immutable
+prepared trajectory. The committed release never injects that executor into a route.
+No Stage 3 Dry Run executor can write raw values.
+
+## Real-hardware authorization, device, and Stop
+
+`RealHardwareContext` is immutable evidence, not a device handle. It contains control/
+hardware policy, independent commissioning-motion/production opt-in flags, local
+`robot_unit_id`, optional Profile/Calibration/Kinematics and verification evidence,
+staged acceptance bundle, dependency identity/state, explicit Device, and any
+device-safety uncertainty. `ExplicitServoDevice` binds the same `robot_unit_id` plus one
+secret-repr serial path, protocol, and ordered unique Servo-ID allowlist; it has no scan
+range. Its fingerprint is canonical SHA-256 over `robot_unit_id`, explicit serial port,
+protocol, and the ordered Servo-ID allowlist. Thus two specimens with identical IDs and
+protocol do not share authorization, while none of those transport fields is used to
+infer the unit ID.
+
+`RealHardwareAuthorization` evaluates a `RealHardwareGateInput` containing that context,
+the evaluation time, and optional token-free `OperatorSessionEvidence`. The report has
+typed blockers, redacted confirmation facts, session status, separate read-only and
+commissioning-motion readiness, and four production booleans (Joint, Cartesian,
+Playback, Vision Follow). Each includes required evidence and blocked reasons.
+
+`OperatorSessionPurpose` has immutable `COMMISSIONING_READ_ONLY`,
+`COMMISSIONING_MOTION_TEST`, and `REAL_MOTION` values. `OperatorSessionScope` narrows
+them respectively to diagnostics/Calibration capture, one commissioning single-joint
+test, or individual production capabilities. Evidence records session UUID, purpose/
+scopes, `robot_unit_id`, robot/variant, Profile/Calibration/Device and applicable
+Kinematics/acceptance fingerprints, exact Servo IDs, envelope snapshot for commissioning
+motion, issued/expiry times, and confirmation. No purpose can be mutated or upgraded.
+Expiry, restart, explicit revoke, connection failure, disconnect, or evidence drift
+invalidates it. Browser transport uses an HttpOnly cookie; raw authority is never part of
+the frontend session model.
+
+`CommissioningSafetyEnvelope` is an immutable backend cap snapshot. It limits one active
+joint, deltas by joint type, speeds, accelerations, command/session duration, deadman
+timeout, and command count. Local configuration may only narrow compiled maxima. One
+ARM action and one live lease create an immutable
+`PreparedCommissioningTestCommand`; fresh logical/raw readback and mapping determine its
+target. `CommissioningTestEvidence` records pass or failure for the exact unit/joint/
+fingerprints, before/requested/target/after values, direction, divergence, Stop behavior,
+operator, commit, and bounded failure reason. Passing evidence embeds the complete
+prepared command/envelope so the acceptance resolver can compare it with the exact
+current safety envelope.
+
+`FieldAcceptanceBundle` is device-local and ignored. It contains independent immutable
+`FieldAcceptanceEvidence` for `PRE_MOTION_CHECKS`, `JOINT_MOTION`, `CARTESIAN`,
+`PLAYBACK`, and `VISION_FOLLOW`. Records require `robot_unit_id`, variant, Profile/
+Calibration/Device fingerprints, applicable Kinematics fingerprint, checklist version,
+either a typed pre-motion diagnostic snapshot or supporting test-evidence IDs,
+acceptance time, required operator, optional reviewer, and software commit. Pre-motion
+snapshots bind session/time and exact joint/Servo ping, mode, raw/logical value, bounds,
+and torque-off state. Full completion is a derived summary only. Schema-v1/global
+evidence and records missing unit/capability/operator data are retained as stale audit
+data and cannot authorize. The writable `field_acceptance_status` setting has been
+removed; the remaining backward/internal scalar always starts `PENDING`.
+
+Joint acceptance requires positive, negative, limit-safe, and fresh logical/raw evidence
+for every explicit `enabled_joint`; V1 therefore needs `j11`–`j15` and V2 needs
+`j10`–`j15`. Cartesian requires Joint + valid Kinematics + Cartesian evidence.
+Joint-only Playback requires Joint + Playback; Cartesian Playback also requires valid
+Kinematics + Cartesian. Vision Follow requires Joint + Vision Follow and Kinematics when
+its controller depends on geometry. Passing one capability never implies another.
+
+`ServoWriteResult` partitions every requested ID into written/failed sets and cannot
+claim completeness with an unknown safety state. `RealStopOutcome` distinguishes
+`STOPPED_AND_VERIFIED`, `HOLD_REQUESTED`, `TORQUE_DISABLE_REQUESTED`, `NOT_CONNECTED`,
+`FAILED`, and `SAFETY_STATE_UNCERTAIN`. Only the first may claim all requested IDs were
+verified stopped while connected. The pending Feetech shell returns uncertainty and
+requires the physical E-stop; software Stop is never a physical emergency-stop claim.
+
+`RealMotionStatus` binds an execution UUID, Operator Session, robot/variant/artifact
+fingerprints, exact trajectory digest, purpose, lifecycle/progress, state-sequence
+evidence, hardware-access/safety truth, typed fault, and typed Stop outcome. The executor
+accepts only a complete `PreparedTrajectory`, maps bounded samples, schedules monotonic
+deadlines without catch-up bursts, checks live authorization/context, reads back, and
+publishes bounded audit events. Fake Bus is the only autonomous execution adapter.
 
 ## Runtime state and status
 
@@ -85,7 +275,16 @@ These functions are characterization and future safety foundations only. Stage 2
 
 The file repository constrains robot IDs and paths, writes atomically, and quarantines corrupt or rejected files. Restore additionally validates the active variant/fingerprint, exact joint and unit mappings, finite values, and logical limits. A failed startup restore uses Profile Home with sequence zero; a variant switch still advances from the current runtime sequence. A valid restore carries positions and sequence forward but never restores an active connection.
 
-`RobotStatus` is the read-only API projection: identity, variant, mode/policy, connection state, connected flag, Profile identity/verification, Calibration status, positions, units, optional raw positions, last error, timestamp, sequence, stale marker, and `hardware_accessed=false`. Stage 2 always returns `raw_positions=null`.
+`RobotStatus` is the read-only API projection: identity, variant, mode/policy, connection
+state, connected flag, Profile identity/verification, Calibration status, positions,
+units, optional raw positions, last error, timestamp, sequence, stale marker, and
+`hardware_accessed=false`. Stage 5 continues to return `raw_positions=null`; command and
+TCP status may extend the transport projection without changing the persisted runtime
+schema.
+
+The stale marker is computed from monotonic time since the last successful high-level
+Dry Run driver observation. UTC `updated_at` remains display and persistence data; it is
+not the freshness clock, so wall-clock rollback cannot revive failed or timed-out state.
 
 Connection states are `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `DISCONNECTING`, and `FAULTED`. One command lock serializes all lifecycle operations. The normal transitions are:
 
@@ -94,18 +293,349 @@ DISCONNECTED -> CONNECTING -> CONNECTED
 CONNECTED/FAULTED -> DISCONNECTING -> DISCONNECTED
 ```
 
-Duplicate Connect is rejected without creating another driver. Disconnect while already disconnected returns the stable state. Stop returns `STOPPED` when connected and `NOT_CONNECTED` when disconnected; it does not alter positions. Driver failures enter `FAULTED`, record a safe error summary, and never expose a traceback. `state_sequence` increases monotonically for state changes and Stop events within the runtime lifecycle.
+Duplicate Connect is rejected without creating another driver. Disconnect while already
+disconnected returns the stable state. Stop returns `STOPPED` when connected and
+`NOT_CONNECTED` when disconnected. During Dry Run motion it first cancels the active
+prepared command or Jog lease, then leaves the runtime at its last completed Dry Run
+sample. Driver/executor failures enter `FAULTED`, record a safe error summary, and never
+expose a traceback. `state_sequence` increases monotonically for lifecycle changes,
+accepted execution samples, and Stop events.
+
+## Motion command, preflight, and command status
+
+Stage 3 defines one command vocabulary for Joint Move, Joint Jog, Home, Cartesian Jog,
+and Move Pose. Stage 4 admits exactly one Library movement intent: Goto is a
+`LIBRARY`-source `MOVE_JOINTS` command after persisted-snapshot compatibility checks.
+Stage 5 adds digest-bound Playback ownership. Stage 6 admits one Studio movement intent:
+persisted-keyframe Goto becomes a `STUDIO`-source `MOVE_JOINTS` command after Draft
+revision and snapshot compatibility checks. Stage 7 admits only Follow-created
+`VISION`-source `MOVE_JOINTS` commands after frame, lease, mapping, and fresh Robot
+checks. An immutable
+command carries a unique command ID, source, robot identity, expected state
+sequence, Profile and Kinematics fingerprints, explicit unit-bearing target or delta,
+timing intent, and idempotency identity. Clients cannot select a concrete executor or
+driver.
+
+`MotionPreflight` is the typed evidence produced only by the Motion Safety Gateway. It
+records policy/identity/freshness/fingerprint checks; exact joint and unit membership;
+finite, logical, provisional dynamic and workspace checks; conditional raw-derived
+checks; FK/IK evidence; conflict/idempotency/cancellation status; and safe warnings. If
+no Calibration is configured, the raw-derived check records an explicit Dry Run-only
+`not_applicable` result and logical Profile limits remain authoritative. A configured
+but incompatible Calibration rejects admission. Neither path authorizes Real motion. A
+rejected preflight never becomes executor work.
+
+Command status has exactly five states: `ACCEPTED`, `RUNNING`, `COMPLETED`, `CANCELLED`,
+and `FAULTED`. It exposes bounded progress plus a safe error summary. Only one command
+may be active. Repeating the same idempotent request returns the established command;
+reusing an idempotency identity for different intent is rejected.
+
+## Jog lease
+
+A continuous Jog session is a short-lived backend `JogLease`, identified by an opaque
+session ID and owned by one active robot/command source. Heartbeat extends the bounded
+expiry; explicit Stop, command conflict, disconnect, fault, backend shutdown, or expiry
+cancels it. Duplicate Stop is stable and idempotent. Browser pointer release is a normal
+stop signal, not the safety guarantee—network loss is covered by backend expiry.
+
+## Vision frame, selection, and tracking
+
+`FrameMetadata` is immutable observation identity: validated `frame_id`, `source_id`,
+aware `captured_at`, `width_px`, and `height_px`. `VisionFrame` adds an explicitly
+supported image media type and bounded encoded content. These are transient latest-value
+observations, not persisted media entities.
+
+`NormalizedBoundingBox` uses finite `x`, `y`, `width`, and `height` values in normalized
+frame coordinates. Width/height must be positive and the complete box must stay inside
+`[0, 1]`. It embeds the originating frame ID, source, capture time, and dimensions, so a
+box cannot be detached from the pixels that gave it meaning. Pixel conversion returns
+an enclosing rectangle and never infers dimensions from UI layout.
+
+`TargetSelection` identifies `MANUAL`, `PERSON`, or `FACE`. `Detection` binds one
+provider, target kind, confidence, and a box whose metadata exactly matches its result
+frame. `TrackingResult` carries the complete frame metadata, `UNINITIALIZED`, `LOCKED`,
+`LOST`, `STALE`, or `FAULTED`, optional matching box, confidence, and a bounded detail.
+A locked result requires a box; non-locked results cannot retain one.
+
+Provider capabilities report stable provider/kind IDs, `AVAILABLE` or `UNAVAILABLE`,
+display name, model source, notice, and safe detail. The deterministic Synthetic
+detectors/tracker are explicitly scenario fixtures, not general-purpose model claims.
+Unavailable optional OpenCV capabilities remain visible rather than becoming invented
+success.
+
+The read-only OpenCV source is also transient. It emits bounded JPEG `VisionFrame`
+values after explicit open, exposes no raw device identifier in capability or frame
+metadata, never enumerates cameras, and returns to `CLOSED` after release. Its frames
+use the existing bounded in-memory history and no-store transport; they are not domain
+entities and are never written by the Vision service.
+
+## Vision Follow lease and controller
+
+`FollowOperatorIntent` is confirmed and can request only `DRY_RUN`. Its complete
+`FollowConfiguration` contains dead zones, EMA alpha, gain, maximum step/rate,
+confidence threshold, frame freshness, target-loss interval, lease TTL, and
+`FollowActuatorMapping`. Mapping names distinct pan/tilt joints and signs and requires
+`VERIFIED_FOR_DRY_RUN`. Start checks both IDs against the Profile's explicit
+`enabled_joints` and requires `REVOLUTE`/`deg`; it cannot map the V2 prismatic rail or an
+unknown/disabled joint.
+
+`FollowController` is pure. It computes bounding-box-center error relative to `(0.5,
+0.5)`, updates EMA, applies per-axis dead zones, sign/gain, `max_step`, and elapsed-time
+`max_rate`, and returns auditable `FollowMetrics` bound to frame ID/source/capture time.
+The application factory combines the increment with a fresh complete Robot joint state
+and produces only a high-level `VISION` + `MOVE_JOINTS` command for the normal motion
+application/gateway path.
+
+`FollowLease` has opaque UUID identity plus aware issued, heartbeat, and expiry times.
+`FollowStatus` is `IDLE`, `ACTIVE`, or `STOPPED` and carries one lease/configuration,
+latest metrics/command, explicit stop reason, `control_mode=DRY_RUN`,
+`real_follow_allowed=false`, and `hardware_accessed=false`. Heartbeat renews only the
+matching active lease. Stale/non-advancing frames, loss/low confidence, source/tracker/
+browser failure, Robot disconnect/fault/staleness, motion conflict/rejection, expiry,
+operator/Global Stop, or backend shutdown stop ownership. Backend monotonic deadlines,
+not frontend timers, are the fail-safe.
 
 ## State, Pose, and Motion contracts
 
-`JointState.positions` is keyed by joint ID and may carry an explicit unit map. Validation against an explicit Profile rejects missing or unknown joints, wrong/missing units, booleans, non-finite values, and out-of-range values.
+`JointState.positions` is keyed by joint ID and may carry an explicit unit map in transient
+internal contexts. Persisted `PoseSnapshot` uses `SnapshotJointState`, which requires a
+non-null unit for every enabled Joint. Validation against an explicit Profile rejects
+missing or unknown joints, wrong/missing units, booleans, non-finite values, and
+out-of-range values.
 
-`TcpPose` contains a frame, `position_mm`, and canonical normalized `xyzw` quaternion. `PoseSnapshot` is the complete immutable-by-value capture of variant, keyed joint state, TCP, optional hardware safety snapshot, optional Calibration fingerprint provenance, and capture time. `Pose` adds UUID identity, display metadata, timestamps, revision, and schema version.
+`TcpPose` contains a frame, `position_mm`, and canonical normalized `xyzw` quaternion.
+`PoseSnapshot` schema `2.0.0` is the complete immutable-by-value capture of variant,
+keyed joint state, TCP, exact Profile and Kinematics fingerprints, an observation state
+sequence, optional hardware safety snapshot, optional Calibration fingerprint
+provenance, and capture time. A live Stage 4 Capture always stores a non-null sequence;
+an explicit Legacy import may store `null` only when no coherent source counter exists.
+Public snapshot writes also require canonical current-FK TCP and cannot claim hardware or
+Calibration provenance. `Pose` adds UUID identity, display metadata, timestamps,
+revision, and schema version.
 
-A `MotionKeyframe` embeds a complete `PoseSnapshot`; optional `source_pose_id` is provenance only. `Motion` owns those copies, so editing or deleting a source Pose cannot alter playback data. Motion transitions and playback defaults remain structural Stage 1 contracts. Stage 2 exposes no Pose/Motion repository adapter, CRUD, trajectory, playback, or motion endpoint.
+Capture obtains a connected, fresh robot snapshot, computes FK against that exact
+Profile/state/sequence, then obtains a second snapshot. It retries a bounded three times
+unless sequence, variant/Profile, joint state, and FK evidence remain coherent. It never
+combines Joint state and TCP from different observations. Stage 4 Dry Run records
+`hardware_snapshot=null` and `calibration_fingerprint=null` rather than inventing
+hardware evidence.
+
+A `MotionKeyframe` embeds a complete `PoseSnapshot`; optional `source_pose_id` is
+provenance only. `Motion` owns those copies, so editing or deleting a source Pose cannot
+alter playback data. A formal Motion contains at least two keyframes; its first
+keyframe has no incoming transition and every later keyframe has one. Stage 4 preserves
+those playable invariants rather than introducing an incomplete editing shape. Stage 6
+uses a separate `MotionDraft`. Motion schema `2.0.0` may carry typed, bounded
+`LegacyImportMetadata` for importer-owned provenance; Library API clients cannot set it.
+Stage 3 Move Pose remains an explicit transient TCP target. Stage 4 adds storage and
+Library workflows. Stage 5 compiles stored Motion revisions and plays only accepted
+prepared plans.
+
+## MotionDraft and editor contracts
+
+`MotionDraft` schema `1.0.0` is recoverable authoring state, never a weakened Motion. It
+contains its own UUID/revision/timestamps, optional coherent source Motion UUID/revision,
+name/description/variant, zero to 1,000 embedded keyframes, playback defaults, tags,
+bounded `MotionDraftEditorMetadata`, optional typed server-owned `source_metadata`, a
+bounded server-owned `trusted_legacy_snapshot_sha256` registry, and an optional
+`MotionDraftSaveIntent`. Zero or one keyframe is valid Draft state but cannot convert to
+a formal Motion.
+
+Draft keyframes retain the formal snapshot, variant, fingerprint, explicit-unit,
+unique-ID, and transition-shape invariants. The first keyframe has no incoming
+transition; every later keyframe has one. `source_pose_id` remains provenance only.
+Editor metadata contains bounded selection/playhead/zoom/scroll values plus exact
+`MotionDraftDefaultEdge(from_keyframe_id, to_keyframe_id)` values. Each default marker
+must identify a current directed adjacency whose target transition is exactly one-second
+Joint Smoothstep.
+
+Opening an imported Motion seeds the trust registry with canonical SHA-256 identities
+for its exact snapshots whose source state sequence is unavailable. Canonical sorted-key,
+compact JSON makes mapping insertion order irrelevant while covering every snapshot
+field and rejecting non-finite numbers. Reorder, duplicate, delete/autosave, and Undo
+restoration of a trusted snapshot remain valid; replacement or fabrication does not.
+API clients cannot set either server-owned provenance field, and autosave, recovery,
+rebind, abandon, and conflict fork preserve them.
+
+The frontend reducer owns segment settings as explicit directed edges. Reorder preserves
+an edge only if the exact source-to-target adjacency survives; newly formed adjacencies
+receive the explicit editor default, including a former first keyframe moved later.
+Conversion to Motion attaches edges to target `incoming_transition` values only after
+the ordered adjacency is known. Undo/Redo is bounded; autosave acknowledgements do not
+become edit-history entries.
+
+Draft validation and compilation remain backend operations. A compile candidate passes
+through the Stage 5 compiler but returns `executable=false`, is not cached for playback,
+and cannot be dispatched. Only a separately persisted formal Motion revision can enter
+the normal preflight/digest/playback path.
+
+`MotionDraftSaveIntent` is a write-ahead cross-repository reconciliation marker. It
+binds operation kind, operation UUID, target Motion UUID/revision/name/creation time,
+expected source revision, and start time. Save first advances the Draft with the marker,
+then persists the formal Motion through the Library revision lease, then advances the
+Draft again to bind the source and clear the marker. Recovery semantically matches the
+target; it never creates a duplicate automatically or adopts a later revision for
+overwrite. For a known-source Save, an advanced target binds the known UUID while
+retaining the intended stale source revision so the next Save conflicts. For a fresh
+Save or Save As, an advanced or semantically mismatched target cannot be proven and the
+marker remains fail-closed. Semantic identity includes typed source metadata.
+
+A retained marker can be released only by an exact operator request containing the
+current Draft revision, the marker operation UUID, and the literal confirmation. The
+raw Draft CAS clears only that marker and never creates, updates, adopts, or deletes a
+Motion. Every Studio revision conflict carries bounded `MotionDraft` or `Motion` entity
+scope; missing/unknown scope fails closed. Conflict Save As first captures the local
+document, loads the authoritative Draft, exact-revision forks the server-owned entity,
+PUTs the captured local content onto that fork, then rebinds and saves a fresh Motion.
+
+## Trajectory, preflight, and playback
+
+`TrajectoryPlan` is a complete immutable sample plan in domain units. It binds Motion
+UUID/revision, variant, Profile/Kinematics fingerprints, start-state sequence, sample
+rate, duration, ordered `TrajectorySegment` and `TrajectorySample` values, and a
+deterministic SHA-256 `TrajectoryDigest`. Its semantic digest excludes only
+`compiled_at`. Forged or internally inconsistent plans fail domain validation.
+
+Segments are `JOINT`, `CARTESIAN_LINEAR`, or `HOLD`. Joint transitions apply the target
+keyframe's `LINEAR`, `SMOOTHSTEP`, or `EASE_IN_OUT` setting. Cartesian position is
+linear and orientation is shortest-path quaternion SLERP; IK is solved at every sample
+using the prior accepted solution as seed. Holds are explicit stationary time segments.
+Sample times are strictly increasing, adjacent segments share one boundary, and the
+last sample equals exact total duration.
+
+`TrajectoryPreflightReport` carries named checks and typed blocking violations. It can
+expose a digest only when the complete plan is accepted. `PreparedTrajectory` binds that
+report to the exact plan. The cache is bounded and process-local; preview uses that same
+prepared value and never compiles a second path. Execution rechecks repository revision,
+variant, fingerprints, state sequence, connection/freshness, Stop capability, Dry Run
+policy, and single-motion ownership through `MotionSafetyGateway`.
+
+`PlaybackOperatorIntent` is explicit and digest-bound. `PlaybackStatus` has `IDLE`,
+`PREFLIGHTING`, `READY`, `PLAYING`, `PAUSED`, `STOPPING`, `STOPPED`, `COMPLETED`, and
+`FAULTED` states plus bounded progress/rate/loop data. Scheduling uses monotonic absolute
+deadlines; pause/resume and rate changes rebase time without backlog bursts. Looping
+requires a closed plan and is bounded to 100 traversals. Latest-value playback events
+extend the read-only robot WebSocket and never form a command queue.
+
+The full interpolation, residual, dynamics, workspace, resource, and timing rules are
+specified in `docs/trajectory-semantics.md`. All Stage 5 results remain
+`hardware_accessed=false`; no plan grants Real readiness.
+
+## Entity repositories and revisions
+
+Pose, Motion, and MotionDraft persist independently under UUID filenames and disjoint
+server-owned roots. Every read validates the generated JSON Schema, Pydantic model, and
+filename/document UUID equality. Every create starts at revision 1. An update or delete
+carries `expected_revision`; an ordinary update advances exactly once, and stale
+revisions return a structured conflict rather than overwriting. A successful formal
+Draft save advances twice—intent then rebind—because both durable states are explicit.
+A provenance-preserving fork takes only the exact authoritative Draft revision, clones
+it under a fresh UUID at revision 1 with any formal-save marker cleared, and leaves the
+original untouched.
+Duplicate display names are valid because identity is the UUID.
+
+Storage writes a bounded JSON payload to a temporary sibling, flushes and `fsync`s the
+file, atomically replaces the destination, then `fsync`s the directory. Corrupt,
+unsupported, oversized, symlinked, or mismatched entries are quarantined when possible;
+one bad entry never fails the full list. Sorting uses a stable UUID tie-break. Work is
+bounded at 5,000 root JSON entities, 10,000 scanned root entries, 64 MiB aggregate
+regular-entity bytes, and four MiB per entity; overflow raises a structured capacity
+error instead of a partial result. The repository lock protects a single backend
+process/repository instance only.
+
+The MotionDraft recovery schema is stricter than an API create schema: every serialized
+field is required recursively, including defaulted fields, server-owned provenance/trust,
+and nested keyframe/edge/save-intent identities. Recovery never reconstructs omitted
+past state from current defaults.
+Configured runtime/Profile/example-Calibration/Real-Calibration/Kinematics/Pose/Motion/
+Draft/restore-journal/audit roots are validated as pairwise disjoint before repository
+construction, including equal, nested, resolved/symlink, NFC-Unicode-normalized, and
+case-folded aliases.
+
+Goto loads an immutable Pose, requires the expected entity revision, and compares
+variant, exact enabled-joint/unit set, Profile fingerprint, Kinematics fingerprint, and
+joint-state validity against the active robot. Only then does it create a Joint Motion
+for the normal Motion application service and gateway. A repository cannot dispatch an
+executor or driver.
+
+Studio Goto applies the same pattern to a Draft/keyframe pair. It requires the expected
+persisted Draft revision, reloads the embedded keyframe snapshot, validates variant,
+exact joint/unit membership, Profile/Kinematics fingerprints, and joint state, then
+submits `STUDIO` + `MOVE_JOINTS` through the normal motion service and safety gateway.
+The browser does not supply the Joint target. The Studio mutation lock linearizes Draft
+recovery, revision/keyframe checks, and command submission against autosave, so the
+checked persisted frame cannot be replaced inside the check-to-submit interval.
 
 Nested lists/maps are frozen using JSON-serializable immutable containers. JSON round trips preserve meaning and do not expose `mappingproxy` or another non-serializable type.
 
+## Backup transaction and security contracts
+
+`BackupEnvelope` is deterministic canonical JSON with a manifest, sorted descriptors,
+per-payload SHA-256, descriptor-list SHA-256, and manifest SHA-256. A document identifies
+exactly one Pose, Motion, MotionDraft, or explicitly selected Calibration. Revisioned
+payloads retain their exact final revision. `BackupImportPreview` reports validity,
+collision policy (`reject` or `skip` only), per-item create/skip/conflict/invalid action,
+migrations, safe issues, totals, and the full-bundle digest. A successful preview grants
+one bounded five-minute restore attempt for that exact digest/policy/Calibration tuple.
+
+`BackupRestoreTransaction` schema `1.0.0` is the durable write-ahead intent. It records a
+transaction UUID, bundle digest, bounded exact `(kind, UUID, revision)` entity targets,
+and at most one exact absent `(variant, Calibration UUID)` target per V1/V2 variant. It
+contains no payload or client path. The journal is published before creates and cleared
+only after complete commit or proven compensation. Startup loads it before serving
+traffic and removes those exact targets. This makes restore process-crash atomic in the
+supported single-process repository model while preserving concurrent later revisions
+through exact compare-and-swap.
+
+`NetworkSecurityPolicy` separates `LOCAL_ONLY` from explicit `LAN`. LAN requires a
+concrete private bind, authentication, and exact allowlisted HTTP Origins using the API
+bind host; the UI port may differ. `AuthorizedPrincipal` identifies its authentication
+method and permitted REST/CONTROL/WEBSOCKET/VISION surfaces. `SessionGrant` is bounded,
+scoped, and expiring; the one-time secret is intentionally outside the model.
+
+`SecurityAuditEvent` is a bounded structured record with request ID, optional command/
+robot/principal identity, source, mode, preflight, outcome, duration, and safe error code.
+Motion submission supplies the optional command/robot/mode/preflight evidence. All
+details are recursively bounded and redacted before a sink; a query/body, raw token,
+absolute path, URL, or full serial identity is never an audit contract.
+
 ## Schema evolution
 
-`schema_version` describes persisted shape; entity `revision` describes edits where the entity contract defines revisions. A persisted schema change requires compatibility analysis, round-trip tests, regenerated artifacts under `docs/schemas`, and an explicit Stage decision. Display names are never storage identities; persistent user entities use UUID filenames.
+`schema_version` describes persisted shape; entity `revision` describes edits where the
+entity contract defines revisions. A persisted schema change requires compatibility
+analysis, round-trip tests, regenerated artifacts under `docs/schemas`, and an explicit
+Stage decision. Display names are never storage identities; persistent user entities
+use UUID filenames.
+
+Stage 4 changes Pose and Motion independently from `1.0.0` to `2.0.0`. The change is
+intentionally incompatible because the old snapshot shape lacks Profile/Kinematics
+fingerprints and state-sequence evidence. Repository loading does not synthesize those
+fields or reinterpret old documents; `1.0.0` files are rejected/quarantined and require
+an explicit reviewed migration path. The exact decision is recorded in ADR 0011. Stage
+4 round-trip and compatibility tests pass, and two consecutive generated Pose/Motion
+schema artifacts were byte-identical; their exact SHA-256 values are recorded in the
+Stage report.
+
+Stage 6 adds MotionDraft schema `1.0.0` without modifying Motion schema `2.0.0`. Its
+generated artifact is `docs/schemas/motion-draft.schema.json`. Round-trip, corrupt-file,
+missing nested identity, and schema-current tests are included in the current 393-test
+backend pass. Two fresh temporary generations were byte-identical, and a final generated
+temporary tree matched the tracked schema artifacts.
+
+Stage 7 adds generated schemas for transient `FrameMetadata`, `TrackingResult`, and
+`FollowStatus` at `docs/schemas/vision-frame-metadata.schema.json`,
+`vision-tracking-result.schema.json`, and `vision-follow-status.schema.json`. They do not
+change Pose, Motion, MotionDraft, or another persisted user schema and create no media
+storage contract. Full deterministic generation and schema-current tests pass in the
+432-test backend gate.
+
+Stage 8 added `backup-envelope.schema.json`,
+`backup-restore-transaction.schema.json`, and `calibration-revision.schema.json` without
+changing Pose `2.0.0`, Motion `2.0.0`, or MotionDraft `1.0.0`. The transaction schema is
+operational recovery state under an ignored fixed server directory, not a user-editable
+web payload. Its historical backend gate passed 563 tests.
+
+The commissioning authorization fix adds `field-acceptance-evidence.schema.json` for
+ignored, device-local, fingerprint-bound acceptance records. Two fresh full generations
+are byte-identical and match the tracked schema tree; the current backend gate passes
+591 tests.

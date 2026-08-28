@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "JointType": {
+      "enum": [
+        "REVOLUTE",
+        "PRISMATIC"
+      ],
+      "title": "JointType",
+      "type": "string"
+    },
+    "KinematicJoint": {
+      "additionalProperties": false,
+      "description": "One ordered joint in a serial chain, expressed entirely in SI units.",
+      "properties": {
+        "axis": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Axis",
+          "type": "array"
+        },
+        "joint_id": {
+          "pattern": "^j[1-9][0-9]*$",
+          "title": "Joint Id",
+          "type": "string"
+        },
+        "joint_type": {
+          "$ref": "#/$defs/JointType"
+        },
+        "maximum_si": {
+          "title": "Maximum Si",
+          "type": "number"
+        },
+        "minimum_si": {
+          "title": "Minimum Si",
+          "type": "number"
+        },
+        "origin_orientation_quaternion_xyzw": {
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin Orientation Quaternion Xyzw",
+          "type": "array"
+        },
+        "origin_translation_m": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin Translation M",
+          "type": "array"
+        }
+      },
+      "required": [
+        "joint_id",
+        "joint_type",
+        "axis",
+        "origin_translation_m",
+        "origin_orientation_quaternion_xyzw",
+        "minimum_si",
+        "maximum_si"
+      ],
+      "title": "KinematicJoint",
+      "type": "object"
+    },
+    "KinematicsVerificationStatus": {
+      "description": "How far a kinematics model has been independently verified.",
+      "enum": [
+        "PROVISIONAL_DRY_RUN",
+        "VERIFIED_FOR_DRY_RUN",
+        "VERIFIED_FOR_REAL"
+      ],
+      "title": "KinematicsVerificationStatus",
+      "type": "string"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Reviewed serial-chain data; visual metadata never changes its fingerprint.",
+  "properties": {
+    "base_frame": {
+      "minLength": 1,
+      "title": "Base Frame",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "display_name": {
+      "default": "",
+      "title": "Display Name",
+      "type": "string"
+    },
+    "joints": {
+      "items": {
+        "$ref": "#/$defs/KinematicJoint"
+      },
+      "minItems": 1,
+      "title": "Joints",
+      "type": "array"
+    },
+    "kinematics_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Kinematics Fingerprint",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "source_revision": {
+      "minLength": 1,
+      "title": "Source Revision",
+      "type": "string"
+    },
+    "tcp_frame": {
+      "minLength": 1,
+      "title": "Tcp Frame",
+      "type": "string"
+    },
+    "variant": {
+      "$ref": "#/$defs/RobotVariant"
+    },
+    "verification_status": {
+      "$ref": "#/$defs/KinematicsVerificationStatus"
+    }
+  },
+  "required": [
+    "variant",
+    "source",
+    "source_revision",
+    "verification_status",
+    "base_frame",
+    "tcp_frame",
+    "joints",
+    "kinematics_fingerprint"
+  ],
+  "title": "KinematicsModel",
+  "type": "object"
+}

@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests, static checks, and isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.11.20"
+
+      - name: Verify locked backend environment
+        run: uv sync --project backend --extra dev --python 3.11 --locked
+
+      - name: Python dependency vulnerability gate
+        run: |
+          uv pip check --python backend/.venv/bin/python
+          uv run --project backend python -m pip_audit
+
+      - name: Ruff lint and format
+        run: |
+          uv run --project backend ruff check backend
+          uv run --project backend ruff format --check backend
+
+      - name: Strict mypy
+        env:
+          MYPYPATH: backend/src
+        run: >-
+          uv run --project backend mypy --config-file backend/pyproject.toml
+          backend/src backend/tests backend/scripts
+
+      - name: Security and backup evidence
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: localhost,127.0.0.1,test,testserver
+          PYTHONHASHSEED: "0"
+        run: >-
+          uv run --project backend python -m pytest
+          backend/tests/test_stage8_security.py backend/tests/test_stage8_backup.py
+
+      - name: Full backend suite without downloads
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: localhost,127.0.0.1,test,testserver
+          PYTHONHASHSEED: "0"
+        run: uv run --project backend python -m pytest backend/tests
+
+      - name: Hardware and camera isolation with safe startup gates
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: localhost,127.0.0.1,test,testserver
+          PYTHONHASHSEED: "0"
+          MOMO_CONTROL_MODE: DRY_RUN
+          MOMO_REAL_MOTION_ENABLED: "false"
+          MOMO_HARDWARE_ACCESS_POLICY: DISABLED
+          MOMO_HARDWARE_STARTUP_ENABLED: "false"
+          MOMO_HARDWARE_LOCAL_CONFIG_ENABLED: "false"
+          MOMO_SERIAL_PORT: ""
+          MOMO_SERVO_IDS: "[]"
+          MOMO_CAMERA_ACCESS_POLICY: SYNTHETIC_ONLY
+          MOMO_LIVE_CAMERA_DEVICE_ID: ""
+          MOMO_LAN_ENABLED: "false"
+          MOMO_LAN_AUTH_TOKEN: ""
+          MOMO_SERVER_HOST: 127.0.0.1
+          MOMO_SERVE_FRONTEND_STATIC: "false"
+        run: |
+          uv run --project backend python -m pytest \
+            backend/tests/test_stage2_api_isolation.py \
+            backend/tests/test_stage7_vision_core.py \
+            backend/tests/test_stage8_calibration_api.py \
+            backend/tests/test_stage8_field_acceptance.py \
+            backend/tests/test_stage8_hardware_authorization.py \
+            backend/tests/test_stage8_hardware_device_api.py \
+            backend/tests/test_stage8_hardware_servo_bus.py \
+            backend/tests/test_commissioning_motion_test_service.py \
+            backend/tests/test_commissioning_ports_and_fake.py \
+            backend/tests/test_fake_commissioning_e2e.py \
+            backend/tests/test_field_acceptance_service_staged.py \
+            backend/tests/test_final_commissioning_hardening.py \
+            backend/tests/test_kinematics_verification_service.py
+
+      - name: Deterministic JSON Schemas
+        run: |
+          schema_output="$(mktemp -d)"
+          PYTHONPATH=backend/src uv run --project backend python \
+            backend/scripts/generate_schemas.py --output-dir "$schema_output"
+          diff -ru docs/schemas "$schema_output"
+
+      - name: Verify uv lock is current
+        run: uv lock --project backend --check
+
+  frontend:
+    name: Frontend tests, lint, types, build, and audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked frontend environment
+        run: npm --prefix frontend ci
+
+      - name: Dependency vulnerability gate
+        run: npm --prefix frontend audit --audit-level=high
+
+      - name: Frontend unit tests
+        run: npm --prefix frontend test -- --run
+
+      - name: ESLint and TypeScript
+        run: |
+          npm --prefix frontend run lint
+          npm --prefix frontend run typecheck
+
+      - name: Production build
+        run: npm --prefix frontend run build
+
+  secret-scan:
+    name: Basic high-confidence secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Reject private keys and high-confidence provider tokens
+        shell: bash
+        run: |
+          pattern='(AKIA|ASIA)[A-Z0-9]{16}|sk-[A-Za-z0-9]{32,}|gh[pousr]_[A-Za-z0-9]{36,}|-----BEGIN ([A-Z ]+ )?PRIVATE KEY-----'
+          if git grep -nEI "$pattern" -- ':!frontend/package-lock.json' ':!backend/uv.lock'; then
+            echo "High-confidence secret material found in tracked files."
+            exit 1
+          fi

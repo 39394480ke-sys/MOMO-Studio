@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "BackupDocument": {
+      "additionalProperties": false,
+      "description": "One entity payload plus independently verifiable identity and revision.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/BackupEntityKind"
+        },
+        "payload": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Payload",
+          "type": "object"
+        },
+        "payload_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Payload Sha256",
+          "type": "string"
+        },
+        "schema_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_revision": {
+          "anyOf": [
+            {
+              "maximum": 50000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Revision"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "schema_version",
+        "source_revision",
+        "payload_sha256",
+        "payload"
+      ],
+      "title": "BackupDocument",
+      "type": "object"
+    },
+    "BackupEntityKind": {
+      "enum": [
+        "pose",
+        "motion",
+        "draft",
+        "calibration"
+      ],
+      "title": "BackupEntityKind",
+      "type": "string"
+    },
+    "BackupManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "calibration_included": {
+          "title": "Calibration Included",
+          "type": "boolean"
+        },
+        "document_count": {
+          "maximum": 5000,
+          "minimum": 0,
+          "title": "Document Count",
+          "type": "integer"
+        },
+        "documents_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Documents Sha256",
+          "type": "string"
+        },
+        "format": {
+          "const": "momo-studio-backup",
+          "default": "momo-studio-backup",
+          "title": "Format",
+          "type": "string"
+        },
+        "format_version": {
+          "const": "1.0.0",
+          "default": "1.0.0",
+          "title": "Format Version",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_count",
+        "calibration_included",
+        "documents_sha256",
+        "manifest_sha256"
+      ],
+      "title": "BackupManifest",
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "documents": {
+      "items": {
+        "$ref": "#/$defs/BackupDocument"
+      },
+      "maxItems": 5000,
+      "title": "Documents",
+      "type": "array"
+    },
+    "manifest": {
+      "$ref": "#/$defs/BackupManifest"
+    }
+  },
+  "required": [
+    "manifest",
+    "documents"
+  ],
+  "title": "BackupEnvelope",
+  "type": "object"
+}

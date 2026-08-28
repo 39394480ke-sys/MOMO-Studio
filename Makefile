@@ -1,12 +1,19 @@
-.PHONY: install test lint format-check build dev-backend dev-frontend schemas
+.PHONY: install install-camera install-hardware test lint format-check build audit dev-backend serve-backend dev-frontend schemas
 
 BACKEND_PYTHON ?= backend/.venv/bin/python
 UV ?= uv
 NPM ?= npm
+LOCAL_CONFIG ?= config/local.yaml
 
 install:
 	$(UV) sync --project backend --extra dev --python 3.11 --locked
 	$(NPM) --prefix frontend ci
+
+install-camera:
+	$(UV) sync --project backend --extra dev --extra camera --python 3.11 --locked
+
+install-hardware:
+	$(UV) sync --project backend --extra dev --extra camera --extra hardware --python 3.11 --locked
 
 test:
 	$(BACKEND_PYTHON) -m pytest backend/tests
@@ -14,7 +21,7 @@ test:
 
 lint:
 	$(BACKEND_PYTHON) -m ruff check backend
-	$(BACKEND_PYTHON) -m mypy backend/src backend/tests backend/scripts
+	MYPYPATH=backend/src $(BACKEND_PYTHON) -m mypy --config-file backend/pyproject.toml backend/src backend/tests backend/scripts
 	$(NPM) --prefix frontend run lint
 	$(NPM) --prefix frontend run typecheck
 
@@ -24,11 +31,18 @@ format-check:
 build:
 	$(NPM) --prefix frontend run build
 
+audit:
+	$(UV) pip check --python $(BACKEND_PYTHON)
+	$(BACKEND_PYTHON) -m pip_audit
+	$(NPM) --prefix frontend audit --audit-level=high
+
 schemas:
 	PYTHONPATH=backend/src $(BACKEND_PYTHON) backend/scripts/generate_schemas.py
 
 dev-backend:
-	$(BACKEND_PYTHON) -m uvicorn momo.api.app:create_app --factory --reload --app-dir backend/src
+	PYTHONPATH=backend/src $(BACKEND_PYTHON) -m momo.serve --local-config "$(LOCAL_CONFIG)"
+
+serve-backend: dev-backend
 
 dev-frontend:
 	$(NPM) --prefix frontend run dev

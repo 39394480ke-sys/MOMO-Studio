@@ -1,0 +1,395 @@
+{
+  "$defs": {
+    "FollowActuatorMapping": {
+      "additionalProperties": false,
+      "description": "Profile-bound mapping from normalized image error to joint increments.",
+      "properties": {
+        "pan_joint": {
+          "pattern": "^j[1-9][0-9]*$",
+          "title": "Pan Joint",
+          "type": "string"
+        },
+        "pan_sign": {
+          "enum": [
+            -1,
+            1
+          ],
+          "title": "Pan Sign",
+          "type": "integer"
+        },
+        "tilt_joint": {
+          "pattern": "^j[1-9][0-9]*$",
+          "title": "Tilt Joint",
+          "type": "string"
+        },
+        "tilt_sign": {
+          "enum": [
+            -1,
+            1
+          ],
+          "title": "Tilt Sign",
+          "type": "integer"
+        },
+        "verification_status": {
+          "const": "VERIFIED_FOR_DRY_RUN",
+          "default": "VERIFIED_FOR_DRY_RUN",
+          "title": "Verification Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pan_joint",
+        "tilt_joint",
+        "pan_sign",
+        "tilt_sign"
+      ],
+      "title": "FollowActuatorMapping",
+      "type": "object"
+    },
+    "FollowConfiguration": {
+      "additionalProperties": false,
+      "description": "Complete, bounded controller tuning supplied by explicit operator intent.",
+      "properties": {
+        "confidence_threshold": {
+          "default": 0.5,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence Threshold",
+          "type": "number"
+        },
+        "dead_zone_x": {
+          "default": 0.05,
+          "maximum": 0.49,
+          "minimum": 0.0,
+          "title": "Dead Zone X",
+          "type": "number"
+        },
+        "dead_zone_y": {
+          "default": 0.05,
+          "maximum": 0.49,
+          "minimum": 0.0,
+          "title": "Dead Zone Y",
+          "type": "number"
+        },
+        "ema_alpha": {
+          "default": 0.35,
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Ema Alpha",
+          "type": "number"
+        },
+        "frame_freshness_limit_s": {
+          "default": 0.5,
+          "maximum": 5.0,
+          "minimum": 0.05,
+          "title": "Frame Freshness Limit S",
+          "type": "number"
+        },
+        "gain": {
+          "default": 20.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 360.0,
+          "title": "Gain",
+          "type": "number"
+        },
+        "lease_ttl_s": {
+          "default": 1.0,
+          "maximum": 10.0,
+          "minimum": 0.25,
+          "title": "Lease Ttl S",
+          "type": "number"
+        },
+        "mapping": {
+          "$ref": "#/$defs/FollowActuatorMapping"
+        },
+        "max_rate": {
+          "default": 20.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 360.0,
+          "title": "Max Rate",
+          "type": "number"
+        },
+        "max_step": {
+          "default": 2.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 90.0,
+          "title": "Max Step",
+          "type": "number"
+        },
+        "target_lost_limit_s": {
+          "default": 0.5,
+          "maximum": 10.0,
+          "minimum": 0.05,
+          "title": "Target Lost Limit S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mapping"
+      ],
+      "title": "FollowConfiguration",
+      "type": "object"
+    },
+    "FollowLease": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "heartbeat_at": {
+          "format": "date-time",
+          "title": "Heartbeat At",
+          "type": "string"
+        },
+        "issued_at": {
+          "format": "date-time",
+          "title": "Issued At",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issued_at",
+        "heartbeat_at",
+        "expires_at"
+      ],
+      "title": "FollowLease",
+      "type": "object"
+    },
+    "FollowMetrics": {
+      "additionalProperties": false,
+      "description": "Auditable controller inputs and bounded output for the latest frame.",
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "ema_error_x": {
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "title": "Ema Error X",
+          "type": "number"
+        },
+        "ema_error_y": {
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "title": "Ema Error Y",
+          "type": "number"
+        },
+        "error_x": {
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "title": "Error X",
+          "type": "number"
+        },
+        "error_y": {
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "title": "Error Y",
+          "type": "number"
+        },
+        "frame_age_s": {
+          "minimum": 0.0,
+          "title": "Frame Age S",
+          "type": "number"
+        },
+        "frame_id": {
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "pan_step": {
+          "title": "Pan Step",
+          "type": "number"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "tilt_step": {
+          "title": "Tilt Step",
+          "type": "number"
+        }
+      },
+      "required": [
+        "frame_id",
+        "source_id",
+        "captured_at",
+        "frame_age_s",
+        "confidence",
+        "error_x",
+        "error_y",
+        "ema_error_x",
+        "ema_error_y",
+        "pan_step",
+        "tilt_step"
+      ],
+      "title": "FollowMetrics",
+      "type": "object"
+    },
+    "FollowState": {
+      "enum": [
+        "IDLE",
+        "ACTIVE",
+        "STOPPED"
+      ],
+      "title": "FollowState",
+      "type": "string"
+    },
+    "FollowStopReason": {
+      "enum": [
+        "OPERATOR_STOP",
+        "BROWSER_DISCONNECTED",
+        "BACKEND_SHUTDOWN",
+        "FRAME_STALE",
+        "TARGET_LOST",
+        "CONFIDENCE_LOW",
+        "CAMERA_DISCONNECTED",
+        "TRACKER_FAULT",
+        "ROBOT_DISCONNECTED",
+        "ROBOT_FAULTED",
+        "ROBOT_STATE_STALE",
+        "MOTION_CONFLICT",
+        "MOTION_REJECTED",
+        "LEASE_EXPIRED",
+        "GLOBAL_STOP"
+      ],
+      "title": "FollowStopReason",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Latest-value Follow state; observers must not construct an event queue.",
+  "properties": {
+    "active_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Active Command Id"
+    },
+    "configuration": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FollowConfiguration"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "control_mode": {
+      "const": "DRY_RUN",
+      "default": "DRY_RUN",
+      "title": "Control Mode",
+      "type": "string"
+    },
+    "follow_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Follow Id"
+    },
+    "hardware_accessed": {
+      "const": false,
+      "default": false,
+      "title": "Hardware Accessed",
+      "type": "boolean"
+    },
+    "lease": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FollowLease"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "metrics": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FollowMetrics"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "operator_intent_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operator Intent Id"
+    },
+    "real_follow_allowed": {
+      "const": false,
+      "default": false,
+      "title": "Real Follow Allowed",
+      "type": "boolean"
+    },
+    "real_follow_blocked_reason": {
+      "const": "FIELD_VERIFICATION_REQUIRED",
+      "default": "FIELD_VERIFICATION_REQUIRED",
+      "title": "Real Follow Blocked Reason",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/FollowState",
+      "default": "IDLE"
+    },
+    "stop_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FollowStopReason"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "title": "FollowStatus",
+  "type": "object"
+}

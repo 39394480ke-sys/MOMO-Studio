@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "FrameMetadata": {
+      "additionalProperties": false,
+      "description": "Identity, time, source, and explicit dimensions for one captured frame.",
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "frame_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "height_px": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Height Px",
+          "type": "integer"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "width_px": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width Px",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "frame_id",
+        "source_id",
+        "captured_at",
+        "width_px",
+        "height_px"
+      ],
+      "title": "FrameMetadata",
+      "type": "object"
+    },
+    "NormalizedBoundingBox": {
+      "additionalProperties": false,
+      "description": "A frame-bound box using finite ``x/y/width/height`` values in ``[0, 1]``.\n\nBox identity is deliberately self-contained.  A client cannot submit four\ncoordinates detached from the source frame, timestamp, or pixel dimensions that\ngave those coordinates meaning.",
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "frame_height_px": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Frame Height Px",
+          "type": "integer"
+        },
+        "frame_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "frame_width_px": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Frame Width Px",
+          "type": "integer"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "width": {
+          "title": "Width",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height",
+        "frame_id",
+        "source_id",
+        "captured_at",
+        "frame_width_px",
+        "frame_height_px"
+      ],
+      "title": "NormalizedBoundingBox",
+      "type": "object"
+    },
+    "TrackingStatus": {
+      "enum": [
+        "UNINITIALIZED",
+        "LOCKED",
+        "LOST",
+        "STALE",
+        "FAULTED"
+      ],
+      "title": "TrackingStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Fail-closed tracker output for one exact frame.",
+  "properties": {
+    "bounding_box": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NormalizedBoundingBox"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "confidence": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "detail": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Detail",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/FrameMetadata"
+    },
+    "status": {
+      "$ref": "#/$defs/TrackingStatus"
+    }
+  },
+  "required": [
+    "metadata",
+    "status"
+  ],
+  "title": "TrackingResult",
+  "type": "object"
+}

@@ -32,7 +32,7 @@ JointId = Annotated[
     str,
     StringConstraints(strip_whitespace=True, pattern=r"^j[1-9][0-9]*$"),
 ]
-FiniteNumber = Annotated[float, Field(allow_inf_nan=False)]
+FiniteNumber = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 HardwareMappingValue = str | int | float | bool | None
 
 

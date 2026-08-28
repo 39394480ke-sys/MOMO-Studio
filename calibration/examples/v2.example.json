@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "id": "00000000-0000-0000-0000-000000000002",
   "robot_variant": "V2",
-  "profile_fingerprint": "64bebb74fcf3b1331fafb0f63bc181a9fad0c02a03a26aafc49335c87a6afee5",
+  "profile_fingerprint": "51fe63e5790c379b253e243b8d181fb1693038fdcba2151ee3e420361906c826",
   "template": true,
   "generated_at": "2026-08-24T00:00:00Z",
   "notes": "Synthetic example only; contains no real calibration values.",

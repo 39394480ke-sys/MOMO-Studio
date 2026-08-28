@@ -1,0 +1,329 @@
+{
+  "$defs": {
+    "DomainUnit": {
+      "description": "Canonical persisted units at the domain/UI boundary.",
+      "enum": [
+        "deg",
+        "mm"
+      ],
+      "title": "DomainUnit",
+      "type": "string"
+    },
+    "JointState": {
+      "additionalProperties": false,
+      "description": "Joint positions keyed by semantic joint ID, never by anonymous index.\n\nPositions are stored in each joint definition's ``domain_unit``. ``units`` may be\nsupplied at an external boundary for an explicit unit check; when omitted, values\nare already asserted to be in the profile's canonical domain units.",
+      "properties": {
+        "positions": {
+          "patternProperties": {
+            "^j[1-9][0-9]*$": {
+              "type": "number"
+            }
+          },
+          "title": "Positions",
+          "type": "object"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^j[1-9][0-9]*$": {
+                  "$ref": "#/$defs/DomainUnit"
+                }
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "positions"
+      ],
+      "title": "JointState",
+      "type": "object"
+    },
+    "KinematicsVerificationPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "joint_state": {
+          "$ref": "#/$defs/JointState"
+        },
+        "joint_state_captured_at": {
+          "format": "date-time",
+          "title": "Joint State Captured At",
+          "type": "string"
+        },
+        "joint_state_sequence": {
+          "minimum": 0,
+          "title": "Joint State Sequence",
+          "type": "integer"
+        },
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "measured_at": {
+          "format": "date-time",
+          "title": "Measured At",
+          "type": "string"
+        },
+        "measured_tcp": {
+          "$ref": "#/$defs/TcpPose"
+        },
+        "orientation_error_deg": {
+          "minimum": 0.0,
+          "title": "Orientation Error Deg",
+          "type": "number"
+        },
+        "point_id": {
+          "format": "uuid",
+          "title": "Point Id",
+          "type": "string"
+        },
+        "position_error_mm": {
+          "minimum": 0.0,
+          "title": "Position Error Mm",
+          "type": "number"
+        },
+        "predicted_tcp": {
+          "$ref": "#/$defs/TcpPose"
+        },
+        "snapshot_session_id": {
+          "format": "uuid",
+          "title": "Snapshot Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "joint_state",
+        "joint_state_sequence",
+        "joint_state_captured_at",
+        "snapshot_session_id",
+        "predicted_tcp",
+        "measured_tcp",
+        "position_error_mm",
+        "orientation_error_deg",
+        "measured_at"
+      ],
+      "title": "KinematicsVerificationPoint",
+      "type": "object"
+    },
+    "KinematicsVerificationThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "max_orientation_error_deg": {
+          "default": 5.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 15.0,
+          "title": "Max Orientation Error Deg",
+          "type": "number"
+        },
+        "max_position_error_mm": {
+          "default": 5.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 25.0,
+          "title": "Max Position Error Mm",
+          "type": "number"
+        }
+      },
+      "title": "KinematicsVerificationThresholds",
+      "type": "object"
+    },
+    "QuaternionXYZW": {
+      "additionalProperties": false,
+      "description": "Finite, non-zero quaternion normalized into canonical storage form.",
+      "properties": {
+        "w": {
+          "title": "W",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z",
+        "w"
+      ],
+      "title": "QuaternionXYZW",
+      "type": "object"
+    },
+    "RobotVariant": {
+      "description": "A product variant, not a software version.",
+      "enum": [
+        "V1",
+        "V2"
+      ],
+      "title": "RobotVariant",
+      "type": "string"
+    },
+    "TcpPose": {
+      "additionalProperties": false,
+      "description": "Canonical TCP pose: millimetres and a normalized XYZW quaternion.",
+      "properties": {
+        "frame": {
+          "default": "base",
+          "minLength": 1,
+          "title": "Frame",
+          "type": "string"
+        },
+        "orientation_quaternion_xyzw": {
+          "$ref": "#/$defs/QuaternionXYZW"
+        },
+        "position_mm": {
+          "$ref": "#/$defs/Vector3"
+        }
+      },
+      "required": [
+        "position_mm",
+        "orientation_quaternion_xyzw"
+      ],
+      "title": "TcpPose",
+      "type": "object"
+    },
+    "Vector3": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "title": "Vector3",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "accepted_at": {
+      "format": "date-time",
+      "title": "Accepted At",
+      "type": "string"
+    },
+    "accepted_by": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Accepted By",
+      "type": "string"
+    },
+    "calibration_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Calibration Fingerprint",
+      "type": "string"
+    },
+    "device_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Device Fingerprint",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "kinematics_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Kinematics Fingerprint",
+      "type": "string"
+    },
+    "kinematics_model_schema_version": {
+      "title": "Kinematics Model Schema Version",
+      "type": "string"
+    },
+    "profile_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Profile Fingerprint",
+      "type": "string"
+    },
+    "revision": {
+      "const": 1,
+      "default": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "robot_unit_id": {
+      "maxLength": 64,
+      "minLength": 3,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "title": "Robot Unit Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "software_commit": {
+      "maxLength": 64,
+      "minLength": 7,
+      "title": "Software Commit",
+      "type": "string"
+    },
+    "test_points": {
+      "items": {
+        "$ref": "#/$defs/KinematicsVerificationPoint"
+      },
+      "title": "Test Points",
+      "type": "array"
+    },
+    "thresholds": {
+      "$ref": "#/$defs/KinematicsVerificationThresholds"
+    },
+    "variant": {
+      "$ref": "#/$defs/RobotVariant"
+    },
+    "verification_checklist_version": {
+      "title": "Verification Checklist Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "robot_unit_id",
+    "variant",
+    "profile_fingerprint",
+    "calibration_fingerprint",
+    "device_fingerprint",
+    "kinematics_fingerprint",
+    "kinematics_model_schema_version",
+    "verification_checklist_version",
+    "test_points",
+    "thresholds",
+    "accepted_at",
+    "accepted_by",
+    "software_commit"
+  ],
+  "title": "KinematicsVerificationEvidence",
+  "type": "object"
+}

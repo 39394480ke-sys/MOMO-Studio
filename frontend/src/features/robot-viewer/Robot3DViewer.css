@@ -1,0 +1,111 @@
+.robot-3d-viewer {
+  --robot-viewer-border: color-mix(in srgb, currentColor 14%, transparent);
+  --robot-viewer-muted: color-mix(in srgb, currentColor 62%, transparent);
+  display: grid;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+.robot-3d-viewer__viewport {
+  position: relative;
+  min-height: 22rem;
+  overflow: hidden;
+  border: 1px solid var(--robot-viewer-border);
+  border-radius: 1rem;
+  background: #eef2f4;
+}
+
+.robot-3d-viewer__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.robot-3d-viewer__badge,
+.robot-3d-viewer__safety-note {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid rgb(255 255 255 / 72%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 86%);
+  box-shadow: 0 0.4rem 1.4rem rgb(28 40 48 / 10%);
+  color: #34444e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.robot-3d-viewer__badge {
+  top: 0.875rem;
+  left: 0.875rem;
+  padding: 0.5rem 0.7rem;
+}
+
+.robot-3d-viewer__safety-note {
+  right: 0.875rem;
+  bottom: 0.875rem;
+  max-width: calc(100% - 1.75rem);
+  padding: 0.45rem 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.robot-3d-viewer__fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 0.45rem;
+  padding: 2rem;
+  background: rgb(238 242 244 / 94%);
+  color: #34444e;
+  text-align: center;
+}
+
+.robot-3d-viewer__fallback strong {
+  font-size: 0.95rem;
+}
+
+.robot-3d-viewer__fallback span {
+  max-width: 34rem;
+  color: #667782;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.robot-3d-viewer__fallback--error strong {
+  color: #a7353e;
+}
+
+.robot-3d-viewer__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  color: var(--robot-viewer-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 48rem) {
+  .robot-3d-viewer__viewport {
+    min-height: 18rem;
+  }
+
+  .robot-3d-viewer__safety-note {
+    left: 0.875rem;
+    right: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .robot-3d-viewer__canvas {
+    scroll-behavior: auto;
+  }
+}
