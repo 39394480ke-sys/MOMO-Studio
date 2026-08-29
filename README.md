@@ -126,6 +126,12 @@ Open the Vite URL printed by the frontend command. The copied configuration rema
 `DRY_RUN`, hardware access is disabled, Real and commissioning motion are disabled, and
 Vision is Synthetic-only.
 
+When an ignored `config/local.yaml` contains a reviewed REAL composition, Settings shows
+a `DRY RUN / REAL` selector. The supported `make dev-backend` launcher supervises an
+explicit switch and rebuilds the same product graph after confirmation. Switching never
+edits the local configuration and never connects, scans, homes, calibrates, or moves the
+robot; those actions remain separate operator-controlled flows.
+
 For the separately gated read-only camera preview, install the optional local dependency
 with `make install-camera`, then follow the exact ignored-local-config procedure in the
 [operator guide](docs/operator-guide.md#read-only-live-camera-preview). The default

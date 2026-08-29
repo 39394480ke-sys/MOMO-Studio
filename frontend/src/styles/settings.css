@@ -39,6 +39,234 @@
   font-size: 11px;
 }
 
+.runtime-mode-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: center;
+  gap: 18px 28px;
+  margin-bottom: 16px;
+  padding: 20px 22px;
+  border: 1px solid var(--settings-border);
+  border-radius: 16px;
+  background: linear-gradient(110deg, #fff 0%, #faf8ff 100%);
+  box-shadow: 0 8px 24px rgb(36 30 62 / 4%);
+}
+
+.runtime-mode-card__copy h2 {
+  margin: 3px 0 4px;
+  font-size: 18px;
+}
+
+.runtime-mode-card__copy p,
+.runtime-mode-card__meta {
+  margin: 0;
+  color: var(--settings-muted);
+  font-size: 12px;
+}
+
+.runtime-mode-card__eyebrow {
+  color: var(--settings-accent);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.runtime-mode-card__control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.runtime-mode-segment {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--settings-border);
+  border-radius: 11px;
+  background: #f5f4f8;
+}
+
+.runtime-mode-segment button {
+  min-width: 92px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--settings-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.runtime-mode-segment button[aria-pressed='true'] {
+  color: #fff;
+  background: var(--settings-accent);
+  box-shadow: 0 4px 12px rgb(118 87 232 / 25%);
+}
+
+.runtime-mode-segment button:disabled:not([aria-pressed='true']) {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.runtime-mode-state {
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.runtime-mode-state--dry {
+  color: #6f697e;
+  background: #f0eef4;
+}
+
+.runtime-mode-state--real {
+  color: #087b4b;
+  background: #e9f8f1;
+}
+
+.runtime-mode-card__meta {
+  grid-column: 1 / -1;
+  min-height: 16px;
+}
+
+.runtime-mode-error {
+  color: #c23d4b;
+}
+
+.runtime-mode-dialog {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(21 18 34 / 38%);
+  backdrop-filter: blur(6px);
+}
+
+.runtime-mode-dialog__panel {
+  position: relative;
+  width: min(440px, 100%);
+  padding: 28px;
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgb(25 19 49 / 24%);
+}
+
+.runtime-mode-dialog__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: var(--settings-muted);
+  background: #f5f4f8;
+}
+
+.runtime-mode-dialog__close svg,
+.runtime-mode-dialog__icon svg,
+.runtime-mode-dialog__notice svg {
+  width: 17px;
+  height: 17px;
+}
+
+.runtime-mode-dialog__icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 14px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--settings-accent);
+  background: var(--settings-accent-soft);
+}
+
+.runtime-mode-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 21px;
+}
+
+.runtime-mode-dialog p {
+  margin: 0;
+  color: var(--settings-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.runtime-mode-confirmations {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.runtime-mode-confirmations label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--settings-border);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.runtime-mode-confirmations input {
+  accent-color: var(--settings-accent);
+}
+
+.runtime-mode-dialog__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  color: #6f697e;
+  background: #f6f4fa;
+  font-size: 12px;
+}
+
+.runtime-mode-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.runtime-mode-dialog__actions button {
+  min-width: 112px;
+}
+
+@media (max-width: 760px) {
+  .runtime-mode-card {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-mode-card__control {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .runtime-mode-card__meta {
+    grid-column: auto;
+  }
+
+  .runtime-mode-segment {
+    width: 100%;
+  }
+
+  .runtime-mode-segment button {
+    flex: 1;
+  }
+}
+
 .settings-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

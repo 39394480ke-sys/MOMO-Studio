@@ -187,6 +187,7 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
         "/api/v1/robot/profile": frozenset({"get"}),
         "/api/v1/robot/stop": frozenset({"post"}),
         "/api/v1/robot/variant": frozenset({"put"}),
+        "/api/v1/runtime/mode": frozenset({"get", "post"}),
         "/api/v1/security/session": frozenset({"post", "delete"}),
         "/api/v1/studio/capture": frozenset({"post"}),
         "/api/v1/studio/drafts": frozenset({"get", "post"}),

@@ -22,6 +22,7 @@ import { PageIntro } from '../components/PageIntro';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
 import { LanSecuritySessionPanel } from '../features/settings/LanSecuritySessionPanel';
 import { RealHardwarePanel } from '../features/settings/RealHardwarePanel';
+import { RuntimeModeSwitch } from '../features/settings/RuntimeModeSwitch';
 import { zhBackendMessage, zhBoolean, zhStatus } from '../i18n/zh';
 
 function MatchValue({ value }: { value: boolean | null | undefined }) {
@@ -146,6 +147,8 @@ export function SettingsPage() {
           </span>
         </div>
       )}
+
+      <RuntimeModeSwitch />
 
       <div className="settings-card-grid">
         <section className="settings-product-card settings-product-card--device" aria-labelledby="device-settings-title">

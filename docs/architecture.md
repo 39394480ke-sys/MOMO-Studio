@@ -168,6 +168,14 @@ unavailable and never silently runs the simulation backend. See
 [ADR 0022](adr/0022-unified-product-motion-runtime.md) and the
 [architecture cleanup ledger](architecture-cleanup.md).
 
+The supported local launcher is a small outer supervisor. A Settings request may persist
+only `DRY_RUN` or `REAL` in ignored runtime state and ask the current Uvicorn server to
+exit gracefully. The supervisor then revalidates the same explicit local configuration
+and reconstructs exactly one product composition. DRY RUN derives a hardware-disabled
+view without modifying the local file; REAL reuses that validated file. The switch route
+requires a disconnected robot and explicit REAL safety confirmations, and composition
+startup itself performs no connect, scan, Home, calibration, or motion operation.
+
 ## Active Robot and lifecycle
 
 The application owns one identity-aware runtime:

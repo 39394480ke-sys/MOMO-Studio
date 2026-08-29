@@ -65,6 +65,11 @@ class RuntimeStateInvalidError(RobotApplicationError):
     status_code = 422
 
 
+class RuntimeModeSwitchError(RobotApplicationError):
+    code = "RUNTIME_MODE_SWITCH_BLOCKED"
+    status_code = 409
+
+
 class MotionPreflightError(RobotApplicationError):
     code = "MOTION_PREFLIGHT_REJECTED"
     status_code = 422

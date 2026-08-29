@@ -70,6 +70,21 @@ make dev-frontend
 The development UI uses the local API proxy. The release build may instead be served
 by the same backend when static hosting is explicitly configured.
 
+### Switching DRY RUN and REAL
+
+With the backend running through `make dev-backend`, open Settings and use the
+`DRY RUN / REAL` selector in the runtime card. Switching to REAL requires the robot to
+be disconnected and the operator to confirm both the physical emergency stop and a
+clear workspace, then click `切换并重启`. The page waits for the supervised backend to
+rebuild and refreshes the runtime status automatically.
+
+The selector stores only the selected mode in ignored runtime data. It does not rewrite
+`config/local.yaml`, discover hardware, connect a serial device, Home, calibrate, or send
+motion. REAL is available only when that explicit local file already validates; the card
+also distinguishes a commissioning/debug workspace from a production-motion-ready
+composition. A direct `uvicorn` launch has no supervisor and therefore exposes the mode
+as read-only.
+
 When same-backend static hosting is enabled, the built React bundle uses relative local
 assets and extensionless SPA refresh fallback. Missing API routes and missing assets stay
 404, `index.html` is `no-store`, `/docs` and `/redoc` are disabled, and no CDN/Internet

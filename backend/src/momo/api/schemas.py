@@ -76,6 +76,36 @@ class RobotCommandResponse(BaseModel):
     hardware_accessed: bool = False
 
 
+class RuntimeModeStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    active_mode: ControlMode
+    selected_mode: ControlMode
+    switch_supported: bool
+    restart_in_progress: bool
+    real_config_available: bool
+    configured_real_policy: HardwareAccessPolicy | None = None
+    configured_real_motion_enabled: bool = False
+    blocking_reasons: list[str] = Field(default_factory=list)
+
+
+class RuntimeModeSwitchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_mode: ControlMode
+    confirm_robot_disconnected: bool
+    confirm_physical_estop_ready: bool = False
+    confirm_workspace_clear: bool = False
+
+
+class RuntimeModeSwitchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accepted: Literal[True] = True
+    target_mode: ControlMode
+    restarting: Literal[True] = True
+
+
 class VariantSwitchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -22,6 +22,7 @@ from momo.api.routes.meta import router as meta_router
 from momo.api.routes.motion import router as motion_router
 from momo.api.routes.playback import router as playback_router
 from momo.api.routes.robot import router as robot_router
+from momo.api.routes.runtime_mode import router as runtime_mode_router
 from momo.api.routes.security import router as security_router
 from momo.api.routes.studio import router as studio_router
 from momo.api.routes.vision import router as vision_router
@@ -40,6 +41,7 @@ from momo.bootstrap import (
     build_simulation_product_services,
     build_simulation_robot_service,
 )
+from momo.ports.runtime_mode_control import RuntimeModeControl
 from momo.ports.servo_bus import ServoBus
 from momo.real_bootstrap import build_real_product_composition
 from momo.release_bootstrap import build_release_services
@@ -49,6 +51,7 @@ from momo.settings import Settings, load_settings, repository_root
 def create_app(
     settings: Settings | None = None,
     robot_service: RobotApplicationService | None = None,
+    runtime_mode_control: RuntimeModeControl | None = None,
 ) -> FastAPI:
     """Build the API without connecting hardware or starting background workers."""
 
@@ -122,6 +125,7 @@ def create_app(
         redoc_url=None,
     )
     app.state.settings = runtime_settings
+    app.state.runtime_mode_control = runtime_mode_control
     app.state.robot_service = resolved_robot_service
     app.state.kinematics_service = services.kinematics
     app.state.motion_service = services.motion
@@ -158,6 +162,7 @@ def create_app(
     app.include_router(health_router, prefix="/api/v1", dependencies=rest_dependencies)
     app.include_router(meta_router, prefix="/api/v1", dependencies=rest_dependencies)
     app.include_router(robot_router, prefix="/api/v1", dependencies=rest_dependencies)
+    app.include_router(runtime_mode_router, prefix="/api/v1", dependencies=rest_dependencies)
     app.include_router(calibration_router, prefix="/api/v1", dependencies=rest_dependencies)
     app.include_router(kinematics_router, prefix="/api/v1", dependencies=rest_dependencies)
     app.include_router(motion_router, prefix="/api/v1", dependencies=rest_dependencies)

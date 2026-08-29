@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -12,43 +13,56 @@ from momo import serve
 from momo.settings import Settings
 
 
-def test_serve_loads_only_the_explicit_local_config_and_binds_validated_settings(
+def test_supervised_serve_uses_explicit_config_and_validated_bind_settings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     local_config = tmp_path / "momo.local.yaml"
     local_config.write_text("server_host: 127.0.0.1\nserver_port: 8123\n", encoding="utf-8")
     settings = Settings(server_host="127.0.0.1", server_port=8123)
-    loaded_paths: list[Path] = []
     created_with: list[Settings] = []
-    run_calls: list[tuple[object, dict[str, object]]] = []
+    config_calls: list[tuple[object, dict[str, object]]] = []
     app_sentinel = object()
 
-    def fake_load_settings(
-        default_config_path: Path | None = None,
-        local_config_path: Path | None = None,
-    ) -> Settings:
-        assert default_config_path is None
-        assert local_config_path is not None
-        loaded_paths.append(local_config_path)
-        return settings
+    class FakeController:
+        restart_requested = False
 
-    def fake_create_app(*, settings: Settings) -> object:
+        def __init__(self, path: Path) -> None:
+            assert path == local_config.resolve()
+
+        def selected_settings(self) -> Settings:
+            return settings
+
+        def bind_restart(self, callback: object) -> None:
+            assert callable(callback)
+
+    def fake_create_app(*, settings: Settings, runtime_mode_control: object) -> object:
         created_with.append(settings)
+        assert isinstance(runtime_mode_control, FakeController)
         return app_sentinel
 
-    def fake_run(app: object, **kwargs: object) -> None:
-        run_calls.append((app, kwargs))
+    def fake_config(app: object, **kwargs: object) -> object:
+        config_calls.append((app, kwargs))
+        return object()
 
-    monkeypatch.setattr(serve, "load_settings", fake_load_settings)
+    class FakeServer:
+        should_exit = False
+
+        def __init__(self, config: object) -> None:
+            del config
+
+        async def serve(self) -> None:
+            return None
+
+    monkeypatch.setattr(serve, "LocalRuntimeModeController", FakeController)
     monkeypatch.setattr(serve, "create_app", fake_create_app)
-    monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setattr(uvicorn, "Config", fake_config)
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
 
-    serve.main(["--local-config", str(local_config)])
+    asyncio.run(serve._serve_supervised(local_config.resolve()))
 
-    assert loaded_paths == [local_config.resolve()]
     assert created_with == [settings]
-    assert run_calls == [
+    assert config_calls == [
         (
             app_sentinel,
             {

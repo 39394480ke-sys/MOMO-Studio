@@ -121,6 +121,7 @@ interface MockBackendOptions {
   hardwareAccessPolicy?: HardwareAccessPolicy;
   realMotionEnabled?: boolean;
   realSessionScopes?: OperatorSessionScope[];
+  runtimeSwitchSupported?: boolean;
 }
 
 interface RecordedRequest {
@@ -134,6 +135,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
   const hardwareAccessPolicy = options.hardwareAccessPolicy ?? 'DISABLED';
   const realMotionEnabled = options.realMotionEnabled ?? false;
   const realSessionScopes = options.realSessionScopes ?? null;
+  let runtimeActiveMode = controlMode;
   let variant = options.variant ?? 'V2';
   const robotStatusFor = (nextVariant: RobotVariant, connected: boolean) => ({
     ...robotFor(nextVariant, connected),
@@ -162,6 +164,28 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
     if (typeof init?.body === 'string') body = JSON.parse(init.body);
     requests.push({ path, init, body });
     if (offline) throw new Error('offline');
+
+    if (path === '/runtime/mode' && (init?.method ?? 'GET') === 'GET') {
+      return jsonResponse({
+        active_mode: runtimeActiveMode,
+        selected_mode: runtimeActiveMode,
+        switch_supported: options.runtimeSwitchSupported ?? true,
+        restart_in_progress: false,
+        real_config_available: true,
+        configured_real_policy: 'FULL',
+        configured_real_motion_enabled: true,
+        blocking_reasons: [],
+      });
+    }
+    if (path === '/runtime/mode' && init?.method === 'POST') {
+      const request = body as { target_mode: ControlMode };
+      runtimeActiveMode = request.target_mode;
+      return jsonResponse({
+        accepted: true,
+        target_mode: runtimeActiveMode,
+        restarting: true,
+      });
+    }
 
     if (path === '/health') {
       return jsonResponse({

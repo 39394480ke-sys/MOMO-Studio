@@ -149,6 +149,30 @@ export interface BootstrapResponse {
   diagnostics: DiagnosticsResponse;
 }
 
+export interface RuntimeModeStatus {
+  active_mode: ControlMode;
+  selected_mode: ControlMode;
+  switch_supported: boolean;
+  restart_in_progress: boolean;
+  real_config_available: boolean;
+  configured_real_policy: HardwareAccessPolicy | null;
+  configured_real_motion_enabled: boolean;
+  blocking_reasons: string[];
+}
+
+export interface RuntimeModeSwitchRequest {
+  target_mode: ControlMode;
+  confirm_robot_disconnected: boolean;
+  confirm_physical_estop_ready: boolean;
+  confirm_workspace_clear: boolean;
+}
+
+export interface RuntimeModeSwitchResponse {
+  accepted: true;
+  target_mode: ControlMode;
+  restarting: true;
+}
+
 export interface Vector3 {
   x: number;
   y: number;

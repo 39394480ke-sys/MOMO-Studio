@@ -8,10 +8,10 @@ application owner, authorization boundary, Stage provenance, and disposition. It
 not claim physical verification. The count and tables must be regenerated after the
 final route wiring and before the final report is marked complete.
 
-After the read-only-camera route wiring, generated OpenAPI contains **108 HTTP operations
-over 94 unique `/api/v1` paths**, plus one read-only Robot WebSocket. The earlier Stage 8
-baseline was 93 operations over 79 paths; the final delta is six commissioning, four
-Kinematics-verification, and three staged-acceptance operations/paths.
+The current generated OpenAPI contains **126 HTTP operations over 111 unique `/api/v1`
+paths**, plus one read-only Robot WebSocket. The earlier Stage 8 baseline was 93
+operations over 79 paths; later additions include commissioning, Kinematics verification,
+staged acceptance, camera-preview, and supervised runtime-mode operations.
 
 ## Authorization legend
 
@@ -37,6 +37,7 @@ not manufacture a Real Operator Session.
 | `GET /health` | `getBootstrapData` → `RuntimeStatusProvider` | Settings projection | R | 1 | Retain; active bootstrap |
 | `GET /meta` | `getBootstrapData` → `RuntimeStatusProvider` | Settings/release projection | R | 1 | Retain; active bootstrap |
 | `GET /meta/product-scope` | None in product UI | Settings product-scope projection | R | 1 | Retain; documented/tested external metadata |
+| `GET /runtime/mode`, `POST /runtime/mode` | Settings runtime selector | local mode supervisor | R; POST is loopback-only and disconnected-only, REAL also requires physical E-stop/workspace confirmations | 8 | Retain; persists only the ignored mode selection and gracefully rebuilds the composition; never connects or moves hardware |
 | `GET /robot`, `GET /robot/profile`, `GET /robot/diagnostics` | `getBootstrapData` → `RuntimeStatusProvider` | `RobotApplicationService` | R | 2 | Retain; active bootstrap/status |
 | `POST /robot/connect`, `POST /robot/disconnect` | `RuntimeStatusProvider` | `RobotApplicationService` / motion lifecycle | R+C | 2 | Retain; Dry Run lifecycle, not Device commissioning |
 | `POST /robot/stop` | `RuntimeStatusProvider` | motion lifecycle Stop | R+P | 2 | Retain; global Robot lifecycle Stop |

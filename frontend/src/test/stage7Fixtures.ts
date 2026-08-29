@@ -242,8 +242,12 @@ export function mockStage7Backend(options: Stage7Options = {}) {
         followStopReason = `TARGET_${state}`;
       }
     },
-    requestsFor: (path: string) => requests.filter((request) => request.path === path),
-    lastBody: (path: string) => requests.filter((request) => request.path === path).at(-1)?.body,
+    requestsFor: (path: string) => path.startsWith('/vision/')
+      ? requests.filter((request) => request.path === path)
+      : base.requestsFor(path),
+    lastBody: (path: string) => path.startsWith('/vision/')
+      ? requests.filter((request) => request.path === path).at(-1)?.body
+      : base.lastBody(path),
     goOffline: base.goOffline,
   };
 }

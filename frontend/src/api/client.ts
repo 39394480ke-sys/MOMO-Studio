@@ -68,6 +68,9 @@ import type {
   ProfileResponse,
   RobotStatus,
   RobotVariant,
+  RuntimeModeStatus,
+  RuntimeModeSwitchRequest,
+  RuntimeModeSwitchResponse,
   TrajectoryCheck,
   TrajectoryKeyframeMarker,
   TrajectoryPreflightReport,
@@ -672,6 +675,16 @@ export async function getBootstrapData(signal?: AbortSignal): Promise<BootstrapR
     getRobotDiagnostics(signal),
   ]);
   return { health, meta, robot, profile, calibration, diagnostics };
+}
+
+export function getRuntimeModeStatus(signal?: AbortSignal): Promise<RuntimeModeStatus> {
+  return requestJson('/runtime/mode', { signal });
+}
+
+export function switchRuntimeMode(
+  request: RuntimeModeSwitchRequest,
+): Promise<RuntimeModeSwitchResponse> {
+  return postJson('/runtime/mode', request);
 }
 
 export function getForwardKinematics(signal?: AbortSignal): Promise<ForwardKinematicsResponse> {
