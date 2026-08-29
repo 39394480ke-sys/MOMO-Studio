@@ -17,6 +17,8 @@ export interface Robot3DViewerProps {
   readonly jointUnits: RobotViewerJointUnits;
   readonly className?: string;
   readonly ariaLabel?: string;
+  readonly badgeLabel?: string;
+  readonly safetyNote?: string;
 }
 
 type ViewerState =
@@ -112,6 +114,8 @@ export function Robot3DViewer({
   jointUnits,
   className,
   ariaLabel = 'MOMO 机械臂只读三维视图',
+  badgeLabel = '3D · SIMULATION ONLY',
+  safetyNote = '仅用于可视化 · 不连接或控制实体机械臂',
 }: Robot3DViewerProps) {
   const unavailable = unavailableState(
     variant,
@@ -241,8 +245,8 @@ export function Robot3DViewer({
           ref={canvasRef}
           role="img"
         />
-        <span className="robot-3d-viewer__badge">3D · SIMULATION ONLY</span>
-        <span className="robot-3d-viewer__safety-note">仅用于可视化 · 不连接或控制实体机械臂</span>
+        <span className="robot-3d-viewer__badge">{badgeLabel}</span>
+        <span className="robot-3d-viewer__safety-note">{safetyNote}</span>
         {state.kind === 'ready' ? null : (
           <div
             className={`robot-3d-viewer__fallback robot-3d-viewer__fallback--${state.kind}`}

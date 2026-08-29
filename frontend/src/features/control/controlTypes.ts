@@ -11,6 +11,8 @@ export interface ControlParameters {
   speedScale: number;
 }
 
+export type ControlParameterChange = (key: keyof ControlParameters, value: number) => void;
+
 export interface PoseEditorValue {
   positionMm: Vector3;
   rotationDeg: Vector3;

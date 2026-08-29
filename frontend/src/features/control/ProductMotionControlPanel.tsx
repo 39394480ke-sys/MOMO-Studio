@@ -8,7 +8,12 @@ import type {
   RobotStatus,
   Vector3,
 } from '../../api/types';
-import type { ControlParameters, MotionAvailability, PoseEditorValue } from './controlTypes';
+import type {
+  ControlParameterChange,
+  ControlParameters,
+  MotionAvailability,
+  PoseEditorValue,
+} from './controlTypes';
 
 type Axis = keyof Vector3;
 type ControlMode = 'JOINT' | 'CARTESIAN';
@@ -53,10 +58,7 @@ interface ProductMotionControlPanelProps {
   onRotationChange: (axis: Axis, value: number) => void;
   onSolveIk: () => Promise<void>;
   onMovePose: () => Promise<void>;
-  onParameterChange: <Key extends keyof ControlParameters>(
-    key: Key,
-    value: ControlParameters[Key],
-  ) => void;
+  onParameterChange: ControlParameterChange;
   onHome: () => Promise<void>;
   onStop: () => Promise<void>;
 }
@@ -522,7 +524,7 @@ export function ProductMotionControlPanel({
       {homeConfirmationOpen ? (
         <div aria-label="确认回零" className="home-confirmation product-home-confirmation" role="alertdialog">
           <strong>让所有已启用关节回到 Home？</strong>
-          <p>只会通过现有安全入口提交；本任务验证仅使用 DRY RUN。</p>
+          <p>只会通过当前运行模式对应的受控执行入口提交。</p>
           <div>
             <button onClick={() => setHomeConfirmationOpen(false)} type="button">取消回零</button>
             <button

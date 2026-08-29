@@ -37,6 +37,7 @@ MOMO Studio product flow
 | Layer rules documented only in prose | Added executable AST dependency tests | API/application/domain/ports cannot import concrete adapters or Legacy controllers |
 | DRY_RUN/REAL product relationship | Recorded ADR 0022 | Both modes share product logic and differ only at reviewed outer adapters |
 | Production REAL composition | Implemented in a separate `real_bootstrap.py` outer composition | REAL supplies lifecycle, command, and playback ports; an unavailable or incoherent field configuration fails closed and never falls back to DRY_RUN |
+| Control workspace UI | Extracted one `ControlWorkspaceView` and shared product control panel | DRY RUN, production REAL, and restricted commissioning reuse the same view; controller adapters provide commands and state without replacing the page |
 
 ## Reviewed Legacy mapping
 
@@ -74,6 +75,10 @@ MOMO Studio product flow
   supplied local field configuration and complete acceptance evidence.
 - [x] Added synthetic-SDK tests proving construction is inert and writes cannot escape
   the authorized exact joint/Servo-ID set.
+- [x] Removed the separate Legacy-style REAL control page. The modern Control workspace
+  is now the only view; DRY RUN uses the product simulation controller, production REAL
+  uses the reviewed product gateway, and restricted field testing uses a purpose-bound
+  commissioning controller adapter behind the same UI components.
 
 ## Scope boundary
 

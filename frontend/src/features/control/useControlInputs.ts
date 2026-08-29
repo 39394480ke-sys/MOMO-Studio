@@ -100,7 +100,7 @@ export function useControlInputs(options: {
   }, [options.fk]);
 
   const updateParameter = useCallback(
-    <Key extends keyof ControlParameters>(key: Key, value: ControlParameters[Key]) => {
+    (key: keyof ControlParameters, value: number) => {
       if (!Number.isFinite(value)) return;
       const [minimum, maximum] = PARAMETER_LIMITS[key];
       setParameters((current) => ({ ...current, [key]: clamp(value, minimum, maximum) }));

@@ -618,6 +618,37 @@
     display: none;
   }
 
+  .control-workspace > .control-safety-bar--commissioning {
+    position: static;
+    display: grid;
+    width: 100%;
+    margin: 0 0 12px;
+    padding: 10px;
+    border: 1px solid var(--momo-line, #e6e7ed);
+    border-radius: 14px;
+    background: var(--momo-surface, #fff);
+  }
+
+  .control-workspace > .control-safety-bar--commissioning .control-safety-bar__status {
+    display: flex;
+    font-size: 10px;
+  }
+
+  .control-workspace > .control-safety-bar--commissioning .command-bar {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .control-workspace > .control-safety-bar--commissioning .command-button:not(.control-global-stop) {
+    display: inline-flex;
+  }
+
+  .control-workspace > .control-safety-bar--commissioning .command-button {
+    min-width: 0;
+    padding: 0 8px;
+  }
+
   .control-product-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;

@@ -1,14 +1,14 @@
 import { Home } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { ControlParameters, MotionAvailability } from './controlTypes';
+import type { ControlParameterChange, ControlParameters, MotionAvailability } from './controlTypes';
 
 interface MotionParametersPanelProps {
   parameters: ControlParameters;
   availability: MotionAvailability;
   pending: string | null;
   motionLocked: boolean;
-  onChange: <Key extends keyof ControlParameters>(key: Key, value: ControlParameters[Key]) => void;
+  onChange: ControlParameterChange;
   onHome: () => Promise<void>;
   showHome?: boolean;
 }

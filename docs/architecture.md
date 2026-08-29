@@ -133,6 +133,10 @@ or raw-control transport.
 MOMO Studio is one product rather than a redesigned frontend layered over a second
 Legacy control application.  Control, Library, Studio, Playback, and Vision keep one
 set of routes, application services, domain contracts, and safety admission rules.
+The frontend mirrors that boundary: `ControlWorkspaceView` owns the single modern
+Control layout, while controller adapters supply state and commands. Selecting DRY RUN,
+production REAL, or the restricted commissioning workflow never swaps in a second page
+or exposes a raw-servo transport.
 
 The default executable product graph is intentionally named as simulation composition:
 
