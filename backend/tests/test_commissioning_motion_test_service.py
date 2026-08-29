@@ -179,6 +179,23 @@ class LaggingDirectJogBus(FakeCommissioningMotionBus):
         return result
 
 
+class AdvancingDirectJogBus(FakeCommissioningMotionBus):
+    """Model readback that has advanced beyond the prior streamed goal."""
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self.readbacks_before_write: list[int] = []
+
+    async def write_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> ServoWriteResult:
+        self.readbacks_before_write.append(self._positions[command.servo_id])
+        result = await super().write_prepared_jog_target(command)
+        self._positions[command.servo_id] = command.target_raw + 20
+        return result
+
+
 def _commissioning_context() -> RealHardwareContext:
     base = real_context()
     assert base.calibration is not None
@@ -430,7 +447,7 @@ def test_direct_continuous_jog_streams_until_priority_stop() -> None:
         stopped = await service.stop_direct_jog()
 
         assert stopped.running is False
-        assert stopped.message == "已请求停止并保持当前位置; 舵机仍连接并保持扭矩。"
+        assert stopped.message == "已停止连续目标流; 保留最后一个受控前视目标。"
         assert repository.values == {}
         targets = [
             cast(PreparedCommissioningJogTarget, event[1])
@@ -441,13 +458,78 @@ def test_direct_continuous_jog_streams_until_priority_stop() -> None:
         # 50 deg/s maps to roughly 569 STS3215 raw units/s for J11; 2,200 is
         # only the reviewed loaded-speed ceiling, not the requested speed.
         assert {target.raw_speed for target in targets} == {569}
-        assert any(event[0] == "stop_or_hold" for event in bus.events)
+        assert any(event[0] == "bounded_jog_target_retained" for event in bus.events)
         await service.shutdown()
 
     asyncio.run(scenario())
 
 
-def test_direct_continuous_jog_caps_target_lead_like_legacy_controller() -> None:
+def test_direct_continuous_jog_normal_release_keeps_last_goal_without_stale_hold() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        clock = FakeClock()
+        session = _session(context, clock)
+        service, bus, _, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+        )
+        await service.start_session(_TOKEN)
+        await service.start_direct_jog(
+            _TOKEN,
+            joint_id="j11",
+            direction=1,
+            requested_speed=50.0,
+        )
+        for _ in range(3):
+            await clock.advance_to_next()
+            await service.heartbeat_direct_jog(_TOKEN)
+
+        stop_events_before = tuple(event for event in bus.events if event[0] == "stop_or_hold")
+        released = await service.release_direct_jog(_TOKEN)
+        stop_events_after = tuple(event for event in bus.events if event[0] == "stop_or_hold")
+
+        assert released.running is False
+        assert released.target_value == pytest.approx(3.0)
+        assert stop_events_after == stop_events_before
+        assert (await service.status()).state is CommissioningMotionTestState.AUTHORIZED
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_jog_session_expiry_retains_bounded_goal_instead_of_stale_readback() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        clock = FakeClock()
+        session = _session(context, clock, expires_in_s=0.5)
+        service, bus, _, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+        )
+        await service.start_session(_TOKEN)
+        await service.start_direct_jog(
+            _TOKEN,
+            joint_id="j11",
+            direction=1,
+            requested_speed=10.0,
+        )
+        await clock.advance_to_next()
+        await service.heartbeat_direct_jog(_TOKEN)
+        await clock.advance(0.5)
+
+        status = await service.status()
+        assert status.state is CommissioningMotionTestState.EXPIRED
+        assert status.failure_reason == "SESSION_EXPIRED"
+        assert any(event[0] == "bounded_jog_target_retained" for event in bus.events)
+        assert not any(event[0] == "stop_or_hold" for event in bus.events)
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_continuous_jog_caps_target_lead_to_one_tick_when_readback_lags() -> None:
     async def scenario() -> None:
         context = _commissioning_context()
         assert context.device is not None
@@ -483,7 +565,100 @@ def test_direct_continuous_jog_caps_target_lead_like_legacy_controller() -> None
             for event in bus.events
             if event[0] == "jog_target_applied"
         ]
-        assert [target.target_value for target in targets] == pytest.approx([1.0, 1.5, 1.5, 1.5])
+        one_tick_or_twelve_raw = 360.0 * 12 / 4096
+        assert [target.target_value for target in targets] == pytest.approx(
+            [1.0, one_tick_or_twelve_raw, one_tick_or_twelve_raw, one_tick_or_twelve_raw]
+        )
+        await service.stop_direct_jog()
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_continuous_jog_restores_raw_minimum_lead_for_j14() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        assert context.device is not None
+        clock = FakeClock()
+        session = _session(context, clock)
+        bus = LaggingDirectJogBus(
+            allowed_servo_ids=context.device.servo_ids,
+            session_id=session.session_id,
+            present_positions={servo_id: 0 for servo_id in context.device.servo_ids},
+            clock=clock,
+            write_enabled=True,
+            stop_result=RealStopResult.HOLD_REQUESTED,
+        )
+        service, _, _, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+            bus=bus,
+        )
+        await service.start_session(_TOKEN)
+        await service.start_direct_jog(
+            _TOKEN,
+            joint_id="j14",
+            direction=1,
+            requested_speed=12.0,
+        )
+        for _ in range(8):
+            await clock.advance_to_next()
+            await service.heartbeat_direct_jog(_TOKEN)
+
+        targets = [
+            cast(PreparedCommissioningJogTarget, event[1])
+            for event in bus.events
+            if event[0] == "jog_target_applied"
+        ]
+        assert targets[-1].target_raw - targets[0].target_raw >= 8
+        assert targets[-1].target_raw == 12
+        assert targets[-1].target_value == pytest.approx(360.0 * 12 / 4096)
+        await service.stop_direct_jog()
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_continuous_jog_never_targets_behind_advancing_readback() -> None:
+    async def scenario() -> None:
+        context = _commissioning_context()
+        assert context.device is not None
+        clock = FakeClock()
+        session = _session(context, clock)
+        bus = AdvancingDirectJogBus(
+            allowed_servo_ids=context.device.servo_ids,
+            session_id=session.session_id,
+            present_positions={servo_id: 0 for servo_id in context.device.servo_ids},
+            clock=clock,
+            write_enabled=True,
+            stop_result=RealStopResult.HOLD_REQUESTED,
+        )
+        service, _, _, _ = _service(
+            context=context,
+            clock=clock,
+            session=session,
+            bus=bus,
+        )
+        await service.start_session(_TOKEN)
+        await service.start_direct_jog(
+            _TOKEN,
+            joint_id="j11",
+            direction=1,
+            requested_speed=50.0,
+        )
+        for _ in range(3):
+            await clock.advance_to_next()
+            await service.heartbeat_direct_jog(_TOKEN)
+
+        targets = [
+            cast(PreparedCommissioningJogTarget, event[1])
+            for event in bus.events
+            if event[0] == "jog_target_applied"
+        ]
+        assert len(targets) == 3
+        assert targets[1].target_raw >= bus.readbacks_before_write[1]
+        assert targets[2].target_raw >= bus.readbacks_before_write[2]
         await service.stop_direct_jog()
         await service.shutdown()
 

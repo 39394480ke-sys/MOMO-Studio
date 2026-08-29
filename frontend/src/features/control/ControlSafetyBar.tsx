@@ -1,4 +1,4 @@
-import { Cable, CircleStop, PlugZap } from 'lucide-react';
+import { Cable, CircleStop, PlugZap, ShieldCheck } from 'lucide-react';
 
 import type { RobotStatus, RobotWebSocketState } from '../../api/types';
 import type { MotionAvailability } from './controlTypes';
@@ -10,13 +10,23 @@ interface ControlSafetyBarProps {
   lifecyclePending: 'connect' | 'disconnect' | 'stop' | 'switch' | null;
   lifecycleAllowed: boolean;
   stopAllowed: boolean;
-  modeLabel: 'DRY RUN' | 'READ ONLY' | 'REAL MOTION LOCKED' | 'REAL CAPABILITY AUTHORIZED';
+  modeLabel:
+    | 'DRY RUN'
+    | 'READ ONLY'
+    | 'REAL MOTION LOCKED'
+    | 'REAL · FIELD ACCEPTANCE'
+    | 'REAL CAPABILITY AUTHORIZED';
   motionPending: string | null;
   availability: MotionAvailability;
   socketState: RobotWebSocketState;
   onConnect: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   onStop: () => Promise<void>;
+  sessionActive?: boolean;
+  sessionAuthorizable?: boolean;
+  sessionPending?: boolean;
+  onAuthorizeSession?: () => void;
+  onEndSession?: () => Promise<void>;
 }
 
 export function ControlSafetyBar({
@@ -33,6 +43,11 @@ export function ControlSafetyBar({
   onConnect,
   onDisconnect,
   onStop,
+  sessionActive = false,
+  sessionAuthorizable = false,
+  sessionPending = false,
+  onAuthorizeSession,
+  onEndSession,
 }: ControlSafetyBarProps) {
   const lifecycleBusy = lifecyclePending !== null;
   const stopDisabled = !stopAllowed;
@@ -44,8 +59,30 @@ export function ControlSafetyBar({
         <span>实时状态：{socketState === 'open' ? 'WebSocket' : 'REST 备用通道'}</span>
       </div>
       <div className="command-bar">
+        {onAuthorizeSession && !sessionActive ? (
+          <button
+            className="command-button command-button--primary"
+            disabled={!sessionAuthorizable || !backendOnline || stale || sessionPending}
+            onClick={() => onAuthorizeSession()}
+            type="button"
+          >
+            <ShieldCheck aria-hidden="true" />
+            {sessionPending ? '启用中' : '启用真机控制'}
+          </button>
+        ) : null}
+        {onEndSession && sessionActive ? (
+          <button
+            className="command-button"
+            disabled={robot?.connected === true || sessionPending || lifecycleBusy}
+            onClick={() => void onEndSession()}
+            type="button"
+          >
+            <ShieldCheck aria-hidden="true" />
+            {sessionPending ? '结束中' : '结束真机控制'}
+          </button>
+        ) : null}
         <button
-          className="command-button command-button--primary"
+          className={`command-button${onAuthorizeSession ? '' : ' command-button--primary'}`}
           disabled={!lifecycleAllowed || !backendOnline || stale || lifecycleBusy || robot?.connected === true}
           onClick={() => void onConnect()}
           type="button"

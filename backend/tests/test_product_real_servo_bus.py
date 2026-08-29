@@ -84,10 +84,26 @@ class _FakePort:
         self.calls.append(("close", self.device))
 
 
+class _FakeSyncWriter:
+    def __init__(self, packet: _FakePacket) -> None:
+        self.packet = packet
+
+    def txPacket(self) -> int:
+        self.packet.calls.append(("sync-tx", tuple(self.packet.staged)))
+        self.packet.positions.update(self.packet.staged)
+        return 0
+
+    def clearParam(self) -> None:
+        self.packet.calls.append(("sync-clear",))
+        self.packet.staged.clear()
+
+
 class _FakePacket:
     def __init__(self, calls: list[tuple[object, ...]]) -> None:
         self.calls = calls
         self.positions: dict[int, int] = {}
+        self.staged: dict[int, int] = {}
+        self.groupSyncWrite = _FakeSyncWriter(self)
 
     def ping(self, servo_id: int) -> tuple[int, int, int]:
         self.calls.append(("ping", servo_id))
@@ -106,6 +122,19 @@ class _FakePacket:
     ) -> tuple[int, int]:
         self.calls.append(("configure", servo_id, position, speed, acceleration))
         return 0, 0
+
+    def SyncWritePosEx(
+        self,
+        servo_id: int,
+        position: int,
+        speed: int,
+        acceleration: int,
+    ) -> bool:
+        self.calls.append(("sync-stage", servo_id, position, speed, acceleration))
+        if servo_id in self.staged:
+            return False
+        self.staged[servo_id] = position
+        return True
 
     def read1ByteTxRx(self, servo_id: int, address: int) -> tuple[int, int, int]:
         value = 1 if address == TORQUE_ENABLE_ADDRESS else 0
@@ -172,7 +201,11 @@ def test_production_bus_is_inert_until_authorized_open_and_uses_exact_ids() -> N
             for call in calls
             if call[0] == "configure"
         )
-        assert [call[1] for call in calls if call[:1] == ("write2",)] == list(servo_ids)
+        staged = [call for call in calls if call[:1] == ("sync-stage",)]
+        assert [call[1] for call in staged] == list(servo_ids)
+        assert all(call[3:] == (LEGACY_STREAM_SPEED, LEGACY_STREAM_ACCELERATION) for call in staged)
+        assert len([call for call in calls if call[:1] == ("sync-tx",)]) == 1
+        assert not [call for call in calls if call[:1] == ("write2",)]
 
         with pytest.raises(PermissionError, match="exact authorized ID order"):
             await bus.write_goal_positions({servo_ids[0]: 0})
@@ -180,6 +213,7 @@ def test_production_bus_is_inert_until_authorized_open_and_uses_exact_ids() -> N
         stopped = await bus.stop_or_hold(servo_ids)
         assert stopped.result is RealStopResult.HOLD_REQUESTED
         assert stopped.safety_state_known is False
+        assert len([call for call in calls if call[:1] == ("sync-tx",)]) == 2
         await bus.close()
         torque_off = [
             call

@@ -210,6 +210,15 @@ def test_adapter_streams_prepared_jog_targets_without_waiting_for_settle() -> No
         assert ("write2", (10, 42, 1050)) in events
         await bus.stop_or_hold(10)
         assert events.count(("write2", (10, 42, 1050))) == 2
+
+        # The bounded stream-stop path retains the already reviewed target and
+        # never substitutes a potentially stale moving-position sample.
+        packet.positions[10] = 1030
+        await bus.begin_prepared_motion(session_id)
+        await bus.stop_or_hold_at_prepared_jog_target(
+            prepared_jog_target(session_id=session_id, target_raw=1060)
+        )
+        assert events[-1] == ("write2", (10, 42, 1060))
         await bus.close()
 
     asyncio.run(scenario())

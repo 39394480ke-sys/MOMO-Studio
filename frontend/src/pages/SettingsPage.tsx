@@ -21,7 +21,6 @@ import type { VisionCapabilities, VisionStatus } from '../api/types';
 import { PageIntro } from '../components/PageIntro';
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
 import { LanSecuritySessionPanel } from '../features/settings/LanSecuritySessionPanel';
-import { RealHardwarePanel } from '../features/settings/RealHardwarePanel';
 import { RuntimeModeSwitch } from '../features/settings/RuntimeModeSwitch';
 import { zhBackendMessage, zhBoolean, zhStatus } from '../i18n/zh';
 
@@ -363,9 +362,9 @@ export function SettingsPage() {
         onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
         open={advancedOpen}
       >
-        <summary>高级 · 实体硬件调试与完整标定</summary>
+        <summary>高级 · 配置与标定兼容性</summary>
         <p className="settings-tools-disclosure__warning">
-          此区域保留现有受保护入口；展开不会连接、扫描、回零、标定或移动真实硬件。
+          此区域只展示配置与兼容性信息，不提供第二套设备连接或运动入口。
         </p>
         <dl className="settings-advanced-facts">
           <div><dt>配置指纹</dt><dd><code>{unavailable(profile?.fingerprint)}</code></dd></div>
@@ -398,7 +397,6 @@ export function SettingsPage() {
             </div>
           </div>
         </div>
-        <RealHardwarePanel />
       </details>
     </div>
   );

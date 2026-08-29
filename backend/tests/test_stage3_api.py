@@ -430,6 +430,7 @@ def test_every_long_running_rest_operation_declares_202(tmp_path: Path) -> None:
         "/api/v1/motion/joints",
         "/api/v1/motion/jog-step",
         "/api/v1/motion/cartesian-jog",
+        "/api/v1/motion/cartesian-jog/start",
         "/api/v1/motion/pose",
         "/api/v1/motion/home",
         "/api/v1/motion/jog/start",

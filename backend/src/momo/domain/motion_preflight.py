@@ -37,6 +37,14 @@ class MotionPreflight(BaseModel):
         return freeze_sequence(value)
 
 
+class PreparedMotionSample(BaseModel):
+    """One immutable, gateway-reviewed joint sample for a non-joint path."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    time_s: Annotated[float, Field(ge=0, allow_inf_nan=False)]
+    joint_state: JointState
+
+
 class PreparedMotion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     command_id: UUID
@@ -50,7 +58,16 @@ class PreparedMotion(BaseModel):
             allow_inf_nan=False,
         ),
     ]
+    trajectory_samples: list[PreparedMotionSample] | None = None
     preflight: MotionPreflight
+
+    @field_validator("trajectory_samples")
+    @classmethod
+    def freeze_trajectory_samples(
+        cls,
+        value: list[PreparedMotionSample] | None,
+    ) -> list[PreparedMotionSample] | None:
+        return None if value is None else freeze_sequence(value)
 
 
 class PreparedContinuousJog(BaseModel):

@@ -122,45 +122,57 @@ class RealHardwareAuthorization:
         if len(context.software_commit) < 7 or context.software_commit == "unknown":
             raw_direction_base.append(RealHardwareBlocker.SOFTWARE_COMMIT_REQUIRED)
 
-        production_base = [*shared, *verified_profile_blockers, *calibration_blockers]
+        # Manual REAL control and Studio playback share one operator session and
+        # the same runtime safety entry point. Stored motion still passes the
+        # trajectory compiler and playback intent checks; it does not require a
+        # second field-acceptance session before using that reviewed executor.
+        manual_motion_base = [*shared, *calibration_blockers]
         if context.hardware_access_policy is not HardwareAccessPolicy.FULL:
-            production_base.insert(1, RealHardwareBlocker.HARDWARE_POLICY_MUST_BE_FULL)
+            manual_motion_base.insert(1, RealHardwareBlocker.HARDWARE_POLICY_MUST_BE_FULL)
         if context.real_motion_enabled is not True:
-            production_base.insert(2, RealHardwareBlocker.REAL_MOTION_NOT_ENABLED)
+            manual_motion_base.insert(2, RealHardwareBlocker.REAL_MOTION_NOT_ENABLED)
+
+        production_base = [*manual_motion_base, *verified_profile_blockers]
         if FieldAcceptanceCapability.JOINT_MOTION not in valid_acceptance:
             production_base.append(RealHardwareBlocker.JOINT_MOTION_ACCEPTANCE_PENDING)
         if context.physical_stop_verification is not PhysicalStopVerification.VERIFIED_FOR_UNIT:
             production_base.append(RealHardwareBlocker.PHYSICAL_STOP_NOT_VERIFIED)
 
-        kinematics_blockers: list[RealHardwareBlocker] = []
+        kinematics_model_blockers: list[RealHardwareBlocker] = []
         kinematics = context.kinematics
         if kinematics is None:
-            kinematics_blockers.append(RealHardwareBlocker.KINEMATICS_MISSING)
+            kinematics_model_blockers.append(RealHardwareBlocker.KINEMATICS_MISSING)
         else:
             if context.expected_kinematics_fingerprint is None:
-                kinematics_blockers.append(RealHardwareBlocker.KINEMATICS_FINGERPRINT_MISSING)
+                kinematics_model_blockers.append(RealHardwareBlocker.KINEMATICS_FINGERPRINT_MISSING)
             elif kinematics.fingerprint != context.expected_kinematics_fingerprint:
-                kinematics_blockers.append(RealHardwareBlocker.KINEMATICS_FINGERPRINT_MISMATCH)
+                kinematics_model_blockers.append(
+                    RealHardwareBlocker.KINEMATICS_FINGERPRINT_MISMATCH
+                )
             if profile is None:
-                kinematics_blockers.append(RealHardwareBlocker.KINEMATICS_PROFILE_MISMATCH)
+                kinematics_model_blockers.append(RealHardwareBlocker.KINEMATICS_PROFILE_MISMATCH)
             else:
                 try:
                     kinematics.validate_against_profile(profile)
                 except ValueError:
-                    kinematics_blockers.append(RealHardwareBlocker.KINEMATICS_PROFILE_MISMATCH)
+                    kinematics_model_blockers.append(
+                        RealHardwareBlocker.KINEMATICS_PROFILE_MISMATCH
+                    )
+        kinematics_evidence_blockers: list[RealHardwareBlocker] = []
         kinematics_state, _ = kinematics_verification_evidence_state(context)
         if kinematics_state is KinematicsEvidenceState.MISSING:
-            kinematics_blockers.append(RealHardwareBlocker.KINEMATICS_VERIFICATION_PENDING)
+            kinematics_evidence_blockers.append(RealHardwareBlocker.KINEMATICS_VERIFICATION_PENDING)
         elif kinematics_state is KinematicsEvidenceState.STALE:
-            kinematics_blockers.append(RealHardwareBlocker.KINEMATICS_EVIDENCE_STALE)
+            kinematics_evidence_blockers.append(RealHardwareBlocker.KINEMATICS_EVIDENCE_STALE)
 
-        cartesian_blockers = [*production_base, *kinematics_blockers]
-        if FieldAcceptanceCapability.CARTESIAN not in valid_acceptance:
-            cartesian_blockers.append(RealHardwareBlocker.CARTESIAN_ACCEPTANCE_PENDING)
-        playback_blockers = list(production_base)
-        if FieldAcceptanceCapability.PLAYBACK not in valid_acceptance:
-            playback_blockers.append(RealHardwareBlocker.PLAYBACK_ACCEPTANCE_PENDING)
-        vision_blockers = [*production_base, *kinematics_blockers]
+        joint_blockers = list(manual_motion_base)
+        cartesian_blockers = [*manual_motion_base, *kinematics_model_blockers]
+        playback_blockers = [*manual_motion_base, *kinematics_model_blockers]
+        vision_blockers = [
+            *production_base,
+            *kinematics_model_blockers,
+            *kinematics_evidence_blockers,
+        ]
         if FieldAcceptanceCapability.VISION_FOLLOW not in valid_acceptance:
             vision_blockers.append(RealHardwareBlocker.VISION_FOLLOW_ACCEPTANCE_PENDING)
 
@@ -179,15 +191,16 @@ class RealHardwareAuthorization:
         commissioning_base = list(dict.fromkeys(commissioning_base))
         motion_test_base = list(dict.fromkeys(motion_test_base))
         raw_direction_base = list(dict.fromkeys(raw_direction_base))
-        production_base = list(dict.fromkeys(production_base))
+        joint_blockers = list(dict.fromkeys(joint_blockers))
         cartesian_blockers = list(dict.fromkeys(cartesian_blockers))
+        production_base = list(dict.fromkeys(production_base))
         playback_blockers = list(dict.fromkeys(playback_blockers))
         vision_blockers = list(dict.fromkeys(vision_blockers))
 
         commissioning_ready = not commissioning_base
         motion_test_ready = not motion_test_base and motion_test_session_valid
         raw_direction_ready = not raw_direction_base and raw_direction_session_valid
-        joint_ready = not production_base and motion_session_valid
+        joint_ready = not joint_blockers and motion_session_valid
         cartesian_ready = not cartesian_blockers and motion_session_valid
         playback_ready = not playback_blockers and motion_session_valid
         vision_ready = not vision_blockers and motion_session_valid
@@ -205,7 +218,7 @@ class RealHardwareAuthorization:
         commissioning_authorizable = commissioning_ready and session is None
         motion_test_authorizable = not motion_test_base and session is None
         raw_direction_authorizable = not raw_direction_base and session is None
-        motion_authorizable = not production_base and session is None
+        motion_authorizable = not joint_blockers and session is None
 
         def detail(
             blockers: list[RealHardwareBlocker],
@@ -244,26 +257,31 @@ class RealHardwareAuthorization:
                 evidence=("PROFILE_JOINT_IDENTITY", "ZERO_RAW_SNAPSHOT", "PHYSICAL_ESTOP"),
             ),
             real_joint_motion=detail(
-                production_base,
+                joint_blockers,
                 session_valid=motion_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
-                evidence=("JOINT_MOTION_ACCEPTANCE", "PHYSICAL_STOP_VERIFICATION"),
+                evidence=("CALIBRATION", "EXPLICIT_OPERATOR_SESSION"),
             ),
             real_cartesian_motion=detail(
                 cartesian_blockers,
                 session_valid=motion_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
                 evidence=(
-                    "JOINT_MOTION_ACCEPTANCE",
-                    "KINEMATICS_VERIFICATION",
-                    "CARTESIAN_ACCEPTANCE",
+                    "CALIBRATION",
+                    "KINEMATICS_MODEL",
+                    "EXPLICIT_OPERATOR_SESSION",
                 ),
             ),
             real_playback=detail(
                 playback_blockers,
                 session_valid=motion_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
-                evidence=("JOINT_MOTION_ACCEPTANCE", "PLAYBACK_ACCEPTANCE"),
+                evidence=(
+                    "CALIBRATION",
+                    "KINEMATICS_MODEL",
+                    "TRAJECTORY_PREFLIGHT",
+                    "EXPLICIT_OPERATOR_SESSION",
+                ),
             ),
             real_vision_follow=detail(
                 vision_blockers,
@@ -293,7 +311,7 @@ class RealHardwareAuthorization:
             blockers = list(motion_test_base)
             relevant_session_valid = motion_test_session_valid
         else:
-            blockers = [*production_base, *cartesian_blockers, *playback_blockers, *vision_blockers]
+            blockers = [*joint_blockers, *cartesian_blockers, *playback_blockers, *vision_blockers]
             relevant_session_valid = motion_session_valid
         if session is None:
             blockers.append(RealHardwareBlocker.OPERATOR_SESSION_MISSING)
@@ -635,12 +653,13 @@ class RealHardwareAuthorization:
         acceptance = context.field_acceptance_bundle.newest_for(
             FieldAcceptanceCapability.JOINT_MOTION
         )
-        if (
-            acceptance is None
-            or FieldAcceptanceCapability.JOINT_MOTION
-            not in context.field_acceptance_bundle.valid_capabilities(context)
-        ):
-            return False
+        current_acceptance_id = (
+            acceptance.evidence_id
+            if acceptance is not None
+            and FieldAcceptanceCapability.JOINT_MOTION
+            in context.field_acceptance_bundle.valid_capabilities(context)
+            else None
+        )
         session_kinematics_fingerprint = getattr(session, "kinematics_fingerprint", None)
         current_kinematics_fingerprint = (
             context.kinematics.fingerprint if context.kinematics is not None else None
@@ -649,7 +668,7 @@ class RealHardwareAuthorization:
             getattr(session, "hardware_access_policy", None) is HardwareAccessPolicy.FULL
             and getattr(session, "calibration_fingerprint", None)
             == calibration_fingerprint(calibration)
-            and getattr(session, "field_acceptance_evidence_id", None) == acceptance.evidence_id
+            and getattr(session, "field_acceptance_evidence_id", None) == current_acceptance_id
             and (
                 session_kinematics_fingerprint is None
                 or session_kinematics_fingerprint == current_kinematics_fingerprint

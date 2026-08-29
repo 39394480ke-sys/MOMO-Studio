@@ -51,7 +51,7 @@ class MotionDraftRevisionCommand(BaseModel):
 
 
 class MotionDraftCompileCommand(MotionDraftRevisionCommand):
-    sample_rate_hz: SampleRate = 20.0
+    sample_rate_hz: SampleRate = 25.0
 
 
 class MotionDraftSaveCommand(MotionDraftCompileCommand):

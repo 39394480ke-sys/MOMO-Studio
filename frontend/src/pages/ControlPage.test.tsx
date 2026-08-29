@@ -78,7 +78,7 @@ describe('Stage 3 Control workspace', () => {
     expect(backend.requestsFor('/robot/connect')).toHaveLength(0);
     expect(backend.requestsFor('/motion/joints')).toHaveLength(0);
     expect(backend.requestsFor('/motion/home')).toHaveLength(0);
-    expect(backend.requestsFor('/motion/stop')).toHaveLength(0);
+    expect(backend.requestsFor('/robot/stop')).toHaveLength(0);
   });
 
   it('enables only the backend-authorized Real capability from the global session', async () => {
@@ -104,6 +104,47 @@ describe('Stage 3 Control workspace', () => {
     expect(screen.getByRole('button', { name: 'Jog X positive' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '连接' })).toBeDisabled();
     expect(backend.requestsFor('/motion/pose')).toHaveLength(0);
+  });
+
+  it('uses one REAL workspace to authorize, connect, and expose Home plus Cartesian for field acceptance', async () => {
+    const user = userEvent.setup();
+    const backend = mockStage3Backend({
+      connected: false,
+      controlMode: 'REAL',
+      hardwareAccessPolicy: 'FULL',
+      realMotionEnabled: true,
+    });
+    renderControl();
+
+    await screen.findByRole('button', { name: '启用真机控制' });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '启用真机控制' })).toBeEnabled();
+    });
+    expect(screen.getByRole('button', { name: '连接' })).toBeDisabled();
+    expect(screen.queryByText('Commissioning 仅保留已验证的单关节控制')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '启用真机控制' }));
+    await user.type(
+      await screen.findByLabelText(/请输入完全一致的确认文本/),
+      'I CONFIRM THE PHYSICAL E-STOP IS READY',
+    );
+    await user.click(screen.getByText('我确认已经测试过的物理急停存在且可以触达。'));
+    await user.click(screen.getByRole('button', { name: '授权真机运动会话' }));
+
+    await waitFor(() => {
+      expect(backend.requestsFor('/device/operator-session')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: '连接' })).toBeEnabled();
+    });
+    await user.click(screen.getByRole('button', { name: '连接' }));
+
+    await waitFor(() => {
+      expect(backend.requestsFor('/robot/connect')).toHaveLength(1);
+      expect(backend.requestsFor('/device/connect')).toHaveLength(0);
+      expect(screen.getByRole('button', { name: '机器人回零' })).toBeEnabled();
+    });
+    await user.click(screen.getByRole('button', { name: 'Cartesian' }));
+    expect(screen.getByRole('button', { name: 'Jog X positive' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '移动到位姿' })).toBeEnabled();
   });
 
   it('renders responsive keyed V2 controls with J10 in millimetres and no unrelated tools', async () => {
@@ -173,10 +214,25 @@ describe('Stage 3 Control workspace', () => {
       speed_scale: 1,
     }));
 
+    const cartesianHold = screen.getByRole('button', { name: 'Jog Rz positive' });
+    fireEvent.pointerDown(cartesianHold, { pointerId: 50 });
+    await waitFor(() => {
+      expect(backend.requestsFor('/motion/cartesian-jog/start')).toHaveLength(1);
+    });
+    expect(backend.lastBody('/motion/cartesian-jog/start')).toEqual(expect.objectContaining({
+      kind: 'rotation', axis: 'z', direction: 1, speed_units_s: 45, unit: 'deg', frame: 'BASE',
+      speed_scale: 1,
+    }));
+    fireEvent.pointerUp(cartesianHold, { pointerId: 50 });
+    await waitFor(() => {
+      expect(backend.requestsFor(`/motion/jog/${stage3Ids.jogSessionId}/stop`)).toHaveLength(1);
+    });
+
     await user.click(screen.getByRole('button', { name: 'Joint' }));
     expect(levelFive).toHaveAttribute('aria-checked', 'true');
 
     const jointHold = screen.getByRole('button', { name: 'Step J11 positive' });
+    await waitFor(() => expect(jointHold).toBeEnabled());
     fireEvent.pointerDown(jointHold, { pointerId: 51 });
     await waitFor(() => expect(backend.requestsFor('/motion/jog/start')).toHaveLength(1));
     expect(backend.lastBody('/motion/jog/start')).toEqual(expect.objectContaining({
@@ -184,7 +240,7 @@ describe('Stage 3 Control workspace', () => {
     }));
     fireEvent.pointerUp(jointHold, { pointerId: 51 });
     await waitFor(() => {
-      expect(backend.requestsFor(`/motion/jog/${stage3Ids.jogSessionId}/stop`)).toHaveLength(1);
+      expect(backend.requestsFor(`/motion/jog/${stage3Ids.jogSessionId}/stop`)).toHaveLength(2);
     });
 
     const railHold = screen.getByRole('button', { name: 'Step J10 positive' });
@@ -270,12 +326,6 @@ describe('Stage 3 Control workspace', () => {
     }));
 
     await user.click(screen.getByRole('button', { name: '机器人回零' }));
-    expect(backend.requestsFor('/motion/home')).toHaveLength(0);
-    expect(screen.getByRole('alertdialog', { name: '确认回零' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '取消回零' }));
-    expect(screen.queryByRole('alertdialog', { name: '确认回零' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '机器人回零' }));
-    await user.click(screen.getByRole('button', { name: '确认回零' }));
     await waitFor(() => expect(backend.requestsFor('/motion/home')).toHaveLength(1));
     expect(backend.lastBody('/motion/home')).toEqual(expect.objectContaining({
       confirm: 'HOME', duration_s: 1,
@@ -511,7 +561,7 @@ describe('Stage 3 Control workspace', () => {
     });
 
     await user.click(screen.getByRole('button', { name: '停止运动' }));
-    await waitFor(() => expect(backend.requestsFor('/motion/stop')).toHaveLength(1));
+    await waitFor(() => expect(backend.requestsFor('/robot/stop')).toHaveLength(1));
     expect(await screen.findByText('CANCELLED')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Joint' }));
     expect(screen.getByRole('button', { name: '移动全部关节' })).toBeEnabled();
@@ -566,7 +616,7 @@ describe('Stage 3 Control workspace', () => {
       expect(backend.requestsFor(`/motion/jog/${stage3Ids.jogSessionId}/stop`)).toHaveLength(1);
     });
     expect(backend.lastBody('/motion/jog/start')).toEqual(expect.objectContaining({
-      joint_id: 'j10', direction: 1, speed_units_s: 20, unit: 'mm',
+      joint_id: 'j10', direction: 1, speed_units_s: 25, unit: 'mm',
     }));
     expect(backend.lastBody('/motion/jog/start')).not.toHaveProperty('lease_timeout_ms');
   });

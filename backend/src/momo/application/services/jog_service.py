@@ -15,7 +15,7 @@ from momo.domain.errors import (
     MotionConflictError,
 )
 from momo.domain.jog import JogLeaseResponse, JogStopResponse
-from momo.domain.motion_command import MotionCommand
+from momo.domain.motion_command import CartesianJogPayload, MotionCommand
 from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
 from momo.domain.real_motion import RealExecutionAuthorization
 from momo.ports.clock import Clock
@@ -60,8 +60,18 @@ class JogLeaseService:
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
     ) -> JogLeaseResponse:
-        if command.command_type is not MotionCommandType.CONTINUOUS_JOG:
-            raise ValueError("JogLeaseService requires a CONTINUOUS_JOG command")
+        lease_controlled_cartesian = (
+            command.command_type is MotionCommandType.CARTESIAN_JOG
+            and isinstance(command.payload, CartesianJogPayload)
+            and command.payload.lease_controlled
+        )
+        if (
+            command.command_type is not MotionCommandType.CONTINUOUS_JOG
+            and not lease_controlled_cartesian
+        ):
+            raise ValueError(
+                "JogLeaseService requires a continuous joint or lease-controlled Cartesian jog"
+            )
         reserved = False
         async with self._guard:
             self._prune_terminal_sessions()

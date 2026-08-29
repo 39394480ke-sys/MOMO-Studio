@@ -43,7 +43,7 @@ from momo.domain.trajectory import (
     TrajectoryViolation,
 )
 
-DEFAULT_SAMPLE_RATE_HZ = 20.0
+DEFAULT_SAMPLE_RATE_HZ = 25.0
 MIN_SAMPLE_RATE_HZ = 1.0
 MAX_SAMPLE_RATE_HZ = 100.0
 MAX_TRAJECTORY_DURATION_S = 600.0

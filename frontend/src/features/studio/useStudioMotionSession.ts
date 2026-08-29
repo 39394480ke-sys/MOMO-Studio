@@ -11,6 +11,7 @@ import {
   stopMotion,
   stopPlayback,
 } from '../../api/client';
+import { STUDIO_EXECUTION_HZ } from './studioExecution';
 import type {
   MotionCommandStatus,
   MotionDraft,
@@ -163,7 +164,7 @@ export function useStudioMotionSession({
     try {
       const report = await preflightMotion(savedMotion.id, {
         expected_revision: savedMotion.revision,
-        sample_rate_hz: 20,
+        sample_rate_hz: STUDIO_EXECUTION_HZ,
       });
       if (playbackEpochRef.current !== epoch) return;
       const status = await getPlayback();

@@ -10,7 +10,6 @@ from typing import Protocol, TypeVar
 from uuid import UUID, uuid4
 
 from momo.domain.calibration import CalibrationDocument
-from momo.domain.enums import ProfileVerificationStatus
 from momo.domain.errors import HardwareMappingError
 from momo.domain.hardware_mapping import goal_raw_to_logical, logical_to_goal_raw
 from momo.domain.real_hardware import (
@@ -78,6 +77,8 @@ class RealMotionExecutor:
         context_provider: RealExecutionContextProvider,
         observer: RealMotionObserver,
         divergence_tolerance_raw: int = 8,
+        following_lag_s: float = 0.4,
+        final_settle_timeout_s: float = 1.5,
         continuity_tolerance: float = 1e-6,
         bus_operation_timeout_s: float = 1.0,
         history_limit: int = 256,
@@ -97,12 +98,12 @@ class RealMotionExecutor:
             raise ValueError("divergence_tolerance_raw must be between 0 and 4096")
         if not 0.0 <= continuity_tolerance <= 1.0:
             raise ValueError("continuity_tolerance must be between 0 and 1 domain unit")
+        if not 0.04 <= following_lag_s <= 2.0:
+            raise ValueError("following_lag_s must be between 0.04 and 2 seconds")
+        if not 0.1 <= final_settle_timeout_s <= 10.0:
+            raise ValueError("final_settle_timeout_s must be between 0.1 and 10 seconds")
         if not 0.01 <= bus_operation_timeout_s <= 10.0:
             raise ValueError("bus_operation_timeout_s must be between 0.01 and 10 seconds")
-        if profile.template:
-            raise ValueError("template/example profiles cannot execute Real motion")
-        if profile.verification_status is not ProfileVerificationStatus.VERIFIED_FOR_REAL:
-            raise ValueError("profile must be VERIFIED_FOR_REAL")
         self._validate_calibration(profile, calibration)
 
         self.servo_bus = servo_bus
@@ -114,6 +115,8 @@ class RealMotionExecutor:
         self.context_provider = context_provider
         self.observer = observer
         self.divergence_tolerance_raw = divergence_tolerance_raw
+        self.following_lag_s = float(following_lag_s)
+        self.final_settle_timeout_s = float(final_settle_timeout_s)
         self.continuity_tolerance = float(continuity_tolerance)
         self.bus_operation_timeout_s = float(bus_operation_timeout_s)
         self.history_limit = max(8, int(history_limit))
@@ -307,6 +310,8 @@ class RealMotionExecutor:
             index = 0
             expected_state_sequence = prepared.plan.start_state_sequence
             expected_positions = dict(samples[0].positions)
+            recent_goals: deque[tuple[float, dict[int, int]]] = deque()
+            final_aligned = False
             first_write = True
             while index < len(samples):
                 sample = samples[index]
@@ -338,15 +343,34 @@ class RealMotionExecutor:
                     first_write=first_write,
                 )
                 goals = raw_samples[index]
-                expected_state_sequence, expected_positions = await self._write_and_readback(
+                recent_goals.append((sample.time_s, goals))
+                while (
+                    len(recent_goals) > 1
+                    and sample.time_s - recent_goals[0][0] > self.following_lag_s
+                ):
+                    recent_goals.popleft()
+                (
+                    expected_state_sequence,
+                    expected_positions,
+                    final_aligned,
+                ) = await self._write_and_readback(
                     execution_id,
                     prepared,
                     index,
                     goals,
                     authorization,
+                    tuple(item[1] for item in recent_goals),
                 )
                 first_write = False
                 index += 1
+            if not final_aligned:
+                expected_state_sequence, expected_positions = await self._settle_final_goal(
+                    execution_id,
+                    prepared,
+                    len(samples) - 1,
+                    raw_samples[-1],
+                    authorization,
+                )
             self._set_completed(execution_id)
             await self._emit(
                 self._statuses[execution_id],
@@ -380,7 +404,8 @@ class RealMotionExecutor:
         sample_index: int,
         goals: dict[int, int],
         authorization: RealExecutionAuthorization,
-    ) -> tuple[int, dict[str, float]]:
+        acceptable_goals: tuple[dict[int, int], ...],
+    ) -> tuple[int, dict[str, float], bool]:
         if not authorization.active(self.clock.now()):
             raise _ExecutionFault(
                 RealMotionFaultCode.AUTHORIZATION_EXPIRED,
@@ -409,10 +434,47 @@ class RealMotionExecutor:
             safety_state_known=result.safety_state_known,
             detail=result.detail or "Bounded explicit-ID goal write completed",
         )
+        next_state_sequence, logical_positions, actual_raw = await self._read_and_publish(
+            execution_id,
+            prepared,
+            sample_index,
+            goals,
+            authorization,
+        )
+        outside_following_window = {
+            servo_id: actual_raw[servo_id]
+            for servo_id in self._servo_ids
+            if not (
+                min(item[servo_id] for item in acceptable_goals)
+                - self.divergence_tolerance_raw
+                <= actual_raw[servo_id]
+                <= max(item[servo_id] for item in acceptable_goals)
+                + self.divergence_tolerance_raw
+            )
+        }
+        if outside_following_window:
+            raise _ExecutionFault(
+                RealMotionFaultCode.READBACK_DIVERGENCE,
+                "Readback fell outside the bounded trajectory following window",
+            )
+        final_aligned = all(
+            abs(actual_raw[servo_id] - goals[servo_id]) <= self.divergence_tolerance_raw
+            for servo_id in self._servo_ids
+        )
+        return next_state_sequence, logical_positions, final_aligned
+
+    async def _read_and_publish(
+        self,
+        execution_id: UUID,
+        prepared: PreparedTrajectory,
+        sample_index: int,
+        goals: dict[int, int],
+        authorization: RealExecutionAuthorization,
+    ) -> tuple[int, dict[str, float], dict[int, int]]:
         if not authorization.active(self.clock.now()):
             raise _ExecutionFault(
                 RealMotionFaultCode.AUTHORIZATION_EXPIRED,
-                "Operator authorization expired after a ServoBus write",
+                "Operator authorization expired before ServoBus readback",
             )
         try:
             readback = await self._bounded_bus_call(
@@ -502,22 +564,44 @@ class RealMotionExecutor:
             safety_state_known=True,
             detail="Explicit-ID present-position readback mapped to domain state",
         )
-        divergence = {
-            servo_id: abs(actual_raw[servo_id] - goals[servo_id])
-            for servo_id in self._servo_ids
-            if abs(actual_raw[servo_id] - goals[servo_id]) > self.divergence_tolerance_raw
-        }
-        if divergence:
-            raise _ExecutionFault(
-                RealMotionFaultCode.READBACK_DIVERGENCE,
-                "Readback diverged from the requested goal beyond the configured bound",
-            )
         self._replace_status(
             execution_id,
             expected_state_sequence=next_state_sequence,
             updated_at=self.clock.now(),
         )
-        return next_state_sequence, logical_positions
+        return next_state_sequence, logical_positions, actual_raw
+
+    async def _settle_final_goal(
+        self,
+        execution_id: UUID,
+        prepared: PreparedTrajectory,
+        sample_index: int,
+        goals: dict[int, int],
+        authorization: RealExecutionAuthorization,
+    ) -> tuple[int, dict[str, float]]:
+        deadline = self.clock.monotonic() + self.final_settle_timeout_s
+        readback_interval_s = 1.0 / prepared.plan.sample_rate_hz
+        while self.clock.monotonic() < deadline:
+            await self.clock.sleep(
+                min(readback_interval_s, max(0.0, deadline - self.clock.monotonic()))
+            )
+            next_state_sequence, logical_positions, actual_raw = await self._read_and_publish(
+                execution_id,
+                prepared,
+                sample_index,
+                goals,
+                authorization,
+            )
+            if all(
+                abs(actual_raw[servo_id] - goals[servo_id])
+                <= self.divergence_tolerance_raw
+                for servo_id in self._servo_ids
+            ):
+                return next_state_sequence, logical_positions
+        raise _ExecutionFault(
+            RealMotionFaultCode.READBACK_DIVERGENCE,
+            "Final goal did not settle within the bounded following timeout",
+        )
 
     async def _validate_current_context(
         self,

@@ -88,6 +88,7 @@ class CartesianJogPayload(BaseModel):
     delta_rotation_deg: Vector3
     frame: CartesianFrame
     duration_s: Duration = 0.5
+    lease_controlled: bool = False
 
 
 class MovePosePayload(BaseModel):

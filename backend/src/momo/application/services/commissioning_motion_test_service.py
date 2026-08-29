@@ -12,7 +12,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from math import ceil, isfinite
+from math import isfinite
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
@@ -60,10 +60,13 @@ from momo.ports.servo_bus import (
 
 DIRECT_JOG_UPDATE_HZ = 50.0
 DIRECT_JOG_MAX_STEP_PER_TICK = 3.0
-DIRECT_JOG_MIN_TARGET_LEAD = 0.05
-DIRECT_JOG_TARGET_LEAD_S = 0.03
-DIRECT_MOVE_UPDATE_HZ = 20.0
-DIRECT_MOVE_MAX_DURATION_S = 30.0
+# A logical-unit minimum is not portable across MOMO joints: the same 0.05
+# mm/deg can be more than one hundred servo counts on a geared joint but less
+# than one count on a direct-drive joint.  Keep enough raw position error to
+# overcome STS3215 deadband/stiction while never asking for more than one
+# control tick of extra logical lead.  Twelve counts restores the characterized
+# ~1 degree minimum that Legacy used for the 1:1 J14 mapping.
+DIRECT_JOG_MIN_TARGET_LEAD_RAW = 12.0
 
 
 class CommissioningMotionSessionError(RobotApplicationError):
@@ -157,17 +160,6 @@ class CommissioningDirectJointStateResult:
     message: str
 
 
-@dataclass(frozen=True, slots=True)
-class CommissioningDirectMoveResult:
-    positions: dict[str, float]
-    units: dict[str, str]
-    raw_positions: dict[str, int]
-    duration_s: float
-    frame_count: int
-    completed: bool
-    message: str
-
-
 @dataclass(slots=True)
 class _Attempt:
     attempt_id: UUID
@@ -196,17 +188,10 @@ class _DirectJog:
     target_value: float
     raw_position: int
     logical_position: float
+    last_prepared_target: PreparedCommissioningJogTarget | None = None
     task: asyncio.Task[None] | None = None
     stop_requested: bool = False
-    message: str = "连续运动中; 松手后立即请求保持当前位置。"
-
-
-@dataclass(slots=True)
-class _DirectMove:
-    joint_ids: tuple[str, ...]
-    servo_ids: tuple[int, ...]
-    task: asyncio.Task[CommissioningDirectMoveResult] | None = None
-    stop_requested: bool = False
+    message: str = "连续运动中; 松手后保留最后一个受控前视目标。"
 
 
 @dataclass(slots=True)
@@ -220,7 +205,6 @@ class _Runtime:
     command_count: int = 0
     attempt: _Attempt | None = None
     direct_jog: _DirectJog | None = None
-    direct_move: _DirectMove | None = None
     last_evidence: CommissioningTestEvidence | None = None
     failure_reason: str | None = None
     watchdog: asyncio.Task[None] | None = None
@@ -746,152 +730,6 @@ class CommissioningMotionTestService:
             message="已读取实体机械臂当前六轴位置。",
         )
 
-    async def move_direct_joints(
-        self,
-        token: str,
-        *,
-        target_positions: dict[str, float],
-        duration_s: float,
-    ) -> CommissioningDirectMoveResult:
-        """Run one bounded, interpolated logical joint move in the field session."""
-
-        if (
-            isinstance(duration_s, bool)
-            or not isfinite(float(duration_s))
-            or not 0.1 <= float(duration_s) <= DIRECT_MOVE_MAX_DURATION_S
-        ):
-            raise CommissioningEnvelopeExceededError(
-                "direct joint duration must be between 0.1 and "
-                f"{DIRECT_MOVE_MAX_DURATION_S:g} seconds"
-            )
-        session = await self._authorize_current(token)
-        context = self._context()
-        profile = context.profile
-        if profile is None:
-            raise CommissioningMotionSessionError("Profile is required")
-        if not target_positions or set(target_positions) != set(profile.enabled_joints):
-            raise MultiJointTestForbiddenError(
-                "direct joint move requires the exact enabled joint set"
-            )
-        if any(
-            isinstance(value, bool) or not isfinite(float(value))
-            for value in target_positions.values()
-        ):
-            raise CommissioningEnvelopeExceededError("direct joint targets must be finite")
-
-        await self._bus.begin_prepared_motion(session.session_id)
-        definitions = tuple(
-            profile.definitions_by_id[joint_id] for joint_id in profile.enabled_joints
-        )
-        servo_ids = tuple(
-            definition.servo_id for definition in definitions if definition.servo_id is not None
-        )
-        if len(servo_ids) != len(definitions) or servo_ids != self.allowed_servo_ids:
-            raise CommissioningMotionSessionError("Profile Servo mapping changed")
-        readbacks = await self._bus.read_prepared_joint_state(servo_ids)
-        starts: dict[str, float] = {}
-        calibration_by_joint: dict[str, CalibrationJoint] = {}
-        for definition, readback in zip(definitions, readbacks, strict=True):
-            self._require_fresh(readback)
-            calibration_joint = self._joint_contract(context, definition.joint_id)[1]
-            calibration_by_joint[definition.joint_id] = calibration_joint
-            starts[definition.joint_id] = goal_raw_to_logical(
-                definition.joint_id,
-                readback.raw_position,
-                profile,
-                calibration_joint,
-            )
-            target = float(target_positions[definition.joint_id])
-            target_raw = logical_to_goal_raw(
-                definition.joint_id,
-                target,
-                profile,
-                calibration_joint,
-            )
-            self._require_logical_and_raw_limits(
-                context,
-                definition.joint_id,
-                target,
-                target_raw,
-                calibration_joint,
-            )
-
-        direct_move = _DirectMove(
-            joint_ids=tuple(profile.enabled_joints),
-            servo_ids=servo_ids,
-        )
-        async with self._guard:
-            runtime = self._require_runtime_unlocked(session.session_id)
-            self._require_direct_idle_unlocked(runtime)
-            direct_move.task = asyncio.current_task()
-            runtime.direct_move = direct_move
-            runtime.active_joint_id = None
-            runtime.state = CommissioningMotionTestState.MOVING
-            runtime.failure_reason = None
-            self._restart_watchdog_unlocked(runtime)
-
-        frame_count = max(1, ceil(float(duration_s) * DIRECT_MOVE_UPDATE_HZ))
-        started = self.clock.monotonic()
-        try:
-            for frame in range(1, frame_count + 1):
-                deadline = started + frame * float(duration_s) / frame_count
-                await self.clock.sleep(max(0.0, deadline - self.clock.monotonic()))
-                if direct_move.stop_requested:
-                    raise CommissioningMotionConflictError("direct joint move was stopped")
-                ratio = frame / frame_count
-                eased = ratio * ratio * (3.0 - 2.0 * ratio)
-                commands: list[PreparedCommissioningJogTarget] = []
-                for definition in definitions:
-                    joint_id = definition.joint_id
-                    start = starts[joint_id]
-                    target = float(target_positions[joint_id])
-                    value = start + (target - start) * eased
-                    requested_speed = min(
-                        50.0,
-                        max(0.1, 1.5 * abs(target - start) / float(duration_s)),
-                    )
-                    commands.append(
-                        self._prepared_direct_target(
-                            session=session,
-                            context=context,
-                            joint_id=joint_id,
-                            target_value=value,
-                            requested_speed=requested_speed,
-                            calibration_joint=calibration_by_joint[joint_id],
-                        )
-                    )
-                write = await self._bus.write_prepared_jog_targets(tuple(commands))
-                self._require_complete_multi_write(write, servo_ids)
-            final_state = await self.read_direct_joint_state(token)
-            result = CommissioningDirectMoveResult(
-                positions=final_state.positions,
-                units=final_state.units,
-                raw_positions=final_state.raw_positions,
-                duration_s=float(duration_s),
-                frame_count=frame_count,
-                completed=True,
-                message="实体机械臂关节目标执行完成。",
-            )
-            async with self._guard:
-                runtime = self._require_runtime_unlocked(session.session_id)
-                if runtime.direct_move is direct_move:
-                    runtime.direct_move = None
-                    runtime.state = CommissioningMotionTestState.COMPLETED
-                    self._restart_watchdog_unlocked(runtime)
-            return result
-        except BaseException:
-            with suppress(Exception):
-                await self._bus.stop_or_hold_many(servo_ids)
-            async with self._guard:
-                retained = self._runtime
-                if retained is not None and retained.session.session_id == session.session_id:
-                    if retained.direct_move is direct_move:
-                        retained.direct_move = None
-                    if retained.state is not CommissioningMotionTestState.EXPIRED:
-                        retained.state = CommissioningMotionTestState.FAILED
-                        retained.failure_reason = "DIRECT_JOINT_MOVE_FAILED"
-            raise
-
     async def start_direct_jog(
         self,
         token: str,
@@ -1003,6 +841,53 @@ class CommissioningMotionTestService:
         await self.priority_stop()
         return await self.direct_jog_status()
 
+    async def release_direct_jog(
+        self,
+        token: str,
+    ) -> CommissioningDirectControlResult:
+        """Finish a normal held-jog release without commanding a stale hold.
+
+        The streaming loop always keeps its goal only one bounded control step
+        ahead of readback.  On a normal pointer/key release, retaining that last
+        prepared goal lets the servo settle forward instead of first reading a
+        moving position and then writing an already-behind hold target.  Priority
+        Stop, lost focus/network, and lease expiry fence the stream and retain
+        the same reviewed target instead of sampling a moving hold point.
+        """
+
+        session = await self._authorize_current(token)
+        task: asyncio.Task[None] | None = None
+        direct: _DirectJog | None = None
+        already_idle = False
+        async with self._guard:
+            runtime = self._require_runtime_unlocked(session.session_id)
+            direct = runtime.direct_jog
+            if direct is None or direct.task is None or direct.task.done():
+                already_idle = True
+            else:
+                direct.stop_requested = True
+                direct.message = "已松手; 正在完成最后一个受控前视目标。"
+                task = direct.task
+                runtime.state = CommissioningMotionTestState.STOPPING
+                runtime.deadman_deadline_monotonic = None
+                self._cancel_watchdog_unlocked(runtime)
+        if already_idle:
+            return await self.direct_jog_status()
+        assert task is not None and direct is not None
+        if task is not asyncio.current_task():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        async with self._guard:
+            runtime = self._require_runtime_unlocked(session.session_id)
+            if runtime.direct_jog is direct:
+                runtime.active_joint_id = None
+                runtime.state = CommissioningMotionTestState.AUTHORIZED
+                runtime.failure_reason = None
+                direct.message = "已松手; 最后一个受控目标已保留, 未写入滞后保持点。"
+                self._restart_watchdog_unlocked(runtime)
+        return await self.direct_jog_status()
+
     async def _run_direct_jog(
         self,
         session_id: UUID,
@@ -1019,12 +904,14 @@ class CommissioningMotionTestService:
             DIRECT_JOG_MAX_STEP_PER_TICK,
             direct.requested_speed / update_hz,
         )
-        max_target_lead = min(
-            DIRECT_JOG_MAX_STEP_PER_TICK,
-            max(
-                DIRECT_JOG_MIN_TARGET_LEAD,
-                direct.requested_speed * DIRECT_JOG_TARGET_LEAD_S,
-            ),
+        definition = profile.definitions_by_id[direct.joint_id]
+        scale = definition.motor_degrees_per_domain_unit
+        if scale is None:
+            raise HardwareMappingError("Joint mapping scale is missing")
+        raw_counts_per_logical_unit = definition.raw_counts_per_motor_revolution * scale / 360.0
+        max_target_lead = max(
+            abs(delta_per_tick),
+            DIRECT_JOG_MIN_TARGET_LEAD_RAW / raw_counts_per_logical_unit,
         )
         try:
             while True:
@@ -1050,9 +937,17 @@ class CommissioningMotionTestService:
                     calibration_joint,
                 )
                 desired_value = direct.target_value + delta_per_tick
-                target_value = max(
+                bounded_target = max(
                     present_value - max_target_lead,
                     min(present_value + max_target_lead, desired_value),
+                )
+                # Readback can overtake the prior goal while the Servo is still
+                # moving.  Never send a target behind either the latest readback
+                # or the prior target in the commanded logical direction.
+                target_value = (
+                    max(direct.target_value, present_value, bounded_target)
+                    if direct.direction > 0
+                    else min(direct.target_value, present_value, bounded_target)
                 )
                 try:
                     target = self._prepared_direct_target(
@@ -1068,6 +963,7 @@ class CommissioningMotionTestService:
                     break
                 write = await self._bus.write_prepared_jog_target(target)
                 self._require_complete_single_write(write, direct.servo_id)
+                direct.last_prepared_target = target
                 direct.target_value = target_value
                 direct.raw_position = readback.raw_position
                 direct.logical_position = present_value
@@ -1092,7 +988,12 @@ class CommissioningMotionTestService:
                     retained.state = CommissioningMotionTestState.STOPPING
             if owns_runtime and not direct.stop_requested:
                 try:
-                    await self._bus.stop_or_hold(direct.servo_id)
+                    if direct.last_prepared_target is not None:
+                        await self._bus.stop_or_hold_at_prepared_jog_target(
+                            direct.last_prepared_target
+                        )
+                    else:
+                        await self._bus.stop_or_hold(direct.servo_id)
                 finally:
                     async with self._guard:
                         retained = self._runtime
@@ -1203,12 +1104,7 @@ class CommissioningMotionTestService:
     @staticmethod
     def _require_direct_idle_unlocked(runtime: _Runtime) -> None:
         active_task = runtime.direct_jog.task if runtime.direct_jog is not None else None
-        move_task = runtime.direct_move.task if runtime.direct_move is not None else None
-        if (
-            runtime.attempt is not None
-            or (active_task is not None and not active_task.done())
-            or (move_task is not None and not move_task.done())
-        ):
+        if runtime.attempt is not None or (active_task is not None and not active_task.done()):
             raise CommissioningMotionConflictError("Another direct-control command is active")
         if runtime.state not in {
             CommissioningMotionTestState.AUTHORIZED,
@@ -1525,24 +1421,6 @@ class CommissioningMotionTestService:
                 "The single-joint adapter write did not complete exactly",
             )
 
-    @staticmethod
-    def _require_complete_multi_write(
-        write: ServoWriteResult,
-        servo_ids: tuple[int, ...],
-    ) -> None:
-        if (
-            write.requested_ids != servo_ids
-            or write.written_ids != servo_ids
-            or write.failed_ids
-            or not write.connected
-            or not write.complete
-            or not write.safety_state_known
-        ):
-            raise _AttemptFailed(
-                "COMMISSIONING_WRITE_FAILED",
-                "The prepared multi-joint adapter write did not complete exactly",
-            )
-
     def _verify_result(
         self,
         context: RealHardwareContext,
@@ -1830,21 +1708,25 @@ class CommissioningMotionTestService:
         expired: bool,
     ) -> CommissioningMotionStatus:
         servo_id: int | None = None
-        servo_ids: tuple[int, ...] = ()
+        bounded_direct_stop: PreparedCommissioningJogTarget | None = None
         direct_task: asyncio.Task[None] | None = None
-        direct_move_task: asyncio.Task[CommissioningDirectMoveResult] | None = None
         async with self._guard:
             runtime = self._require_runtime_unlocked(session_id)
             if (
                 runtime.active_joint_id is None
                 and runtime.attempt is None
                 and runtime.direct_jog is None
-                and runtime.direct_move is None
                 and not expired
             ):
                 return self._status_unlocked(runtime)
+            direct_jog = runtime.direct_jog
+            direct_is_running = (
+                direct_jog is not None
+                and direct_jog.task is not None
+                and not direct_jog.task.done()
+            )
             joint_id = runtime.active_joint_id or (
-                runtime.direct_jog.joint_id if runtime.direct_jog is not None else None
+                direct_jog.joint_id if direct_is_running and direct_jog is not None else None
             )
             if joint_id is not None:
                 context = self._context()
@@ -1856,10 +1738,12 @@ class CommissioningMotionTestService:
             if runtime.direct_jog is not None:
                 runtime.direct_jog.stop_requested = True
                 direct_task = runtime.direct_jog.task
-            if runtime.direct_move is not None:
-                runtime.direct_move.stop_requested = True
-                servo_ids = runtime.direct_move.servo_ids
-                direct_move_task = runtime.direct_move.task
+                if (
+                    direct_task is not None
+                    and not direct_task.done()
+                    and runtime.direct_jog.last_prepared_target is not None
+                ):
+                    bounded_direct_stop = runtime.direct_jog.last_prepared_target
             runtime.failure_reason = reason
             runtime.deadman_deadline_monotonic = None
             runtime.state = (
@@ -1872,33 +1756,30 @@ class CommissioningMotionTestService:
             direct_task.cancel()
             with suppress(asyncio.CancelledError):
                 await direct_task
-        if direct_move_task is not None and direct_move_task is not asyncio.current_task():
-            direct_move_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await direct_move_task
-        if servo_ids or servo_id is not None:
+        if servo_id is not None:
             try:
-                outcome = (
-                    await self._bus.stop_or_hold_many(servo_ids)
-                    if servo_ids
-                    else await self._bus.stop_or_hold(servo_id)  # type: ignore[arg-type]
-                )
+                if bounded_direct_stop is not None:
+                    outcome = await self._bus.stop_or_hold_at_prepared_jog_target(
+                        bounded_direct_stop
+                    )
+                else:
+                    outcome = await self._bus.stop_or_hold(servo_id)
             except Exception:
                 behavior = StopBehavior.SOFTWARE_PATH_FAILED
                 stop_message = "停止/保持请求失败, 请使用物理急停。"
             else:
                 behavior = self._stop_behavior(outcome.result)
-                stop_message = (
-                    "已请求停止并保持当前位置; 舵机仍连接并保持扭矩。"
-                    if behavior is not StopBehavior.SOFTWARE_PATH_FAILED
-                    else "停止/保持未确认, 请使用物理急停。"
-                )
+                if behavior is StopBehavior.SOFTWARE_PATH_FAILED:
+                    stop_message = "停止/保持未确认, 请使用物理急停。"
+                elif bounded_direct_stop is not None:
+                    stop_message = "已停止连续目标流; 保留最后一个受控前视目标。"
+                else:
+                    stop_message = "已请求停止并保持当前位置; 舵机仍连接并保持扭矩。"
             async with self._guard:
                 retained = self._runtime
                 if retained is not None and retained.session.session_id == session_id:
                     if retained.direct_jog is not None:
                         retained.direct_jog.message = stop_message
-                    retained.direct_move = None
                     if retained.attempt is not None:
                         retained.attempt.stop_behavior = behavior
                     elif not expired:

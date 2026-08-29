@@ -76,8 +76,10 @@ class OperatorSessionService:
         *,
         ttl_s: float = 300.0,
     ) -> None:
-        if not isfinite(ttl_s) or ttl_s < 30.0 or ttl_s > 900.0:
-            raise ValueError("operator session ttl_s must be between 30 and 900 seconds")
+        if not isfinite(ttl_s) or ttl_s < 30.0 or ttl_s > 31_536_000.0:
+            raise ValueError(
+                "operator session ttl_s must be between 30 seconds and one year"
+            )
         self.clock = clock
         self.authorization = authorization
         self.ttl_s = float(ttl_s)

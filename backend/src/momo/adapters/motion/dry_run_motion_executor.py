@@ -154,6 +154,7 @@ class DryRunMotionExecutor:
             self._set_running(command_id)
             start = self.clock.monotonic()
             tick = 1
+            trajectory_cursor = 1
             while True:
                 deadline = start + min(prepared.duration_s, tick / self.update_hz)
                 if await self._sleep_until_or_cancel(deadline, cancel_event):
@@ -170,18 +171,42 @@ class DryRunMotionExecutor:
                     tick / (prepared.duration_s * self.update_hz),
                 )
                 progress = min(1.0, max(scheduled_progress, elapsed / prepared.duration_s))
-                interpolation = progress * progress * (3.0 - 2.0 * progress)
-                positions = {
-                    joint_id: (
-                        prepared.start_state.positions[joint_id]
-                        + (
-                            prepared.target_state.positions[joint_id]
-                            - prepared.start_state.positions[joint_id]
-                        )
-                        * interpolation
+                if prepared.trajectory_samples is not None:
+                    while (
+                        trajectory_cursor < len(prepared.trajectory_samples) - 1
+                        and prepared.trajectory_samples[trajectory_cursor].time_s < elapsed
+                    ):
+                        trajectory_cursor += 1
+                    right = prepared.trajectory_samples[trajectory_cursor]
+                    left = prepared.trajectory_samples[trajectory_cursor - 1]
+                    sample_span = right.time_s - left.time_s
+                    local_fraction = (
+                        1.0
+                        if sample_span <= 0.0
+                        else min(1.0, max(0.0, (elapsed - left.time_s) / sample_span))
                     )
-                    for joint_id in prepared.start_state.positions
-                }
+                    positions = {
+                        joint_id: left.joint_state.positions[joint_id]
+                        + (
+                            right.joint_state.positions[joint_id]
+                            - left.joint_state.positions[joint_id]
+                        )
+                        * local_fraction
+                        for joint_id in prepared.start_state.positions
+                    }
+                else:
+                    interpolation = progress * progress * (3.0 - 2.0 * progress)
+                    positions = {
+                        joint_id: (
+                            prepared.start_state.positions[joint_id]
+                            + (
+                                prepared.target_state.positions[joint_id]
+                                - prepared.start_state.positions[joint_id]
+                            )
+                            * interpolation
+                        )
+                        for joint_id in prepared.start_state.positions
+                    }
                 await self.state_sink.apply_motion_state(
                     command_id,
                     JointState(positions=positions, units=prepared.target_state.units),

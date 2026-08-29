@@ -129,3 +129,35 @@ def test_product_runtime_has_no_legacy_controller_dependency() -> None:
             if any(marker in text for marker in forbidden_markers):
                 violations.append(str(path.relative_to(SOURCE_ROOT)))
     assert violations == []
+
+
+def test_real_manual_and_studio_execution_share_one_authorized_bus_binding() -> None:
+    tree = ast.parse(
+        (SOURCE_ROOT / "real_bootstrap.py").read_text(encoding="utf-8"),
+        filename="real_bootstrap.py",
+    )
+    constructor_bindings: dict[str, list[str]] = {
+        "RealCommandMotionExecutor": [],
+        "RealPlaybackService": [],
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id not in constructor_bindings:
+            continue
+        constructor_bindings[node.func.id].extend(
+            argument.id for argument in node.args if isinstance(argument, ast.Name)
+        )
+
+    assert constructor_bindings == {
+        "RealCommandMotionExecutor": ["robot_service", "kinematics", "binding", "clock"],
+        "RealPlaybackService": [
+            "clock",
+            "robot_service",
+            "library",
+            "kinematics",
+            "validator",
+            "observer",
+            "binding",
+        ],
+    }

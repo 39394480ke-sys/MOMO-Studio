@@ -23,6 +23,7 @@ import {
   updateMotionDraft,
   validateMotionDraft,
 } from '../../api/client';
+import { STUDIO_EXECUTION_HZ } from './studioExecution';
 import type {
   MotionDraft,
   MotionDraftEditorMetadata,
@@ -706,7 +707,7 @@ export function useStudioDraftSession({
       const signature = documentSignature(editorRef.current.document);
       const result = await compileMotionDraft(persisted.id, {
         expected_revision: persisted.revision,
-        sample_rate_hz: 20,
+        sample_rate_hz: STUDIO_EXECUTION_HZ,
       });
       if (
         generation !== workspaceGenerationRef.current ||
@@ -748,7 +749,7 @@ export function useStudioDraftSession({
       const result = await saveMotionDraft(persisted.id, {
         expected_revision: persisted.revision,
         expected_source_revision: persisted.source_motion_revision,
-        sample_rate_hz: 20,
+        sample_rate_hz: STUDIO_EXECUTION_HZ,
       });
       if (generation !== workspaceGenerationRef.current) return;
       const currentSignature = documentSignature(editorRef.current.document);
@@ -819,7 +820,7 @@ export function useStudioDraftSession({
       const result = await saveMotionDraftAs(persisted.id, {
         expected_revision: persisted.revision,
         name: name.trim(),
-        sample_rate_hz: 20,
+        sample_rate_hz: STUDIO_EXECUTION_HZ,
       });
       loadDraft(result.draft, result.motion);
       setDraftPreflight(result.preflight);

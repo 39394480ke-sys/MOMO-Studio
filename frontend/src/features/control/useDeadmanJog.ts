@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
-import { heartbeatJogSession, startJogSession, stopJogSession } from '../../api/client';
+import {
+  heartbeatCartesianJogSession,
+  heartbeatJogSession,
+  startCartesianJogSession,
+  startJogSession,
+  stopJogSession,
+} from '../../api/client';
 import type {
+  CartesianJogSessionStartRequest,
   JogSessionResponse,
   JogSessionStartRequest,
 } from '../../api/types';
@@ -18,11 +25,14 @@ interface ActiveJog extends JogIntent {
 export function useDeadmanJog(options: {
   enabled: boolean;
   canStart: boolean;
-  buildRequest: (intent: JogIntent) => JogSessionStartRequest | null;
+  mode?: 'joint' | 'cartesian';
+  buildRequest: (
+    intent: JogIntent,
+  ) => JogSessionStartRequest | CartesianJogSessionStartRequest | null;
   onSubmission: (submission: JogSessionResponse) => void;
   onError: (error: unknown) => void;
 }) {
-  const { enabled, canStart, buildRequest, onSubmission, onError } = options;
+  const { enabled, canStart, mode = 'joint', buildRequest, onSubmission, onError } = options;
   const [active, setActive] = useState<ActiveJog | null>(null);
   const [starting, setStarting] = useState<JogIntent | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -59,23 +69,25 @@ export function useDeadmanJog(options: {
 
   const begin = useCallback(
     async (intent: JogIntent) => {
-      if (!enabled || !canStart || pressedRef.current) return;
+      if (!enabled || !canStart || pressedRef.current) return false;
       const request = buildRequest(intent);
-      if (!request) return;
+      if (!request) return false;
 
       pressedRef.current = true;
       const generation = generationRef.current + 1;
       generationRef.current = generation;
       setStarting(intent);
       try {
-        const response = await startJogSession(request);
+        const response = mode === 'cartesian'
+          ? await startCartesianJogSession(request as CartesianJogSessionStartRequest)
+          : await startJogSession(request as JogSessionStartRequest);
         if (
           generationRef.current !== generation ||
           !pressedRef.current ||
           !enabled
         ) {
           void stopJogSession(response.jog_session_id).catch(() => undefined);
-          return;
+          return false;
         }
         sessionRef.current = response.jog_session_id;
         setStarting(null);
@@ -85,7 +97,10 @@ export function useDeadmanJog(options: {
           const sessionId = sessionRef.current;
           if (!sessionId || heartbeatInFlightRef.current) return;
           heartbeatInFlightRef.current = true;
-          void heartbeatJogSession(sessionId)
+          const heartbeat = mode === 'cartesian'
+            ? heartbeatCartesianJogSession
+            : heartbeatJogSession;
+          void heartbeat(sessionId)
             .catch((reason: unknown) => {
               onError(reason);
               stopActive();
@@ -94,15 +109,17 @@ export function useDeadmanJog(options: {
               heartbeatInFlightRef.current = false;
             });
         }, 150);
+        return true;
       } catch (reason) {
         if (generationRef.current === generation) {
           pressedRef.current = false;
           setStarting(null);
           onError(reason);
         }
+        return false;
       }
     },
-    [buildRequest, canStart, enabled, onError, onSubmission, stopActive],
+    [buildRequest, canStart, enabled, mode, onError, onSubmission, stopActive],
   );
 
   useEffect(() => {
@@ -166,6 +183,7 @@ export function useDeadmanJog(options: {
   return {
     active,
     starting,
+    begin,
     handlersFor,
     stopActive,
   };

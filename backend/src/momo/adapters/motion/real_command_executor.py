@@ -284,31 +284,44 @@ def _prepared_command_trajectory(
     )
     if isinstance(prepared, PreparedMotion):
         duration_s = prepared.duration_s
-        count = max(2, ceil(duration_s * update_hz) + 1)
         samples: list[TrajectorySample] = []
-        for index in range(count):
-            time_s = duration_s if index == count - 1 else index / update_hz
-            progress = min(1.0, time_s / duration_s)
-            interpolation = progress * progress * (3.0 - 2.0 * progress)
-            positions = {
-                joint_id: prepared.start_state.positions[joint_id]
-                + (
-                    prepared.target_state.positions[joint_id]
-                    - prepared.start_state.positions[joint_id]
+        if prepared.trajectory_samples is not None:
+            for index, prepared_sample in enumerate(prepared.trajectory_samples):
+                samples.append(
+                    TrajectorySample(
+                        time_s=float(prepared_sample.time_s),
+                        positions=dict(prepared_sample.joint_state.positions),
+                        units=dict(prepared_sample.joint_state.units or {}),
+                        keyframe_id=(start_id if index == 0 else end_id),
+                        segment_index=0,
+                        sample_index=index,
+                    )
                 )
-                * interpolation
-                for joint_id in profile.enabled_joints
-            }
-            samples.append(
-                TrajectorySample(
-                    time_s=float(time_s),
-                    positions=positions,
-                    units=dict(prepared.target_state.units or {}),
-                    keyframe_id=(start_id if index == 0 else end_id),
-                    segment_index=0,
-                    sample_index=index,
+        else:
+            count = max(2, ceil(duration_s * update_hz) + 1)
+            for index in range(count):
+                time_s = duration_s if index == count - 1 else index / update_hz
+                progress = min(1.0, time_s / duration_s)
+                interpolation = progress * progress * (3.0 - 2.0 * progress)
+                positions = {
+                    joint_id: prepared.start_state.positions[joint_id]
+                    + (
+                        prepared.target_state.positions[joint_id]
+                        - prepared.start_state.positions[joint_id]
+                    )
+                    * interpolation
+                    for joint_id in profile.enabled_joints
+                }
+                samples.append(
+                    TrajectorySample(
+                        time_s=float(time_s),
+                        positions=positions,
+                        units=dict(prepared.target_state.units or {}),
+                        keyframe_id=(start_id if index == 0 else end_id),
+                        segment_index=0,
+                        sample_index=index,
+                    )
                 )
-            )
     else:
         start_value = prepared.start_state.positions[prepared.joint_id]
         travel = (
@@ -351,7 +364,11 @@ def _prepared_command_trajectory(
         kind=kind,
         from_keyframe_id=start_id,
         to_keyframe_id=end_id,
-        easing=Easing.SMOOTHSTEP,
+        easing=(
+            Easing.LINEAR
+            if isinstance(prepared, PreparedMotion) and prepared.trajectory_samples is not None
+            else Easing.SMOOTHSTEP
+        ),
         start_time_s=0.0,
         end_time_s=float(duration_s),
         duration_s=float(duration_s),
@@ -406,7 +423,7 @@ def _prepared_command_trajectory(
         ],
         violations=[],
         real_motion_ready=True,
-        field_acceptance_ready=True,
+        field_acceptance_ready=False,
     )
     return PreparedTrajectory(plan=plan, preflight=report)
 

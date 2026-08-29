@@ -10,8 +10,6 @@ from fastapi import APIRouter, Depends, Request
 from momo.api.commissioning_schemas import (
     CommissioningDirectControlResponse,
     CommissioningDirectJogStartRequest,
-    CommissioningDirectJointMoveRequest,
-    CommissioningDirectJointMoveResponse,
     CommissioningDirectJointStateResponse,
     CommissioningDirectStepRequest,
     CommissioningMotionStatusResponse,
@@ -30,7 +28,6 @@ from momo.api.security import (
 from momo.application.services.commissioning_motion_test_service import (
     CommissioningDirectControlResult,
     CommissioningDirectJointStateResult,
-    CommissioningDirectMoveResult,
     CommissioningMotionConflictError,
     CommissioningMotionStatus,
     CommissioningMotionTestService,
@@ -99,12 +96,6 @@ def _direct_state(
     value: CommissioningDirectJointStateResult,
 ) -> CommissioningDirectJointStateResponse:
     return CommissioningDirectJointStateResponse(**asdict(value))
-
-
-def _direct_move(
-    value: CommissioningDirectMoveResult,
-) -> CommissioningDirectJointMoveResponse:
-    return CommissioningDirectJointMoveResponse(**asdict(value))
 
 
 def _raw_status(value: RawDirectionStatus) -> RawDirectionStatusResponse:
@@ -229,25 +220,6 @@ async def direct_joint_state(
 
 
 @router.post(
-    "/direct/joints/move",
-    response_model=CommissioningDirectJointMoveResponse,
-    dependencies=[Depends(authorize_control_request)],
-)
-async def move_direct_joints(
-    body: CommissioningDirectJointMoveRequest,
-    service: CommissioningServiceDependency,
-    token: OperatorToken,
-) -> CommissioningDirectJointMoveResponse:
-    return _direct_move(
-        await service.move_direct_joints(
-            token,
-            target_positions=body.positions,
-            duration_s=body.duration_s,
-        )
-    )
-
-
-@router.post(
     "/joints/{joint_id}/direct/jog/start",
     response_model=CommissioningDirectControlResponse,
     dependencies=[Depends(authorize_control_request)],
@@ -289,6 +261,18 @@ async def stop_direct_jog(
     service: CommissioningServiceDependency,
 ) -> CommissioningDirectControlResponse:
     return _direct(await service.stop_direct_jog())
+
+
+@router.post(
+    "/direct/jog/release",
+    response_model=CommissioningDirectControlResponse,
+    dependencies=[Depends(authorize_control_request)],
+)
+async def release_direct_jog(
+    service: CommissioningServiceDependency,
+    token: OperatorToken,
+) -> CommissioningDirectControlResponse:
+    return _direct(await service.release_direct_jog(token))
 
 
 @router.post(

@@ -260,36 +260,6 @@ class FtServoCommissioningMotionBus:
             detail="One backend-prepared STS3215 jog target was written",
         )
 
-    async def write_prepared_jog_targets(
-        self,
-        commands: tuple[PreparedCommissioningJogTarget, ...],
-    ) -> ServoWriteResult:
-        if not commands:
-            raise ValueError("at least one prepared jog target is required")
-        requested = tuple(command.servo_id for command in commands)
-        if len(requested) != len(set(requested)):
-            raise ValueError("prepared jog targets must use unique Servo IDs")
-        for command in commands:
-            if not isinstance(command, PreparedCommissioningJogTarget):
-                raise TypeError("only prepared commissioning jog targets may be written")
-            self._require_id_allowed(command.servo_id)
-            if command.session_id != self._session_id:
-                raise PermissionError("commissioning jog target belongs to another session")
-        async with self._guard:
-            await _completion_observed_thread_call(
-                lambda: self._execute_jog_targets(commands),
-                name="ftservo-commissioning-jog-multi",
-            )
-        return ServoWriteResult(
-            requested_ids=requested,
-            written_ids=requested,
-            failed_ids=(),
-            connected=True,
-            complete=True,
-            safety_state_known=True,
-            detail="Backend-prepared STS3215 joint targets were written",
-        )
-
     async def stop_or_hold(self, servo_id: int) -> RealStopOutcome:
         self._require_id_allowed(servo_id)
         self._stop_requested.set()
@@ -316,33 +286,45 @@ class FtServoCommissioningMotionBus:
             detail="Current position was written back as Goal_Position",
         )
 
-    async def stop_or_hold_many(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
-        if not servo_ids or len(servo_ids) != len(set(servo_ids)):
-            raise ValueError("Stop/Hold requires unique explicit Servo IDs")
-        for servo_id in servo_ids:
-            self._require_id_allowed(servo_id)
+    async def stop_or_hold_at_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> RealStopOutcome:
+        """Fence the stream and retain its last reviewed, bounded target.
+
+        A moving Present_Position sample is already stale by the time it can be
+        written back.  Retaining the most recent service-prepared target avoids
+        commanding a reversal while keeping the remaining travel bounded by the
+        direct-jog lead envelope.
+        """
+
+        if not isinstance(command, PreparedCommissioningJogTarget):
+            raise TypeError("only a prepared commissioning jog target may be retained")
+        self._require_id_allowed(command.servo_id)
+        if command.session_id != self._session_id:
+            raise PermissionError("commissioning jog target belongs to another session")
         self._stop_requested.set()
         async with self._guard:
             if self._packet is None:
                 return RealStopOutcome(
                     result=RealStopResult.NOT_CONNECTED,
-                    requested_ids=servo_ids,
+                    requested_ids=(command.servo_id,),
                     affected_ids=(),
                     connected=False,
                     safety_state_known=False,
                     detail="Commissioning adapter is not connected",
                 )
             await _completion_observed_thread_call(
-                lambda: self._request_hold_many(servo_ids),
-                name="ftservo-commissioning-hold-all",
+                lambda: self._write_goal_position(command.servo_id, command.target_raw),
+                name=f"ftservo-commissioning-bounded-hold-{command.servo_id}",
             )
         return RealStopOutcome(
             result=RealStopResult.HOLD_REQUESTED,
-            requested_ids=servo_ids,
-            affected_ids=servo_ids,
+            requested_ids=(command.servo_id,),
+            affected_ids=(command.servo_id,),
             connected=True,
             safety_state_known=False,
-            detail="Current positions were written back as Goal_Position",
+            detail="Last prepared bounded jog target was retained as Goal_Position",
         )
 
     async def close(self) -> None:
@@ -458,46 +440,9 @@ class FtServoCommissioningMotionBus:
             raise CommissioningStepInterrupted("commissioning jog stopped by operator")
         self._write_goal_position(command.servo_id, command.target_raw)
 
-    def _execute_jog_targets(
-        self,
-        commands: tuple[PreparedCommissioningJogTarget, ...],
-    ) -> None:
-        if self._stop_requested.is_set():
-            raise CommissioningStepInterrupted("commissioning joint move stopped by operator")
-        for command in commands:
-            self._configure_stream_servo(command.servo_id)
-        if self._stop_requested.is_set():
-            raise CommissioningStepInterrupted("commissioning joint move stopped by operator")
-        for command in commands:
-            self._write_goal_position(command.servo_id, command.target_raw)
-
-    def _configure_stream_servo(self, servo_id: int) -> None:
-        if servo_id not in self._legacy_stream_configured:
-            current = self._read_position(servo_id)
-            self._write_position(
-                servo_id,
-                current,
-                speed=LEGACY_STREAM_SPEED,
-                acceleration=LEGACY_STREAM_ACCELERATION,
-            )
-            self._legacy_stream_configured.add(servo_id)
-        if servo_id not in self._torque_enabled:
-            result, error = self._require_packet().write1ByteTxRx(
-                servo_id,
-                TORQUE_ENABLE_ADDRESS,
-                1,
-            )
-            self._require_success(result, error, operation="enable torque")
-            self._torque_enabled.add(servo_id)
-
     def _request_hold(self, servo_id: int) -> None:
         current = self._read_position(servo_id)
         self._write_goal_position(servo_id, current)
-
-    def _request_hold_many(self, servo_ids: tuple[int, ...]) -> None:
-        positions = tuple((servo_id, self._read_position(servo_id)) for servo_id in servo_ids)
-        for servo_id, current in positions:
-            self._write_goal_position(servo_id, current)
 
     def _write_position(
         self,

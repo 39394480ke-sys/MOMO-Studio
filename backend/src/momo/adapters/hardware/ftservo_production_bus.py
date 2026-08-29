@@ -45,7 +45,15 @@ class _Port(Protocol):
     def closePort(self) -> None: ...
 
 
+class _SyncWriter(Protocol):
+    def txPacket(self) -> int: ...
+
+    def clearParam(self) -> None: ...
+
+
 class _Packet(Protocol):
+    groupSyncWrite: _SyncWriter
+
     def ping(self, servo_id: int) -> tuple[int, int, int]: ...
 
     def ReadPos(self, servo_id: int) -> tuple[int, int, int]: ...
@@ -57,6 +65,14 @@ class _Packet(Protocol):
         speed: int,
         acceleration: int,
     ) -> tuple[int, int]: ...
+
+    def SyncWritePosEx(
+        self,
+        servo_id: int,
+        position: int,
+        speed: int,
+        acceleration: int,
+    ) -> bool: ...
 
     def read1ByteTxRx(self, servo_id: int, address: int) -> tuple[int, int, int]: ...
 
@@ -368,9 +384,11 @@ class FtServoProductionBus:
             values[servo_id] = model
         return values
 
-    def _write_goals_sync(self, goals: Mapping[int, int]) -> tuple[int, ...]:
+    def _write_goals_sync(
+        self,
+        goals: Mapping[int, int],
+    ) -> tuple[int, ...]:
         packet = self._require_packet()
-        written: list[int] = []
         for servo_id in goals:
             if self._stop_requested.is_set():
                 raise RuntimeError("REAL goal write interrupted by priority Stop")
@@ -388,18 +406,29 @@ class FtServoProductionBus:
                 result, error = packet.write1ByteTxRx(servo_id, TORQUE_ENABLE_ADDRESS, 1)
                 self._require_success(result, error, operation=f"enable torque {servo_id}")
                 self._torque_enabled.add(servo_id)
-            result, error = packet.write2ByteTxRx(
+        if len(goals) > 1:
+            self._sync_write_positions(goals)
+            return tuple(goals)
+        written: list[int] = []
+        for servo_id in goals:
+            if self._stop_requested.is_set():
+                raise RuntimeError("REAL goal write interrupted by priority Stop")
+            result, error = packet.WritePosEx(
                 servo_id,
-                GOAL_POSITION_ADDRESS,
                 _encode_signed_position(goals[servo_id]),
+                LEGACY_STREAM_SPEED,
+                LEGACY_STREAM_ACCELERATION,
             )
             self._require_success(result, error, operation=f"write goal {servo_id}")
             written.append(servo_id)
         return tuple(written)
 
     def _hold_sync(self, servo_ids: tuple[int, ...]) -> tuple[int, ...]:
-        packet = self._require_packet()
         positions = {servo_id: self._read_position(servo_id) for servo_id in servo_ids}
+        if len(positions) > 1:
+            self._sync_write_positions(positions)
+            return tuple(positions)
+        packet = self._require_packet()
         affected: list[int] = []
         for servo_id, raw in positions.items():
             result, error = packet.write2ByteTxRx(
@@ -410,6 +439,36 @@ class FtServoProductionBus:
             self._require_success(result, error, operation=f"hold {servo_id}")
             affected.append(servo_id)
         return tuple(affected)
+
+    def _sync_write_positions(
+        self,
+        positions: Mapping[int, int],
+    ) -> None:
+        """Broadcast one coherent STS3215 position frame for all enabled joints.
+
+        Legacy used the SDK's group write when it was available.  Cartesian and
+        grouped REAL motion must not serialize six independent Goal_Position
+        writes because that makes each joint start at a different instant.
+        """
+
+        packet = self._require_packet()
+        writer = packet.groupSyncWrite
+        writer.clearParam()
+        try:
+            for servo_id, position in positions.items():
+                added = packet.SyncWritePosEx(
+                    servo_id,
+                    _encode_signed_position(position),
+                    LEGACY_STREAM_SPEED,
+                    LEGACY_STREAM_ACCELERATION,
+                )
+                if added is not True:
+                    raise RuntimeError(f"could not stage synchronized goal for Servo {servo_id}")
+            result = writer.txPacket()
+            if result != COMM_SUCCESS:
+                raise RuntimeError(f"synchronized goal write failed with result {result}")
+        finally:
+            writer.clearParam()
 
     def _read_position(self, servo_id: int) -> int:
         value, result, error = self._require_packet().ReadPos(servo_id)

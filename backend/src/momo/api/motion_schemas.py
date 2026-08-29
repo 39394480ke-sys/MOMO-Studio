@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from momo.domain.enums import (
     CartesianFrame,
@@ -196,6 +203,49 @@ class CartesianJogRequest(MotionRequestBase):
                 delta_rotation_deg=self.delta_rotation_deg,
                 frame=self.frame,
                 duration_s=self.duration_s,
+            ),
+        )
+
+
+class CartesianJogStartRequest(MotionRequestBase):
+    kind: Literal["translation", "rotation"]
+    axis: Literal["x", "y", "z"]
+    direction: Literal[-1, 1]
+    speed_units_s: Annotated[
+        float,
+        Field(strict=True, ge=0.1, le=50.0, allow_inf_nan=False),
+    ]
+    unit: Literal["mm", "deg"]
+    frame: CartesianFrame
+
+    @field_validator("direction", mode="before")
+    @classmethod
+    def reject_boolean_direction(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("direction must be numeric -1 or 1, not boolean")
+        return value
+
+    @model_validator(mode="after")
+    def unit_matches_kind(self) -> Self:
+        expected = "mm" if self.kind == "translation" else "deg"
+        if self.unit != expected:
+            raise ValueError(f"{self.kind} Cartesian jog unit must be {expected}")
+        return self
+
+    def command(self) -> MotionCommand:
+        horizon_s = 30.0
+        translation = {"x": 0.0, "y": 0.0, "z": 0.0}
+        rotation = {"x": 0.0, "y": 0.0, "z": 0.0}
+        target = translation if self.kind == "translation" else rotation
+        target[self.axis] = self.direction * self.speed_units_s * horizon_s
+        return self.to_command(
+            MotionCommandType.CARTESIAN_JOG,
+            CartesianJogPayload(
+                delta_position_mm=Vector3(**translation),
+                delta_rotation_deg=Vector3(**rotation),
+                frame=self.frame,
+                duration_s=horizon_s,
+                lease_controlled=True,
             ),
         )
 

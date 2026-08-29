@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from math import ceil, isclose, sqrt
+from math import acos, ceil, isclose, sin, sqrt
 from typing import NoReturn
 
 from momo.application.services.calibration_service import CalibrationService
@@ -18,7 +18,6 @@ from momo.domain.enums import (
     JointType,
     MotionCommandSource,
     MotionCommandType,
-    ProfileVerificationStatus,
     RobotConnectionState,
 )
 from momo.domain.errors import HardwareMappingError, MotionConflictError, MotionPreflightError
@@ -38,8 +37,10 @@ from momo.domain.motion_preflight import (
     PreflightCheck,
     PreparedContinuousJog,
     PreparedMotion,
+    PreparedMotionSample,
 )
 from momo.domain.playback import PlaybackExecutionSnapshot, PlaybackOperatorIntent
+from momo.domain.pose import QuaternionXYZW, TcpPose, Vector3
 from momo.domain.robot import JointState, RobotProfile
 from momo.domain.safety import validate_logical_value
 from momo.domain.trajectory import PreparedTrajectory
@@ -48,6 +49,62 @@ from momo.ports.motion_executor import MotionExecutor
 PreparedCommand = PreparedMotion | PreparedContinuousJog
 MIN_EFFECTIVE_CONTINUOUS_SPEED = 0.1
 SMOOTHSTEP_PEAK_VELOCITY_FACTOR = 1.5
+CARTESIAN_PREPARE_RATE_HZ = 25.0
+
+
+def _interpolate_tcp_pose(start: TcpPose, end: TcpPose, fraction: float) -> TcpPose:
+    if start.frame != end.frame:
+        raise ValueError("Cartesian poses must use the same TCP frame")
+    start_position = start.position_mm
+    end_position = end.position_mm
+    return TcpPose(
+        frame=start.frame,
+        position_mm=Vector3(
+            x=start_position.x + (end_position.x - start_position.x) * fraction,
+            y=start_position.y + (end_position.y - start_position.y) * fraction,
+            z=start_position.z + (end_position.z - start_position.z) * fraction,
+        ),
+        orientation_quaternion_xyzw=_shortest_slerp(
+            start.orientation_quaternion_xyzw,
+            end.orientation_quaternion_xyzw,
+            fraction,
+        ),
+    )
+
+
+def _shortest_slerp(
+    start: QuaternionXYZW,
+    end: QuaternionXYZW,
+    fraction: float,
+) -> QuaternionXYZW:
+    first: tuple[float, ...] = (start.x, start.y, start.z, start.w)
+    second: tuple[float, ...] = (end.x, end.y, end.z, end.w)
+    dot = sum(left * right for left, right in zip(first, second, strict=True))
+    if dot < 0.0:
+        second = tuple(-value for value in second)
+        dot = -dot
+    dot = min(1.0, max(-1.0, dot))
+    if dot > 0.9995:
+        values = tuple(
+            left + fraction * (right - left) for left, right in zip(first, second, strict=True)
+        )
+    else:
+        angle = acos(dot)
+        denominator = sin(angle)
+        left_weight = sin((1.0 - fraction) * angle) / denominator
+        right_weight = sin(fraction * angle) / denominator
+        values = tuple(
+            left_weight * left + right_weight * right
+            for left, right in zip(first, second, strict=True)
+        )
+    norm = sqrt(sum(value * value for value in values))
+    normalized = tuple(value / norm for value in values)
+    return QuaternionXYZW(
+        x=normalized[0],
+        y=normalized[1],
+        z=normalized[2],
+        w=normalized[3],
+    )
 
 
 class MotionAdmissionCoordinator:
@@ -159,11 +216,6 @@ class MotionSafetyGateway:
                 status.hardware_access_policy is HardwareAccessPolicy.FULL,
                 "hardware_policy",
                 "REAL motion requires FULL hardware policy",
-            )
-            check(
-                profile.verification_status is ProfileVerificationStatus.VERIFIED_FOR_REAL,
-                "profile_verified_for_real",
-                "REAL motion requires a Profile verified for Real hardware",
             )
             calibration = self.calibration_service.get_for_variant(profile.variant)
             calibration_report = self.calibration_service.status(profile, calibration)
@@ -308,22 +360,34 @@ class MotionSafetyGateway:
                 preflight=preflight,
             )
 
-        target, duration_s = await self._resolve_target(command, profile, current, checks)
+        trajectory_samples: list[PreparedMotionSample] | None = None
+        if isinstance(command.payload, (CartesianJogPayload, MovePosePayload)):
+            target, duration_s, trajectory_samples = await self._prepare_cartesian_path(
+                command,
+                profile,
+                current,
+                status.state_sequence,
+                checks,
+            )
+        else:
+            target, duration_s = await self._resolve_target(command, profile, current, checks)
         self._validate_target(command, profile, current, target, duration_s, checks)
-        await self._validate_joint_path(
-            command,
-            profile,
-            current,
-            target,
-            status.state_sequence,
-            checks,
-        )
+        if trajectory_samples is None:
+            await self._validate_joint_path(
+                command,
+                profile,
+                current,
+                target,
+                status.state_sequence,
+                checks,
+            )
         preflight = self._accepted(command, checks, profile, model.fingerprint)
         return PreparedMotion(
             command_id=command.command_id,
             start_state=current,
             target_state=target,
             duration_s=duration_s / command.speed_scale,
+            trajectory_samples=trajectory_samples,
             preflight=preflight,
         )
 
@@ -373,8 +437,7 @@ class MotionSafetyGateway:
             calibration = self.calibration_service.get_for_variant(profile.variant)
             calibration_report = self.calibration_service.status(profile, calibration)
             if (
-                profile.verification_status is not ProfileVerificationStatus.VERIFIED_FOR_REAL
-                or calibration is None
+                calibration is None
                 or calibration.template
                 or not calibration_report.calibration_valid
             ):
@@ -590,6 +653,199 @@ class MotionSafetyGateway:
                 detail="executor has no pending cancellation",
             )
         )
+
+    async def _prepare_cartesian_path(
+        self,
+        command: MotionCommand,
+        profile: RobotProfile,
+        current: JointState,
+        state_sequence: int,
+        checks: list[PreflightCheck],
+    ) -> tuple[JointState, float, list[PreparedMotionSample]]:
+        """Resolve and validate the exact TCP path before either executor sees it."""
+
+        payload = command.payload
+        start_fk = await self.kinematics_service.forward(
+            profile,
+            current,
+            state_sequence=state_sequence,
+            robot_id=command.robot_id,
+        )
+        if isinstance(payload, MovePosePayload):
+            target_pose = payload.target_pose
+            duration_s = payload.duration_s
+        elif isinstance(payload, CartesianJogPayload):
+            target_pose = await self.kinematics_service.compose_delta(
+                profile,
+                start_fk.tcp_pose,
+                delta_position_mm=(
+                    payload.delta_position_mm.x,
+                    payload.delta_position_mm.y,
+                    payload.delta_position_mm.z,
+                ),
+                delta_rotation_deg=(
+                    payload.delta_rotation_deg.x,
+                    payload.delta_rotation_deg.y,
+                    payload.delta_rotation_deg.z,
+                ),
+                frame=payload.frame,
+            )
+            duration_s = payload.duration_s
+        else:  # pragma: no cover - caller narrows the payload union
+            raise TypeError("Cartesian path preparation requires a Cartesian payload")
+
+        if start_fk.tcp_pose.frame != target_pose.frame:
+            self._reject(
+                command,
+                checks,
+                profile,
+                self.kinematics_service.model_for(profile).fingerprint,
+                "Cartesian target frame does not match the active TCP frame",
+                "cartesian_frame",
+            )
+
+        effective_duration = duration_s / command.speed_scale
+        lease_controlled = isinstance(payload, CartesianJogPayload) and payload.lease_controlled
+        sample_count = max(2, ceil(effective_duration * CARTESIAN_PREPARE_RATE_HZ) + 1)
+        prepared_samples = [PreparedMotionSample(time_s=0.0, joint_state=current)]
+        calibration = self._compatible_raw_calibration(command, profile, checks)
+
+        def can_truncate() -> bool:
+            return lease_controlled and prepared_samples[-1].time_s >= 0.1
+
+        previous = current
+        definitions = profile.definitions_by_id
+        for index in range(1, sample_count):
+            await asyncio.sleep(0)
+            time_s = (
+                effective_duration
+                if index == sample_count - 1
+                else index / CARTESIAN_PREPARE_RATE_HZ
+            )
+            fraction = min(1.0, time_s / effective_duration)
+            requested_pose = _interpolate_tcp_pose(start_fk.tcp_pose, target_pose, fraction)
+            position = requested_pose.position_mm
+            if not (
+                -750.0 <= position.x <= 750.0
+                and -750.0 <= position.y <= 750.0
+                and -500.0 <= position.z <= 750.0
+            ):
+                if can_truncate():
+                    break
+                self._reject(
+                    command,
+                    checks,
+                    profile,
+                    self.kinematics_service.model_for(profile).fingerprint,
+                    f"workspace exceeded at Cartesian sample {index}/{sample_count - 1}",
+                    "workspace",
+                )
+            result = await self.kinematics_service.inverse(
+                profile,
+                requested_pose,
+                seed=previous,
+                position_only=False,
+            )
+            if not result.success or result.joint_state_optional is None:
+                if can_truncate():
+                    break
+                self._reject(
+                    command,
+                    checks,
+                    profile,
+                    self.kinematics_service.model_for(profile).fingerprint,
+                    (
+                        f"Cartesian IK rejected at sample {index}/{sample_count - 1}: "
+                        f"{result.termination_reason}; position_error_mm="
+                        f"{result.position_error_mm:.3f}"
+                    ),
+                    "ik_residual",
+                )
+            state = result.joint_state_optional
+            try:
+                state.validate_against(profile)
+                if calibration is not None:
+                    for joint_id, value in state.positions.items():
+                        calibration_joint = calibration.joints_by_id.get(joint_id)
+                        if calibration_joint is None:
+                            raise HardwareMappingError(f"missing calibration joint {joint_id}")
+                        validate_logical_value(
+                            joint_id,
+                            value,
+                            profile,
+                            calibration_joint,
+                        )
+            except (HardwareMappingError, ValueError) as error:
+                if can_truncate():
+                    break
+                self._reject(
+                    command,
+                    checks,
+                    profile,
+                    self.kinematics_service.model_for(profile).fingerprint,
+                    f"Cartesian sample {index} violates logical/raw limits: {error}",
+                    (
+                        "raw_derived_limits"
+                        if isinstance(error, HardwareMappingError)
+                        else "logical_limits"
+                    ),
+                )
+            for joint_id in profile.enabled_joints:
+                maximum_jump = (
+                    10.0 if definitions[joint_id].joint_type is JointType.PRISMATIC else 5.0
+                )
+                jump = abs(state.positions[joint_id] - previous.positions[joint_id])
+                if jump > maximum_jump + 1e-9:
+                    if can_truncate():
+                        break
+                    self._reject(
+                        command,
+                        checks,
+                        profile,
+                        self.kinematics_service.model_for(profile).fingerprint,
+                        (
+                            f"Cartesian IK introduced a discontinuous {joint_id} jump "
+                            f"at sample {index}/{sample_count - 1}"
+                        ),
+                        "cartesian_continuity",
+                    )
+            else:
+                prepared_samples.append(PreparedMotionSample(time_s=time_s, joint_state=state))
+                previous = state
+                continue
+            break
+
+        reviewed_count = len(prepared_samples)
+        actual_effective_duration = prepared_samples[-1].time_s
+        self._record_passed_once(
+            checks,
+            "ik_residual",
+            f"Cartesian IK accepted across {reviewed_count - 1} reviewed samples",
+        )
+        self._record_passed_once(
+            checks,
+            "cartesian_continuity",
+            f"Cartesian joint continuity verified across {reviewed_count} samples",
+        )
+        self._record_passed_once(
+            checks,
+            "fk_valid",
+            f"Cartesian path generated from finite FK across {reviewed_count} samples",
+        )
+        self._record_passed_once(
+            checks,
+            "workspace",
+            f"workspace valid across {reviewed_count} Cartesian samples",
+        )
+        self._record_passed_once(
+            checks,
+            "cancellation_state",
+            "executor has no pending cancellation",
+        )
+        resolved_duration_s = (
+            actual_effective_duration * command.speed_scale if lease_controlled else duration_s
+        )
+        return previous, resolved_duration_s, prepared_samples
 
     async def _resolve_target(
         self,

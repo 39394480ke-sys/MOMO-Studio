@@ -75,14 +75,12 @@ class CommissioningMotionServoBus(Protocol):
         command: PreparedCommissioningJogTarget,
     ) -> ServoWriteResult: ...
 
-    async def write_prepared_jog_targets(
-        self,
-        commands: tuple[PreparedCommissioningJogTarget, ...],
-    ) -> ServoWriteResult: ...
-
     async def stop_or_hold(self, servo_id: int) -> RealStopOutcome: ...
 
-    async def stop_or_hold_many(self, servo_ids: tuple[int, ...]) -> RealStopOutcome: ...
+    async def stop_or_hold_at_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> RealStopOutcome: ...
 
     async def reset_for_session(self, session_id: UUID) -> None: ...
 
@@ -164,26 +162,6 @@ class CommissioningMotionServoBusFacade:
             raise RuntimeError("commissioning jog write escaped the single-ID grant")
         return result
 
-    async def write_prepared_jog_targets(
-        self,
-        commands: tuple[PreparedCommissioningJogTarget, ...],
-    ) -> ServoWriteResult:
-        if not commands:
-            raise ValueError("at least one prepared jog target is required")
-        requested = tuple(command.servo_id for command in commands)
-        if len(requested) != len(set(requested)):
-            raise ValueError("prepared jog targets must use unique Servo IDs")
-        for command in commands:
-            if not isinstance(command, PreparedCommissioningJogTarget):
-                raise TypeError("only prepared commissioning jog targets may be written")
-            self._require_allowed(command.servo_id)
-        result = await self.__bus.write_prepared_jog_targets(commands)
-        if not isinstance(result, ServoWriteResult):
-            raise TypeError("commissioning adapter returned an invalid multi-write result")
-        if result.requested_ids != requested:
-            raise RuntimeError("commissioning multi-write escaped the explicit-ID grant")
-        return result
-
     async def stop_or_hold(self, servo_id: int) -> RealStopOutcome:
         self._require_allowed(servo_id)
         outcome = await self.__bus.stop_or_hold(servo_id)
@@ -193,16 +171,18 @@ class CommissioningMotionServoBusFacade:
             raise RuntimeError("commissioning adapter Stop result escaped the single-ID grant")
         return outcome
 
-    async def stop_or_hold_many(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
-        if not servo_ids or len(servo_ids) != len(set(servo_ids)):
-            raise ValueError("commissioning Stop requires unique explicit Servo IDs")
-        for servo_id in servo_ids:
-            self._require_allowed(servo_id)
-        outcome = await self.__bus.stop_or_hold_many(servo_ids)
+    async def stop_or_hold_at_prepared_jog_target(
+        self,
+        command: PreparedCommissioningJogTarget,
+    ) -> RealStopOutcome:
+        if not isinstance(command, PreparedCommissioningJogTarget):
+            raise TypeError("only a prepared commissioning jog target may be retained")
+        self._require_allowed(command.servo_id)
+        outcome = await self.__bus.stop_or_hold_at_prepared_jog_target(command)
         if not isinstance(outcome, RealStopOutcome):
-            raise TypeError("commissioning adapter returned an invalid multi-Stop outcome")
-        if outcome.requested_ids != servo_ids:
-            raise RuntimeError("commissioning multi-Stop escaped the explicit-ID grant")
+            raise TypeError("commissioning adapter returned an invalid bounded Stop outcome")
+        if outcome.requested_ids != (command.servo_id,):
+            raise RuntimeError("commissioning bounded Stop escaped the single-ID grant")
         return outcome
 
     async def reset_for_session(self, session_id: UUID) -> None:

@@ -20,6 +20,7 @@ from momo.application.services.motion_safety_gateway import MotionSafetyGateway
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.enums import (
+    CartesianFrame,
     DomainUnit,
     MotionCommandSource,
     MotionCommandState,
@@ -32,12 +33,13 @@ from momo.domain.errors import (
 )
 from momo.domain.kinematics.results import ForwardKinematicsResult
 from momo.domain.motion_command import (
+    CartesianJogPayload,
     ContinuousJogPayload,
     JointMovePayload,
     MotionCommand,
     MovePosePayload,
 )
-from momo.domain.motion_preflight import PreparedContinuousJog
+from momo.domain.motion_preflight import PreparedContinuousJog, PreparedMotion
 from momo.domain.pose import QuaternionXYZW, TcpPose, Vector3
 from momo.domain.robot import JointState, RobotProfile
 from momo.domain.runtime import RuntimeState
@@ -530,6 +532,44 @@ def test_workspace_and_ik_residual_failures_are_structured(
         with pytest.raises(MotionPreflightError) as ik:
             await gateway.prepare(unreachable)
         assert "ik_residual" in failed_checks(ik.value)
+
+    asyncio.run(scenario())
+
+
+def test_cartesian_jog_is_prepared_as_reviewed_tcp_samples(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = app_for(tmp_path)
+        robot: RobotApplicationService = app.state.robot_service
+        kinematics: KinematicsService = app.state.kinematics_service
+        gateway: MotionSafetyGateway = app.state.motion_service.gateway
+        await robot.connect()
+        status, profile, _ = await robot.get_motion_snapshot()
+        command = MotionCommand(
+            robot_id=status.robot_id,
+            source=MotionCommandSource.CONTROL,
+            expected_state_sequence=status.state_sequence,
+            expected_profile_fingerprint=profile.fingerprint,
+            expected_kinematics_fingerprint=kinematics.model_for(profile).fingerprint,
+            command_type=MotionCommandType.CARTESIAN_JOG,
+            payload=CartesianJogPayload(
+                delta_position_mm=Vector3(x=0.5, y=0.0, z=0.0),
+                delta_rotation_deg=Vector3(x=0.0, y=0.0, z=0.0),
+                frame=CartesianFrame.BASE,
+                duration_s=1.0,
+            ),
+            idempotency_key="reviewed-cartesian-path",
+        )
+
+        prepared = await gateway.prepare(command)
+
+        assert isinstance(prepared, PreparedMotion)
+        assert prepared.trajectory_samples is not None
+        assert len(prepared.trajectory_samples) == 26
+        assert prepared.trajectory_samples[0].time_s == 0.0
+        assert prepared.trajectory_samples[-1].time_s == pytest.approx(1.0)
+        assert prepared.target_state == prepared.trajectory_samples[-1].joint_state
+        passed = {check.name for check in prepared.preflight.checks if check.passed}
+        assert {"ik_residual", "cartesian_continuity", "workspace"} <= passed
 
     asyncio.run(scenario())
 

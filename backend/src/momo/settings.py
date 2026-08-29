@@ -114,7 +114,12 @@ class Settings(BaseSettings):
         str,
         StringConstraints(strip_whitespace=True, max_length=32, pattern=r"^[A-Za-z0-9._-]*$"),
     ] = ""
-    operator_session_ttl_s: int = Field(default=300, strict=True, ge=30, le=900)
+    operator_session_ttl_s: int = Field(
+        default=31_536_000,
+        strict=True,
+        ge=30,
+        le=31_536_000,
+    )
     camera_access_policy: CameraAccessPolicy = CameraAccessPolicy.SYNTHETIC_ONLY
     live_camera_device_id: Annotated[
         str,

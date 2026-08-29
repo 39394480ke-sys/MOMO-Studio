@@ -142,6 +142,8 @@ class MotionFakeBus:
         self.write_work_s = write_work_s
         self.events: list[tuple[str, object]] = []
         self.write_times: list[float] = []
+        self._pending_goals: dict[int, int] | None = None
+        self._reads_since_write = 0
 
     async def write_goal_positions(
         self,
@@ -191,7 +193,13 @@ class MotionFakeBus:
                 safety_state_known=True,
                 detail="synthetic partial write",
             )
-        self.positions.update(goals)
+        if self.behavior == "one_read_lag":
+            if self._pending_goals is not None:
+                self.positions.update(self._pending_goals)
+            self._pending_goals = goals
+            self._reads_since_write = 0
+        else:
+            self.positions.update(goals)
         if self.behavior == "divergence":
             self.positions[requested[0]] += 50
         return ServoWriteResult(
@@ -210,6 +218,10 @@ class MotionFakeBus:
             await asyncio.Event().wait()
         if self.behavior == "read_fault":
             raise RuntimeError("synthetic readback fault")
+        if self.behavior == "one_read_lag":
+            self._reads_since_write += 1
+            if self._reads_since_write > 1 and self._pending_goals is not None:
+                self.positions.update(self._pending_goals)
         return {servo_id: self.positions[servo_id] for servo_id in servo_ids}
 
     async def stop_or_hold(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
@@ -527,6 +539,36 @@ def test_exact_prepared_trajectory_runs_on_monotonic_deadlines_with_readback() -
         RealMotionAuditKind.TERMINAL,
     ]
     assert all(event.physical_estop_claimed is False for event in observer.audit)
+
+
+def test_bounded_following_lag_does_not_stop_a_streaming_trajectory() -> None:
+    async def scenario() -> RealMotionStatus:
+        executor, _, _, context_provider, clock, profile, calibration, kinematics = (
+            executor_fixture(behavior="one_read_lag")
+        )
+        prepared = prepared_trajectory(
+            profile,
+            clock,
+            kinematics,
+            times=(0.0, 0.04, 0.08),
+            first_joint_values=(0.0, 0.5, 1.0),
+        )
+        context_provider.bind(prepared)
+        accepted = await executor.submit(
+            prepared,
+            expected_digest=prepared.plan.digest.sha256,
+            authorization=execution_authorization(profile, calibration, clock),
+            execution_purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+        )
+        await clock.settle()
+        await clock.advance(0.08)
+        await clock.advance_to_next()
+        return await executor.wait(accepted.execution_id)
+
+    terminal = asyncio.run(scenario())
+
+    assert terminal.state is RealMotionState.COMPLETED
+    assert terminal.stop_outcome is None
 
 
 @pytest.mark.parametrize(

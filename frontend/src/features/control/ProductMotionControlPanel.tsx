@@ -14,6 +14,7 @@ import type {
   MotionAvailability,
   PoseEditorValue,
 } from './controlTypes';
+import { CONTROL_SPEED_LEVELS } from './controlTypes';
 
 type Axis = keyof Vector3;
 type ControlMode = 'JOINT' | 'CARTESIAN';
@@ -29,6 +30,7 @@ interface ProductMotionControlPanelProps {
   jointTargets: Record<string, number>;
   parameters: ControlParameters;
   jointAvailability: MotionAvailability;
+  groupMoveAvailability: MotionAvailability;
   cartesianAvailability: MotionAvailability;
   stopAllowed: boolean;
   pending: string | null;
@@ -53,7 +55,14 @@ interface ProductMotionControlPanelProps {
     kind: 'translation' | 'rotation',
     axis: Axis,
     direction: -1 | 1,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
+  onCartesianHoldStart?: (
+    kind: 'translation' | 'rotation',
+    axis: Axis,
+    direction: -1 | 1,
+  ) => Promise<boolean>;
+  onCartesianHoldRelease?: () => Promise<void>;
+  onCartesianHoldCancel?: () => Promise<void>;
   onPositionChange: (axis: Axis, value: number) => void;
   onRotationChange: (axis: Axis, value: number) => void;
   onSolveIk: () => Promise<void>;
@@ -62,14 +71,6 @@ interface ProductMotionControlPanelProps {
   onHome: () => Promise<void>;
   onStop: () => Promise<void>;
 }
-
-const SPEED_LEVELS = [
-  { label: '极低', scale: 0.15, jointStep: 0.5, railStep: 1, rotationStep: 0.5 },
-  { label: '低', scale: 0.3, jointStep: 1, railStep: 2.5, rotationStep: 1 },
-  { label: '中', scale: 0.5, jointStep: 2, railStep: 5, rotationStep: 3 },
-  { label: '高', scale: 0.75, jointStep: 3, railStep: 10, rotationStep: 4 },
-  { label: '极高', scale: 1, jointStep: 5, railStep: 15, rotationStep: 5 },
-] as const;
 
 const LONG_PRESS_MS = 260;
 
@@ -93,6 +94,8 @@ function PressJogButton({
   starting,
   handlers,
   onStep,
+  label,
+  actionLabel = 'Step',
 }: {
   active: boolean;
   disabled: boolean;
@@ -100,7 +103,9 @@ function PressJogButton({
   jointId: string;
   starting: boolean;
   handlers: ButtonHTMLAttributes<HTMLButtonElement>;
-  onStep: () => Promise<void>;
+  onStep: () => Promise<unknown>;
+  label?: string;
+  actionLabel?: 'Step' | 'Jog';
 }) {
   const timerRef = useRef<number | null>(null);
   const holdingRef = useRef(false);
@@ -218,10 +223,11 @@ function PressJogButton({
   useEffect(() => () => cancel(), [cancel]);
 
   const directionLabel = direction < 0 ? 'negative' : 'positive';
+  const controlLabel = label ?? jointId.toUpperCase();
   return (
     <button
       aria-describedby={`${jointId}-${directionLabel}-jog-help`}
-      aria-label={`Step ${jointId.toUpperCase()} ${directionLabel}`}
+      aria-label={`${actionLabel} ${controlLabel} ${directionLabel}`}
       aria-pressed={active}
       className={`axis-step-button${active || starting ? ' axis-step-button--active' : ''}`}
       disabled={disabled && !active && !starting}
@@ -254,17 +260,17 @@ function SpeedSelector({
 }) {
   const selected = useMemo(() => {
     let best = 0;
-    SPEED_LEVELS.forEach((level, index) => {
+    CONTROL_SPEED_LEVELS.forEach((level, index) => {
       if (
         Math.abs(level.scale - parameters.speedScale)
-        < Math.abs(SPEED_LEVELS[best].scale - parameters.speedScale)
+        < Math.abs(CONTROL_SPEED_LEVELS[best].scale - parameters.speedScale)
       ) best = index;
     });
     return best;
   }, [parameters.speedScale]);
 
   const select = (index: number) => {
-    const level = SPEED_LEVELS[index];
+    const level = CONTROL_SPEED_LEVELS[index];
     if (!level) return;
     onChange('speedScale', level.scale);
     onChange('jointStepDeg', level.jointStep);
@@ -279,10 +285,10 @@ function SpeedSelector({
     <div className="speed-selector" aria-label="五档共享速度">
       <div className="speed-selector__label">
         <span>Speed</span>
-        <strong>{SPEED_LEVELS[selected].label}</strong>
+        <strong>{CONTROL_SPEED_LEVELS[selected].label}</strong>
       </div>
       <div className="speed-selector__steps" role="radiogroup" aria-label="共享速度档位">
-        {SPEED_LEVELS.map((level, index) => (
+        {CONTROL_SPEED_LEVELS.map((level, index) => (
           <button
             aria-checked={selected === index}
             aria-label={`速度 ${index + 1}：${level.label}`}
@@ -305,6 +311,7 @@ export function ProductMotionControlPanel({
   jointTargets,
   parameters,
   jointAvailability,
+  groupMoveAvailability,
   cartesianAvailability,
   stopAllowed,
   pending,
@@ -323,6 +330,9 @@ export function ProductMotionControlPanel({
   onMoveJoints,
   onFrameChange,
   onCartesianJog,
+  onCartesianHoldStart,
+  onCartesianHoldRelease,
+  onCartesianHoldCancel,
   onPositionChange,
   onRotationChange,
   onSolveIk,
@@ -332,14 +342,81 @@ export function ProductMotionControlPanel({
   onStop,
 }: ProductMotionControlPanelProps) {
   const [mode, setMode] = useState<ControlMode>('JOINT');
-  const [homeConfirmationOpen, setHomeConfirmationOpen] = useState(false);
+  const [activeCartesianJog, setActiveCartesianJog] = useState<string | null>(null);
+  const cartesianHoldGeneration = useRef(0);
+  const cartesianHoldingRef = useRef(false);
+  const onCartesianHoldStartRef = useRef(onCartesianHoldStart);
+  const onCartesianHoldReleaseRef = useRef(onCartesianHoldRelease);
+  const onCartesianHoldCancelRef = useRef(onCartesianHoldCancel);
+  const onStopRef = useRef(onStop);
+  onCartesianHoldStartRef.current = onCartesianHoldStart;
+  onCartesianHoldReleaseRef.current = onCartesianHoldRelease;
+  onCartesianHoldCancelRef.current = onCartesianHoldCancel;
+  onStopRef.current = onStop;
   const jointDisabled = !jointAvailability.allowed || pending !== null || motionLocked;
+  const groupMoveDisabled = !groupMoveAvailability.allowed || pending !== null || motionLocked;
   const cartesianDisabled = !cartesianAvailability.allowed || pending !== null || motionLocked || !fk;
   const activeAvailability = mode === 'JOINT' ? jointAvailability : cartesianAvailability;
 
+  const stopCartesianHold = useCallback((priority = false) => {
+    if (!cartesianHoldingRef.current) return;
+    cartesianHoldingRef.current = false;
+    cartesianHoldGeneration.current += 1;
+    setActiveCartesianJog(null);
+    const stop = priority
+      ? onCartesianHoldCancelRef.current ?? onStopRef.current
+      : onCartesianHoldReleaseRef.current ?? onStopRef.current;
+    void stop();
+  }, []);
+
+  const cartesianHoldHandlers = useCallback((
+    kind: 'translation' | 'rotation',
+    axis: Axis,
+    direction: -1 | 1,
+  ): ButtonHTMLAttributes<HTMLButtonElement> => {
+    const intent = `${kind}-${axis}-${direction}`;
+    const start = () => {
+      const startHold = onCartesianHoldStartRef.current;
+      if (cartesianHoldingRef.current || !startHold) return;
+      cartesianHoldingRef.current = true;
+      const requestGeneration = cartesianHoldGeneration.current + 1;
+      cartesianHoldGeneration.current = requestGeneration;
+      setActiveCartesianJog(intent);
+      void (async () => {
+        const started = await startHold(kind, axis, direction);
+        if (!started && cartesianHoldGeneration.current === requestGeneration) {
+          stopCartesianHold(true);
+        }
+      })().catch(() => {
+        if (cartesianHoldGeneration.current === requestGeneration) stopCartesianHold(true);
+      });
+    };
+    return {
+      onPointerDown: start,
+      onPointerUp: () => stopCartesianHold(false),
+      onPointerCancel: () => stopCartesianHold(true),
+      onLostPointerCapture: () => stopCartesianHold(true),
+      onKeyDown: (event) => {
+        if (!event.repeat && (event.key === ' ' || event.key === 'Enter')) start();
+      },
+      onKeyUp: () => stopCartesianHold(false),
+      onBlur: () => stopCartesianHold(true),
+    };
+  }, [stopCartesianHold]);
+
   useEffect(() => {
-    if (jointDisabled) setHomeConfirmationOpen(false);
-  }, [jointDisabled]);
+    const stopForBlur = () => stopCartesianHold(true);
+    const stopWhenHidden = () => {
+      if (document.visibilityState === 'hidden') stopCartesianHold(true);
+    };
+    window.addEventListener('blur', stopForBlur);
+    document.addEventListener('visibilitychange', stopWhenHidden);
+    return () => {
+      window.removeEventListener('blur', stopForBlur);
+      document.removeEventListener('visibilitychange', stopWhenHidden);
+      if (cartesianHoldingRef.current) stopCartesianHold(true);
+    };
+  }, [stopCartesianHold]);
 
   return (
     <section className="product-motion-panel" aria-labelledby="motion-control-title">
@@ -403,8 +480,9 @@ export function ProductMotionControlPanel({
           <button
             aria-label="移动全部关节"
             className="product-inline-action"
-            disabled={jointDisabled}
+            disabled={groupMoveDisabled}
             onClick={() => void onMoveJoints()}
+            title={groupMoveAvailability.allowed ? undefined : groupMoveAvailability.reason}
             type="button"
           >应用目标</button>
         </div>
@@ -439,13 +517,17 @@ export function ProductMotionControlPanel({
             return (
               <div className="axis-control-row" key={label}>
                 <strong>{label}</strong>
-                <button
-                  aria-label={`Jog ${kind === 'translation' ? label : `R${axis}`} negative`}
-                  className="axis-step-button"
+                <PressJogButton
+                  active={activeCartesianJog === `${kind}-${axis}--1`}
                   disabled={cartesianDisabled}
-                  onClick={() => void onCartesianJog(kind, axis, -1)}
-                  type="button"
-                >−</button>
+                  direction={-1}
+                  handlers={cartesianHoldHandlers(kind, axis, -1)}
+                  jointId={`cartesian-${kind}-${axis}`}
+                  label={kind === 'translation' ? label : `R${axis}`}
+                  actionLabel="Jog"
+                  onStep={() => onCartesianJog(kind, axis, -1)}
+                  starting={false}
+                />
                 <input
                   aria-label={`Target ${kind === 'translation' ? label : ['roll', 'pitch', 'yaw'][['x', 'y', 'z'].indexOf(axis)]} (${unit})`}
                   disabled={cartesianDisabled}
@@ -458,13 +540,17 @@ export function ProductMotionControlPanel({
                   type="number"
                   value={value}
                 />
-                <button
-                  aria-label={`Jog ${kind === 'translation' ? label : `R${axis}`} positive`}
-                  className="axis-step-button"
+                <PressJogButton
+                  active={activeCartesianJog === `${kind}-${axis}-1`}
                   disabled={cartesianDisabled}
-                  onClick={() => void onCartesianJog(kind, axis, 1)}
-                  type="button"
-                >+</button>
+                  direction={1}
+                  handlers={cartesianHoldHandlers(kind, axis, 1)}
+                  jointId={`cartesian-${kind}-${axis}`}
+                  label={kind === 'translation' ? label : `R${axis}`}
+                  actionLabel="Jog"
+                  onStep={() => onCartesianJog(kind, axis, 1)}
+                  starting={false}
+                />
                 <output><strong>{finite(value)}</strong><span>{unit}</span></output>
               </div>
             );
@@ -497,8 +583,9 @@ export function ProductMotionControlPanel({
           <button
             aria-label="机器人回零"
             className="is-primary"
-            disabled={jointDisabled}
-            onClick={() => setHomeConfirmationOpen(true)}
+            disabled={groupMoveDisabled}
+            onClick={() => void onHome()}
+            title={groupMoveAvailability.allowed ? undefined : groupMoveAvailability.reason}
             type="button"
           >Home</button>
           <button
@@ -521,22 +608,6 @@ export function ProductMotionControlPanel({
         <p className="product-motion-disabled" role="status">{activeAvailability.reason}</p>
       ) : null}
 
-      {homeConfirmationOpen ? (
-        <div aria-label="确认回零" className="home-confirmation product-home-confirmation" role="alertdialog">
-          <strong>让所有已启用关节回到 Home？</strong>
-          <p>只会通过当前运行模式对应的受控执行入口提交。</p>
-          <div>
-            <button onClick={() => setHomeConfirmationOpen(false)} type="button">取消回零</button>
-            <button
-              onClick={() => {
-                setHomeConfirmationOpen(false);
-                void onHome();
-              }}
-              type="button"
-            >确认回零</button>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

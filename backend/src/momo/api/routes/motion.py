@@ -13,6 +13,7 @@ from momo.api.dependencies import (
 )
 from momo.api.motion_schemas import (
     CartesianJogRequest,
+    CartesianJogStartRequest,
     ContinuousJogStartRequest,
     HomeRequest,
     JointJogStepRequest,
@@ -166,6 +167,44 @@ async def cartesian_jog(
 
 
 @router.post(
+    "/cartesian-jog/start",
+    response_model=JogLeaseResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(authorize_control_request)],
+)
+async def start_continuous_cartesian_jog(
+    request: CartesianJogStartRequest,
+    http_request: Request,
+    service: JogServiceDependency,
+    authorization: RealCartesianAuthorization,
+) -> JogLeaseResponse:
+    command = request.command()
+    _set_motion_audit_context(
+        http_request,
+        command_id=command.command_id,
+        robot_id=command.robot_id,
+        preflight="PENDING",
+        real=authorization is not None,
+    )
+    try:
+        response = await service.start(
+            command,
+            authorization=authorization,
+            execution_purpose=(
+                RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION
+                if authorization is not None
+                else None
+            ),
+        )
+    except Exception:
+        http_request.state.preflight = "REJECTED"
+        raise
+    http_request.state.command_id = str(response.command_id)
+    http_request.state.preflight = "ACCEPTED"
+    return response
+
+
+@router.post(
     "/pose",
     response_model=MotionAccepted,
     status_code=status.HTTP_202_ACCEPTED,
@@ -264,6 +303,21 @@ async def start_continuous_jog(
     ],
 )
 async def heartbeat_continuous_jog(
+    session_id: UUID,
+    service: JogServiceDependency,
+) -> JogLeaseResponse:
+    return await service.heartbeat(session_id)
+
+
+@router.post(
+    "/cartesian-jog/{session_id}/heartbeat",
+    response_model=JogLeaseResponse,
+    dependencies=[
+        Depends(authorize_control_keepalive_request),
+        Depends(authorize_real_cartesian_motion_request),
+    ],
+)
+async def heartbeat_continuous_cartesian_jog(
     session_id: UUID,
     service: JogServiceDependency,
 ) -> JogLeaseResponse:

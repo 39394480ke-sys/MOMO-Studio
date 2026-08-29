@@ -560,8 +560,6 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("motion sessions require the joint-motion scope")
             if self.calibration_fingerprint is None:
                 raise ValueError("motion sessions require a calibration fingerprint")
-            if self.field_acceptance_evidence_id is None:
-                raise ValueError("motion sessions require capability acceptance evidence")
             if (
                 self.pre_motion_evidence_id is not None
                 or self.commissioning_envelope is not None
@@ -573,6 +571,14 @@ class OperatorSessionEvidence(BaseModel):
                 OperatorSessionScope.REAL_PLAYBACK,
                 OperatorSessionScope.REAL_VISION_FOLLOW,
             }
+            accepted_automation_scopes = {
+                OperatorSessionScope.REAL_VISION_FOLLOW,
+            }
+            if (
+                self.scopes & accepted_automation_scopes
+                and self.field_acceptance_evidence_id is None
+            ):
+                raise ValueError("automated motion scopes require capability acceptance evidence")
             if self.scopes & geometry_scopes and self.kinematics_fingerprint is None:
                 raise ValueError("geometry motion scopes require a kinematics fingerprint")
         return self

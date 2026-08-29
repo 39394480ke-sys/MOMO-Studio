@@ -18,7 +18,7 @@ from momo.application.services.operator_session_service import (
 from momo.application.services.real_hardware_authorization import (
     RealHardwareAuthorization,
 )
-from momo.domain.commissioning import ValidatedFieldAcceptanceBundle
+from momo.domain.commissioning import PhysicalStopVerification, ValidatedFieldAcceptanceBundle
 from momo.domain.enums import (
     ControlMode,
     HardwareAccessPolicy,
@@ -200,8 +200,11 @@ def test_read_only_identity_characterization_does_not_promote_template_profile()
     assert RealHardwareBlocker.PROFILE_NOT_VERIFIED_FOR_REAL not in report.blocking_reasons
     assert report.capabilities.commissioning_read_only_ready is True
     assert report.capabilities.real_joint_motion_ready is False
-    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE in (
+    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE not in (
         report.capability_details.real_joint_motion.blocked_reasons
+    )
+    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE not in (
+        report.capability_details.real_playback.blocked_reasons
     )
 
 
@@ -232,6 +235,77 @@ def test_all_nonoperator_gates_yield_exact_authorizable_state_and_confirmation()
     assert report.confirmation.physical_estop_required is True
     assert report.confirmation.masked_serial_port != context.device.serial_port
     assert all(str(servo_id) not in report.confirmation.masked_servo_ids for servo_id in (1, 2))
+
+
+def test_manual_and_studio_real_control_share_one_operator_session() -> None:
+    async def scenario() -> None:
+        base = real_context()
+        assert base.profile is not None
+        assert base.kinematics is not None
+        provisional_profile = base.profile.model_copy(
+            update={
+                "template": True,
+                "verification_status": ProfileVerificationStatus.VERIFIED_FOR_DRY_RUN,
+            }
+        )
+        provisional_kinematics = base.kinematics.model_copy(
+            update={"verification_status": KinematicsVerificationStatus.PROVISIONAL_DRY_RUN}
+        )
+        context = base.model_copy(
+            update={
+                "profile": provisional_profile,
+                "calibration": real_calibration(provisional_profile),
+                "kinematics": provisional_kinematics,
+                "expected_kinematics_fingerprint": provisional_kinematics.fingerprint,
+                "kinematics_verification_evidence": None,
+                "field_acceptance_status": FieldAcceptanceStatus.PENDING,
+                "field_acceptance_evidence": None,
+                "field_acceptance_bundle": ValidatedFieldAcceptanceBundle(),
+                "physical_stop_verification": PhysicalStopVerification.PENDING,
+                "commissioning_motion_test_enabled": False,
+            }
+        )
+        clock = FakeClock()
+        authorization = RealHardwareAuthorization()
+        report = evaluate(context, clock)
+
+        assert report.motion_session_authorizable is True
+        assert report.capability_details.real_joint_motion.blocked_reasons == (
+            "OPERATOR_SESSION_MISSING",
+        )
+        assert report.capability_details.real_cartesian_motion.blocked_reasons == (
+            "OPERATOR_SESSION_MISSING",
+        )
+        assert report.capability_details.real_playback.blocked_reasons == (
+            "OPERATOR_SESSION_MISSING",
+        )
+
+        sessions = OperatorSessionService(clock, authorization, ttl_s=60.0)
+        issued = await sessions.issue(
+            context,
+            purpose=OperatorSessionPurpose.REAL_MOTION,
+            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        token = issued.session_token.get_secret_value()
+        assert issued.evidence.field_acceptance_evidence_id is None
+        await sessions.authorize(
+            token,
+            context,
+            purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+        )
+        await sessions.authorize(
+            token,
+            context,
+            purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+        )
+        await sessions.authorize(
+            token,
+            context,
+            purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        )
+
+    asyncio.run(scenario())
 
 
 def test_fresh_robot_commissioning_is_read_only_without_calibration_or_acceptance() -> None:
@@ -549,7 +623,7 @@ def test_context_drift_revokes_effective_authorization() -> None:
     asyncio.run(scenario())
 
 
-def test_missing_kinematics_evidence_blocks_geometry_but_not_joint_playback() -> None:
+def test_missing_kinematics_evidence_allows_manual_geometry_but_blocks_automation() -> None:
     async def scenario() -> None:
         accepted_context = real_context()
         assert accepted_context.kinematics is not None
@@ -589,15 +663,20 @@ def test_missing_kinematics_evidence_blocks_geometry_but_not_joint_playback() ->
         assert report.ready is False
         assert report.state is RealHardwareReadinessState.BLOCKED_BY_KINEMATICS
         assert report.capabilities.real_joint_motion_ready is True
-        assert report.capabilities.real_cartesian_motion_ready is False
+        assert report.capabilities.real_cartesian_motion_ready is True
         assert report.capabilities.real_playback_ready is True
         assert report.capabilities.real_vision_follow_ready is False
-        for purpose in (
-            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
-            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
-        ):
-            with pytest.raises(OperatorSessionScopeError):
-                await sessions.authorize(token, context, purpose=purpose)
+        await sessions.authorize(
+            token,
+            context,
+            purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+        )
+        with pytest.raises(OperatorSessionScopeError):
+            await sessions.authorize(
+                token,
+                context,
+                purpose=RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+            )
         await sessions.authorize(
             token,
             context,
@@ -611,7 +690,7 @@ def test_missing_kinematics_evidence_blocks_geometry_but_not_joint_playback() ->
                 )
             }
         )
-        with pytest.raises(OperatorSessionScopeError):
+        with pytest.raises(OperatorSessionTokenError):
             await sessions.authorize(
                 token,
                 upgraded_context,

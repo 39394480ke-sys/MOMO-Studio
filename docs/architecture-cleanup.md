@@ -79,12 +79,40 @@ MOMO Studio product flow
   is now the only view; DRY RUN uses the product simulation controller, production REAL
   uses the reviewed product gateway, and restricted field testing uses a purpose-bound
   commissioning controller adapter behind the same UI components.
+- [x] Reduced the commissioning controller to its characterized single-joint workflow.
+  Group move, Home, and Cartesian product actions are disabled there; the obsolete public
+  multi-joint commissioning write route and its bus capabilities were removed. Product
+  multi-joint and Cartesian commands enter only through `MotionSafetyGateway -> MotionExecutor`.
+- [x] Product Cartesian commands are prepared as immutable, time-stamped TCP-path IK
+  samples. Both executors consume those reviewed samples instead of relabelling a joint
+  interpolation as Cartesian motion.
+- [x] Cartesian hold uses the same backend-owned 250–500 ms deadman lease pattern as
+  joint hold. The browser sends one start, renewable heartbeats, and one Stop; it never
+  loops finite motion commands.
+- [x] The product motion service emits one 25 Hz software trajectory and the production
+  STS3215 adapter applies each sample as one synchronized multi-axis goal frame. The
+  adapter no longer starts a second per-sample Servo Profile interpolation. Readback is
+  checked against a bounded following window and the final goal receives a bounded
+  settle check.
+- [x] REAL now has one product control surface. Manual Joint, Home, and Cartesian commands
+  are the field-acceptance surface and share the same operator session, gateway, limits,
+  reachability checks, Stop path, production binding, and executor with Studio playback.
+  Studio keeps document save, trajectory compilation, limits, reachability, and preflight,
+  but it does not require a second Operator Session or Playback Acceptance gate. Vision
+  automation remains separately gated.
+- [x] Settings no longer owns `/device/connect` or `/device/disconnect`; product lifecycle
+  is exclusively `/robot/connect`, `/robot/disconnect`, and `/robot/stop`. The old
+  Commissioning control, raw-direction, and hardware panels were removed from the product
+  frontend. Commissioning backend services remain isolated maintenance capabilities.
 
 ## Scope boundary
 
 The code-side composition is complete, but the repository defaults remain DRY_RUN,
 hardware `DISABLED`, and production adapter disabled. This work does not constitute
-physical acceptance. A field operator must still provide ignored device-local Profile,
-Calibration, kinematics/acceptance evidence, serial identity, software commit, physical
-E-stop confirmation, and a short-lived `REAL_MOTION` session. REAL pause, rate changes,
-and looping remain deliberately unavailable; software Hold never claims a physical stop.
+physical acceptance. A field operator must explicitly select a device-local REAL
+configuration, confirm the physical E-stop, issue a short-lived `REAL_MOTION` session,
+and connect the exact configured serial identity before manual Joint, Home, Cartesian, or
+Studio motion. These four sources share one `REAL_MOTION` session and the same reviewed
+execution path. Vision automation remains locked until its separate verification and
+acceptance evidence is complete. REAL pause, rate changes, and looping remain deliberately
+unavailable; software Hold never claims a physical stop.

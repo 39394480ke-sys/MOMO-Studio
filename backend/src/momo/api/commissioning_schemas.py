@@ -87,25 +87,6 @@ class CommissioningDirectJointStateResponse(BaseModel):
     message: str
 
 
-class CommissioningDirectJointMoveRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-
-    positions: dict[str, float]
-    duration_s: float = Field(ge=0.1, le=30.0)
-
-
-class CommissioningDirectJointMoveResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-
-    positions: dict[str, float]
-    units: dict[str, Literal["mm", "deg"]]
-    raw_positions: dict[str, int]
-    duration_s: float
-    frame_count: int = Field(ge=1)
-    completed: bool
-    message: str
-
-
 class RawDirectionStepRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -146,8 +127,6 @@ class RawDirectionStatusResponse(BaseModel):
 __all__ = [
     "CommissioningDirectControlResponse",
     "CommissioningDirectJogStartRequest",
-    "CommissioningDirectJointMoveRequest",
-    "CommissioningDirectJointMoveResponse",
     "CommissioningDirectJointStateResponse",
     "CommissioningDirectStepRequest",
     "CommissioningMotionStatusResponse",

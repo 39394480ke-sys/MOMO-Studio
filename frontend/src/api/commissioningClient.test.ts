@@ -5,9 +5,7 @@ import {
   addKinematicsVerificationMeasurement,
   commitKinematicsVerificationDraft,
   completeFieldPreMotionChecks,
-  connectRealDevice,
   createOperatorSession,
-  disconnectRealDevice,
   getFieldAcceptanceProgress,
   getFieldAcceptanceStatus,
   getKinematicsVerificationStatus,
@@ -18,7 +16,6 @@ import {
   normalizeFieldAcceptanceStatus,
   normalizeRawDirectionStatus,
   revokeOperatorSession,
-  runDeviceDiagnostics,
   startCalibrationSession,
   startKinematicsVerificationDraft,
 } from './client';
@@ -532,16 +529,10 @@ describe('Commissioning API client boundary', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await revokeOperatorSession();
-    await expect(connectRealDevice()).rejects.toThrow();
-    await expect(disconnectRealDevice()).rejects.toThrow();
-    await expect(runDeviceDiagnostics()).rejects.toThrow();
     await expect(startCalibrationSession()).rejects.toThrow();
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/v1/device/operator-session',
-      '/api/v1/device/connect',
-      '/api/v1/device/disconnect',
-      '/api/v1/device/diagnostics',
       '/api/v1/device/calibration/sessions',
     ]);
     for (const [, init] of fetchMock.mock.calls) {

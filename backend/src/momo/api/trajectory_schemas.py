@@ -20,7 +20,7 @@ class TrajectoryPreflightRequest(BaseModel):
     sample_rate_hz: Annotated[
         float,
         Field(strict=True, ge=5.0, le=50.0, allow_inf_nan=False),
-    ] = 20.0
+    ] = 25.0
 
 
 class TrajectoryPreflightResponse(BaseModel):

@@ -88,7 +88,7 @@ describe('MOMO Studio product shell', () => {
     expect(await screen.findByText('Disconnected')).toBeVisible();
 
     expect(backend.requestsFor('/robot/connect')).toHaveLength(1);
-    expect(backend.requestsFor('/motion/stop')).toHaveLength(1);
+    expect(backend.requestsFor('/robot/stop')).toHaveLength(1);
     expect(backend.requestsFor('/robot/disconnect')).toHaveLength(1);
   });
 

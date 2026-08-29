@@ -134,7 +134,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
   const controlMode = options.controlMode ?? 'DRY_RUN';
   const hardwareAccessPolicy = options.hardwareAccessPolicy ?? 'DISABLED';
   const realMotionEnabled = options.realMotionEnabled ?? false;
-  const realSessionScopes = options.realSessionScopes ?? null;
+  let realSessionScopes = options.realSessionScopes ?? null;
   let runtimeActiveMode = controlMode;
   let variant = options.variant ?? 'V2';
   const robotStatusFor = (nextVariant: RobotVariant, connected: boolean) => ({
@@ -147,6 +147,46 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
       && realMotionEnabled,
   });
   let currentRobot = robotStatusFor(variant, options.connected ?? true);
+  const realDeviceDiagnostics = (connected: boolean) => ({
+    connected,
+    captured_at: '2026-08-29T00:00:00Z',
+    dependency: {
+      adapter_id: 'fake-servo-bus',
+      state: 'AVAILABLE',
+      package_name: null,
+      license_status: 'TEST_ONLY',
+      notice: 'Synthetic test adapter',
+    },
+    hardware_policy: hardwareAccessPolicy,
+    masked_serial_port: '/dev/***USB0',
+    masked_servo_ids: ['**1', '**2'],
+    protocol: 'STS',
+    profile: {
+      configured: true,
+      fingerprint: PROFILE_FINGERPRINT,
+      verification_status: 'VERIFIED_FOR_DRY_RUN',
+      template: true,
+      ready_for_real: false,
+    },
+    calibration: {
+      configured: true,
+      fingerprint: 'c'.repeat(64),
+      verification_status: 'FIELD_VERIFIED',
+      template: false,
+      ready_for_real: true,
+    },
+    kinematics: {
+      configured: true,
+      fingerprint: KINEMATICS_FINGERPRINT,
+      verification_status: 'PROVISIONAL_DRY_RUN',
+      template: null,
+      ready_for_real: false,
+    },
+    field_acceptance: 'PENDING',
+    readiness: 'FIELD_ACCEPTANCE_IN_PROGRESS',
+    records: [],
+    last_error: null,
+  });
   if (options.robotStale !== undefined) {
     currentRobot = { ...currentRobot, stale: options.robotStale };
   }
@@ -333,6 +373,37 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         connected: currentRobot.connected,
       });
     }
+    if (path === '/device/operator-session' && init?.method === 'POST') {
+      realSessionScopes = ['REAL_JOINT_MOTION', 'REAL_CARTESIAN_MOTION'];
+      return jsonResponse({
+        session_id: '33333333-3333-4333-8333-333333333333',
+        issued_at: '2026-08-29T00:00:00Z',
+        expires_at: '2099-08-25T00:00:00Z',
+        purpose: 'REAL_MOTION',
+        scopes: realSessionScopes,
+        evidence: {
+          robot_id: 'primary',
+          robot_unit_id: 'MOMO-V2-UNIT-001',
+          variant,
+          profile_fingerprint: PROFILE_FINGERPRINT,
+          calibration_fingerprint: 'c'.repeat(64),
+          kinematics_fingerprint: KINEMATICS_FINGERPRINT,
+          field_acceptance_evidence_id: null,
+          pre_motion_evidence_id: null,
+          masked_serial_port: '/dev/***USB0',
+          masked_servo_ids: ['**1', '**2'],
+          protocol: 'STS',
+          session_purpose: 'REAL_MOTION',
+          physical_estop_required: true,
+          workspace_clear_required: false,
+          required_confirmation_text: 'I CONFIRM THE PHYSICAL E-STOP IS READY',
+        },
+      });
+    }
+    if (path === '/device/operator-session' && init?.method === 'DELETE') {
+      realSessionScopes = null;
+      return jsonResponse({});
+    }
     if (path === '/robot/diagnostics') {
       return jsonResponse({
         hardware_access_policy: hardwareAccessPolicy, runtime_state_path: 'data/runtime/robots/primary.json',
@@ -343,6 +414,14 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         active_kinematics_fingerprint: KINEMATICS_FINGERPRINT,
         hardware_accessed: currentRobot.hardware_accessed,
       });
+    }
+    if (path === '/device/connect') {
+      currentRobot = { ...robotStatusFor(variant, true), state_sequence: 7 };
+      return jsonResponse({ diagnostics: realDeviceDiagnostics(true) });
+    }
+    if (path === '/device/disconnect') {
+      currentRobot = { ...robotStatusFor(variant, false), state_sequence: 9 };
+      return jsonResponse({ diagnostics: realDeviceDiagnostics(false) });
     }
     if (path === '/robot/fk') {
       return jsonResponse({
@@ -374,8 +453,9 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
       return jsonResponse({ status: currentRobot, hardware_accessed: currentRobot.hardware_accessed });
     }
     if (path === '/robot/stop') {
+      motionStopped = true;
       return jsonResponse({
-        result: 'STOPPED',
+        result: options.stopResult ?? 'STOPPED',
         status: currentRobot,
         hardware_accessed: currentRobot.hardware_accessed,
       });
@@ -458,7 +538,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         kinematics_fingerprint: KINEMATICS_FINGERPRINT,
       });
     }
-    if (path === '/motion/jog/start') {
+    if (path === '/motion/jog/start' || path === '/motion/cartesian-jog/start') {
       return jsonResponse({
         jog_session_id: JOG_SESSION_ID,
         command_id: COMMAND_ID,
@@ -467,6 +547,17 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
       }, true, 202);
     }
     if (path === `/motion/jog/${JOG_SESSION_ID}/heartbeat`) {
+      if (options.heartbeatError) {
+        return jsonResponse({ code: 'JOG_LEASE_EXPIRED', message: 'Jog lease expired', details: {} }, false, 409);
+      }
+      return jsonResponse({
+        jog_session_id: JOG_SESSION_ID,
+        command_id: COMMAND_ID,
+        lease_expires_in_ms: 500,
+        status: 'RUNNING',
+      });
+    }
+    if (path === `/motion/cartesian-jog/${JOG_SESSION_ID}/heartbeat`) {
       if (options.heartbeatError) {
         return jsonResponse({ code: 'JOG_LEASE_EXPIRED', message: 'Jog lease expired', details: {} }, false, 409);
       }
@@ -493,14 +584,6 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         started_at: '2026-08-24T00:00:00Z',
         updated_at: '2026-08-24T00:00:01Z',
         finished_at: state === 'COMPLETED' ? '2026-08-24T00:00:02Z' : null,
-        hardware_accessed: currentRobot.hardware_accessed,
-      });
-    }
-    if (path === '/motion/stop') {
-      motionStopped = true;
-      return jsonResponse({
-        result: options.stopResult ?? 'STOPPED',
-        status: currentRobot,
         hardware_accessed: currentRobot.hardware_accessed,
       });
     }

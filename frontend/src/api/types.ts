@@ -677,6 +677,15 @@ export interface CartesianJogRequest extends MotionRequestContext {
   duration_s: number;
 }
 
+export interface CartesianJogSessionStartRequest extends MotionRequestContext {
+  kind: 'translation' | 'rotation';
+  axis: 'x' | 'y' | 'z';
+  direction: -1 | 1;
+  speed_units_s: number;
+  unit: 'mm' | 'deg';
+  frame: CartesianFrame;
+}
+
 export interface MovePoseRequest extends MotionRequestContext {
   target_pose: TcpPose;
   position_unit: 'mm';
@@ -1063,16 +1072,6 @@ export interface CommissioningDirectJointStateResponse {
   raw_positions: Record<string, number>;
   captured_at: string;
   moving: boolean;
-  message: string;
-}
-
-export interface CommissioningDirectJointMoveResponse {
-  positions: Record<string, number>;
-  units: Record<string, DomainUnit>;
-  raw_positions: Record<string, number>;
-  duration_s: number;
-  frame_count: number;
-  completed: boolean;
   message: string;
 }
 

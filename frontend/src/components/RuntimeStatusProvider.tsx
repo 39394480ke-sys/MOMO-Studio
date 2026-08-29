@@ -216,10 +216,14 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
     runtimeStatus.controlMode === 'DRY RUN' &&
     runtimeStatus.hardwareAccessPolicy === 'DISABLED' &&
     runtimeStatus.realMotionEnabled === false;
-  const rejectRealLifecycleAction = async () => {
+  const realActionsAvailable =
+    runtimeStatus.controlMode === 'REAL' &&
+    runtimeStatus.hardwareAccessPolicy === 'FULL' &&
+    runtimeStatus.realMotionEnabled === true;
+  const rejectLifecycleAction = async () => {
     setRuntimeStatus((current) => ({
       ...current,
-      error: 'Commissioning and Real Motion device lifecycle is available only in Settings.',
+      error: '当前运行策略不允许设备生命周期操作。',
     }));
   };
   const value: RuntimeStatus = {
@@ -227,16 +231,20 @@ export function RuntimeStatusProvider({ children }: { children: ReactNode }) {
     refresh,
     connect: dryRunActionsAvailable
       ? () => runAction('connect', connectRobot)
-      : rejectRealLifecycleAction,
+      : realActionsAvailable
+        ? () => runAction('connect', connectRobot)
+        : rejectLifecycleAction,
     disconnect: dryRunActionsAvailable
       ? () => runAction('disconnect', disconnectRobot)
-      : rejectRealLifecycleAction,
+      : realActionsAvailable
+        ? () => runAction('disconnect', disconnectRobot)
+        : rejectLifecycleAction,
     stop: dryRunActionsAvailable
       ? () => runAction('stop', stopRobot)
-      : rejectRealLifecycleAction,
+      : rejectLifecycleAction,
     switchVariant: dryRunActionsAvailable
       ? (variant) => runAction('switch', () => switchRobotVariant(variant))
-      : rejectRealLifecycleAction,
+      : rejectLifecycleAction,
   };
 
   return <RuntimeStatusContext.Provider value={value}>{children}</RuntimeStatusContext.Provider>;

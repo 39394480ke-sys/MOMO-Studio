@@ -743,7 +743,7 @@ function mockStudioBackend(options: BackendOptions = {}) {
         preflight: null,
       }, 202);
     }
-    if (path === '/motion/stop' && method === 'POST') {
+    if (path === '/robot/stop' && method === 'POST') {
       studioCommandStopped = true;
       return response({ result: 'STOPPED', status: robotFor('V2', true), hardware_accessed: false });
     }
@@ -1309,7 +1309,7 @@ describe('Stage 6 Studio workspace', () => {
     backend.resolveDeferredAutosave();
     await waitFor(() => expect(screen.getByLabelText('运动名称')).toHaveValue('Studio Motion edited'));
     expect(backend.requests.some((request) => request.path.includes('/keyframes/'))).toBe(false);
-    expect(backend.requests.some((request) => request.path === '/motion/stop')).toBe(false);
+    expect(backend.requests.some((request) => request.path === '/robot/stop')).toBe(false);
   });
 
   it('does not surface an active Goto command inside the editor workspace', async () => {
@@ -1478,7 +1478,7 @@ describe('Stage 6 Studio workspace', () => {
     expect(backend.requests[saveAsIndex]?.body).toEqual({
       expected_revision: 2,
       name: 'Motion conflict copy',
-      sample_rate_hz: 20,
+      sample_rate_hz: 25,
     });
     await waitFor(() => expect(screen.getByTestId('studio-location')).toHaveTextContent(
       `?draft=${FRESH_DRAFT_ID}`,

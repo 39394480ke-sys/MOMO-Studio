@@ -95,6 +95,97 @@ final result: passed
 
 ---
 
+# Unified REAL Field-acceptance Control — Design QA
+
+## Scope
+
+- Target product model: `DRY RUN → 仿真执行`; `REAL → 单关节 / Home / 笛卡尔 / Studio 动作` through one product control chain.
+- Implementation URL: `http://127.0.0.1:5173/control`.
+- Runtime inspected in `REAL / FULL` with the production Feetech adapter composed and the device intentionally disconnected.
+- Safety boundary: browser QA opened and cancelled the REAL authorization dialog only. It did not submit an Operator Session, connect the device, Home, jog, or execute motion.
+
+## Browser findings
+
+- Control renders one modern workspace; no Commissioning or Legacy control page replaces it.
+- Before authorization, `启用真机控制` is available while Connect, Joint, Home, Cartesian motion, and Stop remain disabled.
+- The authorization dialog identifies `REAL_MOTION`, the V2 unit, masked serial/Servo identities, Profile, Calibration, and kinematics fingerprints, and requires the exact backend confirmation plus physical E-stop acknowledgement.
+- Cancelling leaves `session=null`, `connected=false`, and `hardware_accessed=false`.
+- The 3D panel is labelled `REAL READBACK` and explicitly states that the viewer itself sends no control commands.
+- Before the shared REAL session is enabled, Joint, Cartesian, and Studio playback are all
+  blocked only by `OPERATOR_SESSION_MISSING`. Studio does not expose a second playback
+  authorization flow.
+
+## Verification
+
+- Backend change-focused regression: 94/94 passed.
+- Frontend Control/runtime/session/client regression: 58/58 passed.
+- New backend authorization contract suite: 25/25 passed.
+- TypeScript, Ruff, mypy, and changed-file ESLint passed.
+- Vite production build passed after raising the build process's temporary file-descriptor limit; only the existing large-chunk advisory remains.
+- Browser DOM and visual inspection passed at the active desktop viewport. No page-level error state was present.
+- Repository-wide test/lint discovery was attempted but macOS/iCloud placeholder reads stalled collection before any test ran; the affected processes were stopped and replaced with explicit change-surface suites above.
+
+final result: passed
+
+### 2026-08-29 unified execution cleanup recheck
+
+- Product lifecycle is now exclusively `/robot/connect`, `/robot/disconnect`, and
+  `/robot/stop`; Settings contains no second device-control surface.
+- Manual Joint, Home, Cartesian, and Studio playback share one `REAL_MOTION` session, one
+  authorized production binding, one Stop path, and the same REAL executor.
+- Manual command and Studio trajectory defaults are 25 Hz. The production bus receives
+  one synchronized goal frame per software sample without per-sample Servo Profile
+  interpolation; following-lag and final-settle behavior are covered by backend tests.
+- Browser QA was read-only with the arm physically disconnected. Control, Settings, and
+  Studio had no page-level horizontal overflow and emitted zero console errors/warnings.
+  Restarting the backend cleared the stale connection snapshot to `Disconnected` without
+  scanning or reconnecting hardware.
+- Frontend full verification: 29 files / 284 tests, ESLint, TypeScript, and Vite production
+  build passed. Backend change-focused verification: 73 tests and Ruff passed. Monolithic
+  backend collection and Mypy were blocked by an iCloud placeholder read stall; no failure
+  was reported, and the affected processes were stopped rather than treated as passing.
+
+final result: passed with physical motion pending operator acceptance
+
+---
+
+# Unified REAL Cartesian Control — Browser QA
+
+## Scope
+
+- URL: `http://127.0.0.1:5173/control`.
+- State inspected: REAL, disconnected, no active control session.
+- Safety: read-only inspection only. No Connect, Re-enable, Home, jog, pose, or Stop
+  action was invoked.
+
+## Findings
+
+- The page remains the single modern `ControlWorkspaceView`; no Legacy or secondary
+  REAL control page is rendered.
+- The disconnected formal REAL workspace exposes the real-readback viewer and leaves all
+  motion actions disabled until the explicit control gate is satisfied.
+- Automated Commissioning adapter tests verify that only the characterized single-joint
+  step/hold controls can become available. Group Apply, Home, and Cartesian actions stay
+  disabled and explain that the formal REAL path is required.
+- All X/Y/Z/RX/RY/RZ, frame, IK, and pose controls are disabled while the formal
+  capability/session gate is unavailable.
+- Cartesian buttons retain the shared short-press/long-press interaction copy. Automated
+  tests verify that an allowed long press creates one backend lease, renews it by
+  heartbeat, and stops it on release/cancel/blur/hidden-page events.
+- Browser console errors and warnings: 0.
+
+## Verification
+
+- Backend: 687/687 tests passed; Ruff, formatting, and mypy passed.
+- Frontend: 302/302 tests passed; TypeScript and ESLint passed.
+- Vite production build passed; only the existing large-chunk advisory remains.
+- Formal Cartesian trajectory compilation preserves gateway-reviewed TCP-path IK samples,
+  and the production bus tests verify synchronized frames with interval-derived raw speed.
+
+final result: passed
+
+---
+
 # Studio Timeline Redesign — Design QA
 
 ## Scope

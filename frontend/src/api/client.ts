@@ -4,7 +4,6 @@ import type {
   BootstrapResponse,
   CalibrationStatus,
   CommissioningDirectControlResponse,
-  CommissioningDirectJointMoveResponse,
   CommissioningDirectJointStateResponse,
   CommissioningMotionStatus,
   CommissioningMotionTestState,
@@ -12,6 +11,7 @@ import type {
   CommissioningTestEvidence,
   CapturePoseRequest,
   CartesianJogRequest,
+  CartesianJogSessionStartRequest,
   CreateMotionRequest,
   CreateMotionDraftRequest,
   CreatePoseRequest,
@@ -101,11 +101,9 @@ import type {
   DeviceReadiness,
   DeviceReadinessEvidence,
   DeviceServoDiagnostic,
-  DeviceStopResponse,
   OperatorSessionResponse,
   OperatorSessionPurpose,
   OperatorSessionScope,
-  RealStopOutcome,
   RawDirection,
   RawDirectionObservation,
   RawDirectionStatus,
@@ -730,7 +728,16 @@ export async function moveHome(request: HomeRequest): Promise<MotionCommandSubmi
 export async function startJogSession(
   request: JogSessionStartRequest,
 ): Promise<JogSessionResponse> {
-  const raw = await postJson<unknown>('/motion/jog/start', request);
+  return normalizeJogSession(await postJson<unknown>('/motion/jog/start', request));
+}
+
+export async function startCartesianJogSession(
+  request: CartesianJogSessionStartRequest,
+): Promise<JogSessionResponse> {
+  return normalizeJogSession(await postJson<unknown>('/motion/cartesian-jog/start', request));
+}
+
+function normalizeJogSession(raw: unknown): JogSessionResponse {
   if (!isRecord(raw)) throw new TypeError('Backend returned an invalid jog session response');
   const jogSessionId = stringValue(raw.jog_session_id) ?? stringValue(raw.session_id);
   const commandId = stringValue(raw.command_id);
@@ -749,6 +756,10 @@ export function heartbeatJogSession(jogSessionId: string): Promise<unknown> {
   return postJson(`/motion/jog/${encodeURIComponent(jogSessionId)}/heartbeat`);
 }
 
+export function heartbeatCartesianJogSession(jogSessionId: string): Promise<unknown> {
+  return postJson(`/motion/cartesian-jog/${encodeURIComponent(jogSessionId)}/heartbeat`);
+}
+
 export function stopJogSession(
   jogSessionId: string,
   options?: { keepalive?: boolean },
@@ -765,7 +776,7 @@ export async function getMotionCommand(commandId: string): Promise<MotionCommand
 }
 
 export function stopMotion(): Promise<MotionStopResponse> {
-  return postJson<MotionStopResponse>('/motion/stop');
+  return postJson<MotionStopResponse>('/robot/stop');
 }
 
 export function getPoses(
@@ -2366,42 +2377,6 @@ export async function revokeOperatorSession(): Promise<void> {
   });
 }
 
-export async function connectRealDevice(): Promise<DeviceDiagnostics> {
-  const value = await postJson<unknown>('/device/connect');
-  if (!isRecord(value)) throw new TypeError('Backend returned invalid Real connect result');
-  return normalizeDeviceDiagnostics(value.diagnostics ?? value);
-}
-
-export async function disconnectRealDevice(): Promise<DeviceDiagnostics> {
-  const value = await postJson<unknown>('/device/disconnect');
-  if (!isRecord(value)) throw new TypeError('Backend returned invalid Real disconnect result');
-  return normalizeDeviceDiagnostics(value.diagnostics ?? value);
-}
-
-export async function runDeviceDiagnostics(): Promise<DeviceDiagnostics> {
-  return normalizeDeviceDiagnostics(await postJson<unknown>('/device/diagnostics'));
-}
-
-export async function stopRealDevice(): Promise<DeviceStopResponse> {
-  const value = await postJson<unknown>('/device/stop', {});
-  if (!isRecord(value)) throw new TypeError('Backend returned invalid Real Stop result');
-  const result = stringValue(value.result);
-  const detail = stringValue(value.detail);
-  const outcomes: RealStopOutcome[] = [
-    'STOPPED_AND_VERIFIED', 'HOLD_REQUESTED', 'TORQUE_DISABLE_REQUESTED',
-    'NOT_CONNECTED', 'FAILED', 'SAFETY_STATE_UNCERTAIN',
-  ];
-  if (!result || !outcomes.includes(result as RealStopOutcome) || !detail ||
-    typeof value.physical_estop_required !== 'boolean') {
-    throw new TypeError('Backend returned invalid Real Stop outcome');
-  }
-  return {
-    result: result as RealStopOutcome,
-    physical_estop_required: value.physical_estop_required,
-    detail,
-  };
-}
-
 const COMMISSIONING_MOTION_STATES = new Set<CommissioningMotionTestState>([
   'IDLE',
   'AUTHORIZED',
@@ -2508,23 +2483,6 @@ export function normalizeCommissioningDirectJointState(
     ...normalizeDirectJointMaps(value, 'direct state'),
     captured_at: capturedAt,
     moving: value.moving,
-    message,
-  };
-}
-
-export function normalizeCommissioningDirectJointMove(
-  value: unknown,
-): CommissioningDirectJointMoveResponse {
-  if (!isRecord(value) || typeof value.completed !== 'boolean') {
-    throw new TypeError('Backend returned invalid direct joint move');
-  }
-  const message = stringValue(value.message);
-  if (!message) throw new TypeError('Backend returned incomplete direct joint move');
-  return {
-    ...normalizeDirectJointMaps(value, 'direct move'),
-    duration_s: finiteNumber(value.duration_s, 'Direct move duration', 0.1),
-    frame_count: integerValue(value.frame_count, 'Direct move frame count', 1),
-    completed: value.completed,
     message,
   };
 }
@@ -2701,19 +2659,15 @@ export async function stopCommissioningDirectJog(
   ));
 }
 
-export async function getCommissioningDirectJointState(): Promise<CommissioningDirectJointStateResponse> {
-  return normalizeCommissioningDirectJointState(await requestJson<unknown>(
-    '/device/commissioning/direct/joints/state',
+export async function releaseCommissioningDirectJog(): Promise<CommissioningDirectControlResponse> {
+  return normalizeCommissioningDirectControl(await postJson<unknown>(
+    '/device/commissioning/direct/jog/release',
   ));
 }
 
-export async function moveCommissioningDirectJoints(
-  positions: Record<string, number>,
-  durationS: number,
-): Promise<CommissioningDirectJointMoveResponse> {
-  return normalizeCommissioningDirectJointMove(await postJson<unknown>(
-    '/device/commissioning/direct/joints/move',
-    { positions, duration_s: durationS },
+export async function getCommissioningDirectJointState(): Promise<CommissioningDirectJointStateResponse> {
+  return normalizeCommissioningDirectJointState(await requestJson<unknown>(
+    '/device/commissioning/direct/joints/state',
   ));
 }
 

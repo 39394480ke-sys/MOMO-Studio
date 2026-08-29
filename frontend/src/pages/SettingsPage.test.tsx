@@ -45,19 +45,20 @@ describe('Settings product center', () => {
     expect(backend.requestsFor('/vision/follow/start')).toHaveLength(0);
   });
 
-  it('keeps the existing hardware and calibration workflow behind an explicit advanced disclosure', async () => {
+  it('keeps compatibility facts but removes the second hardware-control surface', async () => {
     const user = userEvent.setup();
     mockStage7Backend();
     renderSettings();
     await screen.findByRole('heading', { name: '设备' });
 
-    const advanced = screen.getByText('高级 · 实体硬件调试与完整标定').closest('details');
+    const advanced = screen.getByText('高级 · 配置与标定兼容性').closest('details');
     expect(advanced).not.toHaveAttribute('open');
 
     await user.click(screen.getByRole('button', { name: '完整标定' }));
     await waitFor(() => expect(advanced).toHaveAttribute('open'));
-    expect(screen.getByText(/展开不会连接、扫描、回零、标定或移动真实硬件/)).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'V2 连接与方向验收' })).toBeVisible();
+    expect(screen.getByText(/不提供第二套设备连接或运动入口/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: '只读连接' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'V2 连接与方向验收' })).not.toBeInTheDocument();
   });
 
   it('switches to the configured REAL workspace only after explicit safety confirmation', async () => {

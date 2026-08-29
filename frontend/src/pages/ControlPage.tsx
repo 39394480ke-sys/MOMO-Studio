@@ -1,7 +1,9 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { RefreshCw, TriangleAlert } from 'lucide-react';
 
 import type {
+  CartesianJogSessionStartRequest,
+  DeviceConfirmationEvidence,
   JogSessionResponse,
   MotionRequestContext,
   ProfileJointDefinition,
@@ -18,7 +20,6 @@ import {
 import { useRuntimeStatus } from '../components/runtimeStatusContext';
 import { CommandStatusPanel } from '../features/control/CommandStatusPanel';
 import { ControlSafetyBar } from '../features/control/ControlSafetyBar';
-import { CommissioningControlAdapter } from '../features/control/CommissioningControlAdapter';
 import { ControlWorkspaceView } from '../features/control/ControlWorkspaceView';
 import {
   createIdempotencyKey,
@@ -31,6 +32,7 @@ import { useForwardKinematics } from '../features/control/useForwardKinematics';
 import { useInverseKinematics } from '../features/control/useInverseKinematics';
 import { useMotionCommands } from '../features/control/useMotionCommands';
 import { useRobotSocket } from '../features/control/useRobotSocket';
+import { OperatorSessionDialog } from '../features/settings/OperatorSessionDialog';
 
 type CartesianKind = 'translation' | 'rotation';
 type Axis = keyof Vector3;
@@ -124,12 +126,18 @@ function availabilityFor(options: {
 
 export function ControlPage() {
   const runtime = useRuntimeStatus();
-  const { summary: realSession } = useRealSession();
-  const directCommissioningControl = runtime.controlMode === 'REAL' && (
-    realSession.authorizationOptions.some(
-      (option) => option.purpose === 'COMMISSIONING_MOTION_TEST' && option.authorizable,
-    ) || realSession.session?.purpose === 'COMMISSIONING_MOTION_TEST'
+  const realSessionControl = useRealSession();
+  const realSession = realSessionControl.summary;
+  const [sessionDialogEvidence, setSessionDialogEvidence] =
+    useState<DeviceConfirmationEvidence | null>(null);
+  const [sessionDialogError, setSessionDialogError] = useState<string | null>(null);
+  const realMotionAuthorization = useMemo(
+    () => realSession.authorizationOptions.find(
+      (option) => option.purpose === 'REAL_MOTION',
+    ) ?? null,
+    [realSession.authorizationOptions],
   );
+  const realMotionSessionActive = realSession.session?.purpose === 'REAL_MOTION';
   const backendOnline = runtime.backend === 'connected';
   const dryRunWorkspace =
     runtime.controlMode === 'DRY RUN' &&
@@ -244,6 +252,25 @@ export function ControlPage() {
     !effectiveStale &&
     commands.pending !== 'stop';
 
+  const authorizeRealMotion = useCallback(async (
+    confirmationText: string,
+    physicalEstopConfirmed: boolean,
+    workspaceClearConfirmed: boolean,
+  ) => {
+    setSessionDialogError(null);
+    try {
+      await realSessionControl.authorize(
+        'REAL_MOTION',
+        confirmationText,
+        physicalEstopConfirmed,
+        workspaceClearConfirmed,
+      );
+      setSessionDialogEvidence(null);
+    } catch (error) {
+      setSessionDialogError(error instanceof Error ? error.message : '真机控制授权失败');
+    }
+  }, [realSessionControl]);
+
   const requestContext = useCallback(
     (kind: string, requiredAvailability: MotionAvailability): MotionRequestContext | null => {
       if (!requiredAvailability.allowed || motionLocked || !robot || !kinematics.fk) return null;
@@ -309,6 +336,48 @@ export function ControlPage() {
     onError: commands.reportError,
   });
 
+  const buildCartesianJogRequest = useCallback(
+    ({ jointId, direction }: { jointId: string; direction: -1 | 1 }):
+      CartesianJogSessionStartRequest | null => {
+      const context = requestContext('hold-cartesian-jog', cartesianAvailability);
+      const [rawKind, rawAxis] = jointId.split(':');
+      if (
+        !context
+        || (rawKind !== 'translation' && rawKind !== 'rotation')
+        || (rawAxis !== 'x' && rawAxis !== 'y' && rawAxis !== 'z')
+      ) return null;
+      const kind: CartesianKind = rawKind;
+      const axis: Axis = rawAxis;
+      return {
+        ...context,
+        kind,
+        axis,
+        direction,
+        speed_units_s: kind === 'translation' ? 50 : 45,
+        unit: kind === 'translation' ? 'mm' as const : 'deg' as const,
+        frame: inputs.frame,
+      };
+    },
+    [cartesianAvailability, inputs.frame, requestContext],
+  );
+  const cartesianDeadman = useDeadmanJog({
+    mode: 'cartesian',
+    enabled: cartesianAvailability.allowed,
+    canStart: commands.pending === null && !motionLocked,
+    buildRequest: buildCartesianJogRequest,
+    onSubmission: registerJog,
+    onError: commands.reportError,
+  });
+
+  const startCartesianHold = useCallback(
+    (kind: CartesianKind, axis: Axis, direction: -1 | 1) =>
+      cartesianDeadman.begin({ jointId: `${kind}:${axis}`, direction }),
+    [cartesianDeadman],
+  );
+  const releaseCartesianHold = useCallback(async () => {
+    cartesianDeadman.stopActive();
+  }, [cartesianDeadman]);
+
   const moveAllJoints = useCallback(async () => {
     const context = requestContext('move-joints', jointAvailability);
     if (!context) return;
@@ -352,7 +421,7 @@ export function ControlPage() {
   const cartesianJog = useCallback(
     async (kind: CartesianKind, axis: Axis, direction: -1 | 1) => {
       const context = requestContext('cartesian-jog', cartesianAvailability);
-      if (!context) return;
+      if (!context) return false;
       const translation: Vector3 = { x: 0, y: 0, z: 0 };
       const rotation: Vector3 = { x: 0, y: 0, z: 0 };
       if (kind === 'translation') {
@@ -369,6 +438,7 @@ export function ControlPage() {
         rotation_unit: 'deg',
         duration_s: Math.min(inputs.parameters.durationS, 1),
       });
+      return true;
     },
     [cartesianAvailability, commands, inputs.frame, inputs.parameters, requestContext],
   );
@@ -415,8 +485,9 @@ export function ControlPage() {
 
   const stop = useCallback(async () => {
     deadman.stopActive();
+    cartesianDeadman.stopActive();
     await commands.stop();
-  }, [commands, deadman]);
+  }, [cartesianDeadman, commands, deadman]);
 
   return (
     <div className="page control-workspace">
@@ -445,8 +516,7 @@ export function ControlPage() {
         </div>
       ) : null}
 
-      {directCommissioningControl ? <CommissioningControlAdapter /> : (
-        <ControlWorkspaceView
+      <ControlWorkspaceView
           definitions={definitions}
           emptyControlText="加载匹配的机器人配置后将显示关节控制。"
           enabledJointIds={runtime.profile?.profile.enabled_joints ?? null}
@@ -455,6 +525,7 @@ export function ControlPage() {
             activeJog: deadman.active,
             cartesianAvailability,
             frame: inputs.frame,
+            groupMoveAvailability: jointAvailability,
             holdHandlers: deadman.handlersFor,
             ikError: ik.error,
             ikPending: ik.pending,
@@ -463,6 +534,9 @@ export function ControlPage() {
             jointTargets: inputs.jointTargets,
             motionLocked,
             onCartesianJog: cartesianJog,
+            onCartesianHoldCancel: releaseCartesianHold,
+            onCartesianHoldRelease: releaseCartesianHold,
+            onCartesianHoldStart: startCartesianHold,
             onFrameChange: inputs.setFrame,
             onHome: home,
             onJointTargetChange: inputs.updateJointTarget,
@@ -489,27 +563,41 @@ export function ControlPage() {
             pending: commands.pending,
             showHome: false,
           }}
-          previewPill="Base frame"
+          previewPill={runtime.controlMode === 'REAL' ? 'Real readback' : 'Base frame'}
           robot={robot}
           safetyBar={(
             <ControlSafetyBar
               availability={safetyAvailability}
               backendOnline={backendOnline}
               lifecyclePending={runtime.pendingAction}
-              lifecycleAllowed={dryRunWorkspace}
+              lifecycleAllowed={dryRunWorkspace || (
+                realMotionSessionActive && realJointCapability.allowed
+              )}
               stopAllowed={stopAllowed}
               modeLabel={runtime.hardwareAccessPolicy === 'READ_ONLY'
                 ? 'READ ONLY'
                 : runtime.controlMode === 'DRY RUN'
                   ? 'DRY RUN'
-                  : safetyAvailability.allowed
-                    ? 'REAL CAPABILITY AUTHORIZED'
+                  : realMotionSessionActive
+                    ? 'REAL · FIELD ACCEPTANCE'
                     : 'REAL MOTION LOCKED'}
               motionPending={commands.pending}
               onConnect={runtime.connect}
               onDisconnect={runtime.disconnect}
               onStop={stop}
+              onAuthorizeSession={runtime.controlMode === 'REAL'
+                ? () => {
+                    setSessionDialogError(null);
+                    setSessionDialogEvidence(realMotionAuthorization?.confirmation ?? null);
+                  }
+                : undefined}
+              onEndSession={runtime.controlMode === 'REAL'
+                ? realSessionControl.revoke
+                : undefined}
               robot={robot}
+              sessionActive={realMotionSessionActive}
+              sessionAuthorizable={realMotionAuthorization?.authorizable === true}
+              sessionPending={realSessionControl.pendingAction !== null}
               socketState={socket.connectionState}
               stale={effectiveStale}
             />
@@ -525,6 +613,12 @@ export function ControlPage() {
           )}
           statusRows={[
             { label: '运行状态', value: <span className="product-status-pill">{robot?.connected ? '待机' : '未连接'}</span> },
+            ...(runtime.controlMode === 'REAL' ? [{
+              label: 'REAL 会话',
+              value: realMotionSessionActive
+                ? '已启用 · 手动控制与 Studio 共用'
+                : '未启用 · 请先启用真机控制',
+            }] : []),
             { label: '力矩', value: '不可用' },
             {
               label: '位置回读',
@@ -534,12 +628,30 @@ export function ControlPage() {
             { label: '更新时间', value: formatUpdatedAt(robot?.updated_at) },
           ]}
           viewerAriaLabel={`${robot?.variant ?? runtime.profile?.profile.variant ?? 'MOMO'} 机械臂实时状态三维视图`}
-          viewerBadgeLabel="3D · SIMULATION ONLY"
+          viewerBadgeLabel={runtime.controlMode === 'REAL'
+            ? '3D · REAL READBACK'
+            : '3D · SIMULATION ONLY'}
           viewerPlaceholder="正在等待机器人 Profile 与状态。"
-          viewerPlaceholderDetail="SIMULATION ONLY · 视图不拥有运动控制权"
-          viewerSafetyNote="仅用于可视化 · 不连接或控制实体机械臂"
+          viewerPlaceholderDetail={runtime.controlMode === 'REAL'
+            ? 'REAL READBACK · 视图不拥有运动控制权'
+            : 'SIMULATION ONLY · 视图不拥有运动控制权'}
+          viewerSafetyNote={runtime.controlMode === 'REAL'
+            ? '仅显示真实回读 · 三维视图本身不发送控制指令'
+            : '仅用于可视化 · 不连接或控制实体机械臂'}
         />
-      )}
+      {sessionDialogEvidence ? (
+        <OperatorSessionDialog
+          error={sessionDialogError}
+          evidence={sessionDialogEvidence}
+          onCancel={() => {
+            if (realSessionControl.pendingAction === null) setSessionDialogEvidence(null);
+          }}
+          onConfirm={(confirmationText, estop, workspaceClear) => {
+            void authorizeRealMotion(confirmationText, estop, workspaceClear);
+          }}
+          pending={realSessionControl.pendingAction === 'authorize'}
+        />
+      ) : null}
     </div>
   );
 }

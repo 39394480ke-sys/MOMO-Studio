@@ -18,10 +18,11 @@ timeline-based trajectory authoring, trajectory playback, and vision following.
 | Synthetic Vision / Follow | **VALIDATED IN DRY RUN** |
 | Read-only live camera preview | **IMPLEMENTED; EXPLICIT LOCAL OPT-IN REQUIRED** |
 | Commissioning software workflow | **VALIDATED WITH FAKE/BOMB/ISOLATED ADAPTERS** |
-| Real Feetech hardware | **FIELD VERIFICATION REQUIRED** |
+| Real Feetech hardware | **IMPLEMENTED; FIELD VERIFICATION REQUIRED** |
+| Real Joint / Home / Cartesian / Playback | **IMPLEMENTED; FIELD VERIFICATION REQUIRED** |
 | Physical Stop | **FIELD VERIFICATION REQUIRED** |
 | Real Kinematics | **FIELD VERIFICATION REQUIRED** |
-| Real Cartesian / Playback / Vision | **BLOCKED UNTIL FIELD ACCEPTANCE** |
+| Real Vision Follow | **BLOCKED UNTIL FIELD ACCEPTANCE** |
 
 This is a software user-acceptance candidate. Automated commissioning evidence proves
 the software path only; it is not physical field acceptance.
@@ -90,7 +91,8 @@ committed Kinematics models remain `PROVISIONAL_DRY_RUN`.
 ## Core features
 
 - Responsive Control workspace with lifecycle, Joint Jog, continuous Jog, FK/IK,
-  Cartesian Jog, Move Pose, Home, and priority Stop in Dry Run.
+  Cartesian Jog, Move Pose, Home, and priority Stop in Dry Run and reviewed Real
+  composition.
 - UUID-backed Pose and Motion Library with revisions, compatibility checks, search,
   tags, duplicate, and safe deletion.
 - Deterministic Joint, hold, and Cartesian-linear trajectory compilation and whole-plan
@@ -170,7 +172,9 @@ The executable product graph is composed explicitly. Development/default setting
 `build_simulation_robot_service` and `build_simulation_product_services`; an explicitly
 field-authorized configuration selects `build_real_product_composition`. Both use the
 same UI, routes, application services, safety gateway, and persistence contracts. There
-is no silent REAL-to-DRY_RUN fallback. See the
+is no silent REAL-to-DRY_RUN fallback. Joint, Home, Cartesian, and Playback share one
+`REAL_MOTION` Operator Session, one authorized Servo-bus binding, and the same Real
+execution core. See the
 [architecture cleanup ledger](docs/architecture-cleanup.md).
 
 ## Safety model
