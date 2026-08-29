@@ -8,7 +8,10 @@ import pytest
 import yaml
 from scripts.generate_schemas import generate_schemas
 
-from momo.bootstrap import build_application_services, build_robot_service
+from momo.bootstrap import (
+    build_simulation_product_services,
+    build_simulation_robot_service,
+)
 from momo.domain.motion import Motion
 from momo.domain.pose import Pose
 from momo.domain.robot import RobotProfile
@@ -33,8 +36,8 @@ def test_committed_pose_and_motion_examples_validate() -> None:
 
     async def verify_current_boundaries() -> None:
         settings = Settings()
-        robot = build_robot_service(settings)
-        services = build_application_services(settings, robot)
+        robot = build_simulation_robot_service(settings)
+        services = build_simulation_product_services(settings, robot)
         snapshots = (pose.snapshot, *(frame.pose_snapshot for frame in motion.keyframes))
         for snapshot in snapshots:
             profile = robot.profile_service.get_profile(snapshot.robot_variant)

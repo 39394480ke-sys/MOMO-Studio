@@ -19,6 +19,8 @@ Historical Stage reports are evidence records, not the current product guide.
 
 - [Architecture](architecture.md) — layers, runtime composition, data flow, APIs, and
   repository structure.
+- [Architecture cleanup ledger](architecture-cleanup.md) — current keep/refactor/migrate/
+  reject decisions for the unified DRY_RUN/REAL product runtime.
 - [Domain model](domain-model.md) — Robot, Profile, Calibration, Pose, Motion,
   trajectory, Vision, authorization, and evidence contracts.
 - [API audit](api-audit.md) — REST/WebSocket inventory, callers, scopes, and disposition.
@@ -112,6 +114,7 @@ The Legacy source is read-only evidence pinned at commit
 | [ADR 0010](adr/0010-unified-motion-safety-gateway.md)–[0013](adr/0013-motion-draft-and-timeline-editor.md) | Motion safety, repositories, trajectory digest, and Studio drafts |
 | [ADR 0014](adr/0014-vision-access-policy-and-follow-lease.md)–[0017](adr/0017-release-candidate-and-field-acceptance.md) | Vision, Real authorization, LAN security, and RC policy |
 | [ADR 0018](adr/0018-commissioning-vs-motion-authorization.md)–[0019](adr/0019-staged-field-acceptance.md) | Commissioning separation and staged acceptance |
+| [ADR 0020](adr/0020-operator-controlled-read-only-live-camera.md)–[0022](adr/0022-unified-product-motion-runtime.md) | Live camera, bounded direct control, and one product motion runtime |
 
 ## Stage reports
 

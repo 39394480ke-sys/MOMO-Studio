@@ -128,6 +128,35 @@ no Real bus factory. A separately reviewed field composition would inject only t
 product assumption, Fleet surface, device scan, startup serial/camera open/enumeration,
 or raw-control transport.
 
+## Product execution compositions
+
+MOMO Studio is one product rather than a redesigned frontend layered over a second
+Legacy control application.  Control, Library, Studio, Playback, and Vision keep one
+set of routes, application services, domain contracts, and safety admission rules.
+
+The current executable product graph is intentionally named as simulation composition:
+
+```text
+build_simulation_robot_service
+  + build_simulation_product_services
+      -> SimulationProductServices
+          -> DryRunRobotDriver
+          -> MotionSafetyGateway
+          -> DryRunMotionExecutor
+```
+
+Real-device commissioning is a separate outer graph in `release_bootstrap.py`.  Its
+read-only, Raw-direction, and single-joint buses are purpose-limited field tools, not a
+second product runtime and not a production REAL executor.
+
+Future REAL product motion must replace only the outer lifecycle/executor adapters while
+retaining the same inward product chain.  It may reuse reviewed Legacy low-level behavior
+only through those adapters; no frontend, API route, application service, or domain
+module may import the Legacy controller.  Requested REAL execution must fail closed when
+that reviewed composition is unavailable and must never silently run the simulation
+backend.  See [ADR 0022](adr/0022-unified-product-motion-runtime.md) and the
+[architecture cleanup ledger](architecture-cleanup.md).
+
 ## Active Robot and lifecycle
 
 The application owns one identity-aware runtime:

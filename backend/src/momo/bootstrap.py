@@ -1,4 +1,15 @@
-"""Composition root for one FastAPI application instance."""
+"""Simulation product composition.
+
+This module owns the complete DRY_RUN product graph: the in-memory robot driver,
+motion executor, and all product services that consume them.  Real-device
+commissioning is composed separately in :mod:`momo.release_bootstrap` and must
+never be hidden behind a branch in this module.
+
+The eventual production REAL implementation will provide the same application
+ports from a separate reviewed composition.  Keeping the two outer compositions
+explicit prevents a permissive setting from silently swapping a hardware driver
+under otherwise simulation-only services.
+"""
 
 from __future__ import annotations
 
@@ -62,7 +73,7 @@ def _resolve_configured_path(value: str, root: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
-def _build_dry_run_driver(
+def _build_simulation_driver(
     robot_id: RobotId,
     profile: RobotProfile,
     positions: dict[str, float] | None,
@@ -70,8 +81,8 @@ def _build_dry_run_driver(
     return DryRunRobotDriver(robot_id, profile, positions)
 
 
-def build_robot_service(settings: Settings) -> RobotApplicationService:
-    """Build fresh repositories/services for a single app, with no device side effects."""
+def build_simulation_robot_service(settings: Settings) -> RobotApplicationService:
+    """Build the product's in-memory robot lifecycle with no device side effects."""
 
     root = repository_root()
     profile_repository = FileProfileRepository(
@@ -88,13 +99,15 @@ def build_robot_service(settings: Settings) -> RobotApplicationService:
         ProfileService(profile_repository),
         CalibrationService(calibration_repository),
         runtime_repository,
-        driver_factory=_build_dry_run_driver,
+        driver_factory=_build_simulation_driver,
         clock=SystemClock(),
     )
 
 
 @dataclass(frozen=True, slots=True)
-class ApplicationServices:
+class SimulationProductServices:
+    """Product services whose executable motion backend is explicitly DRY_RUN."""
+
     kinematics: KinematicsService
     motion: MotionApplicationService
     jog: JogLeaseService
@@ -107,11 +120,11 @@ class ApplicationServices:
     maintenance_gate: RepositoryMaintenanceGate
 
 
-def build_application_services(
+def build_simulation_product_services(
     settings: Settings,
     robot_service: RobotApplicationService,
-) -> ApplicationServices:
-    """Compose Dry Run motion services without opening any external capability."""
+) -> SimulationProductServices:
+    """Compose one product graph around the DRY_RUN execution backend."""
 
     root = repository_root()
     clock = SystemClock()
@@ -275,7 +288,7 @@ def build_application_services(
         additional_detector_capabilities=additional_detector_capabilities,
     )
     motion.register_stop_hook(follow.stop_all)
-    return ApplicationServices(
+    return SimulationProductServices(
         kinematics=kinematics,
         motion=motion,
         jog=jog,

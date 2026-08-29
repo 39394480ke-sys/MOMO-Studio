@@ -160,6 +160,12 @@ use `backend/.venv`; frontend commands run through npm in `frontend/`.
 - `docs/` — product, architecture, safety, operation, acceptance, ADR, and historical
   Stage evidence.
 
+The executable product graph is composed explicitly with
+`build_simulation_robot_service` and `build_simulation_product_services`.  A future REAL
+backend must implement the same lifecycle and motion ports in a separate reviewed outer
+composition; it must not add a second UI/API path or hide hardware behind the simulation
+bootstrap.  See the [architecture cleanup ledger](docs/architecture-cleanup.md).
+
 ## Safety model
 
 - `DRY_RUN` and hardware access `DISABLED` are the defaults.

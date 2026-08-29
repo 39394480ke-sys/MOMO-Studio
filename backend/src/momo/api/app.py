@@ -34,7 +34,10 @@ from momo.api.security import (
 )
 from momo.api.static_spa import SpaStaticFiles
 from momo.application.services.robot_service import RobotApplicationService
-from momo.bootstrap import build_application_services, build_robot_service
+from momo.bootstrap import (
+    build_simulation_product_services,
+    build_simulation_robot_service,
+)
 from momo.release_bootstrap import build_release_services
 from momo.settings import Settings, load_settings, repository_root
 
@@ -48,10 +51,12 @@ def create_app(
     resolved_settings = settings if settings is not None else load_settings()
     runtime_settings = resolved_settings.model_copy(update={"lan_auth_token": SecretStr("")})
     resolved_robot_service = (
-        robot_service if robot_service is not None else build_robot_service(runtime_settings)
+        robot_service
+        if robot_service is not None
+        else build_simulation_robot_service(runtime_settings)
     )
 
-    services = build_application_services(runtime_settings, resolved_robot_service)
+    services = build_simulation_product_services(runtime_settings, resolved_robot_service)
     release = build_release_services(resolved_settings, resolved_robot_service, services)
 
     @asynccontextmanager

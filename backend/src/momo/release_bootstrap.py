@@ -49,7 +49,7 @@ from momo.application.services.raw_direction_test_service import RawDirectionTes
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
 from momo.application.services.robot_service import PRIMARY_ROBOT_ID, RobotApplicationService
 from momo.application.services.security_service import SecurityService
-from momo.bootstrap import ApplicationServices
+from momo.bootstrap import SimulationProductServices
 from momo.domain.backup import BackupRestoreCalibrationTarget
 from momo.domain.calibration import CalibrationDocument
 from momo.domain.calibration_workflow import CalibrationWorkflowError
@@ -144,7 +144,7 @@ def build_network_policy(settings: Settings) -> NetworkSecurityPolicy:
 def _real_hardware_context(
     settings: Settings,
     robot: RobotApplicationService,
-    application: ApplicationServices,
+    application: SimulationProductServices,
     calibrations: FileCalibrationWorkflowRepository,
     field_acceptance: FileFieldAcceptanceEvidenceRepository,
     commissioning_evidence: FileCommissioningTestEvidenceRepository,
@@ -232,7 +232,7 @@ def _real_hardware_context(
 def build_release_services(
     settings: Settings,
     robot: RobotApplicationService,
-    application: ApplicationServices,
+    application: SimulationProductServices,
 ) -> ReleaseServices:
     """Compose bounded Stage 8 services; the real bus factory stays absent by default."""
 
