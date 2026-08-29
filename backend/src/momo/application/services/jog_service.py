@@ -16,6 +16,8 @@ from momo.domain.errors import (
 )
 from momo.domain.jog import JogLeaseResponse, JogStopResponse
 from momo.domain.motion_command import MotionCommand
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.ports.clock import Clock
 
 
@@ -51,7 +53,13 @@ class JogLeaseService:
         self._pending_reservations = 0
         self._guard = asyncio.Lock()
 
-    async def start(self, command: MotionCommand) -> JogLeaseResponse:
+    async def start(
+        self,
+        command: MotionCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> JogLeaseResponse:
         if command.command_type is not MotionCommandType.CONTINUOUS_JOG:
             raise ValueError("JogLeaseService requires a CONTINUOUS_JOG command")
         reserved = False
@@ -69,7 +77,14 @@ class JogLeaseService:
         accepted_command_id: UUID | None = None
         lease_secured = False
         try:
-            accepted = await self.motion_service.submit(command)
+            if authorization is None and execution_purpose is None:
+                accepted = await self.motion_service.submit(command)
+            else:
+                accepted = await self.motion_service.submit(
+                    command,
+                    authorization=authorization,
+                    execution_purpose=execution_purpose,
+                )
             accepted_command_id = accepted.command_id
             response = await self._register(command, accepted.command_id)
             lease_secured = True

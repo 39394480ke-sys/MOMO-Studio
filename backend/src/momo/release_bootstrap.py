@@ -14,6 +14,7 @@ from momo.adapters.hardware.feetech_servo_bus import (
 from momo.adapters.hardware.ftservo_commissioning_motion_bus import (
     FtServoCommissioningMotionBus,
 )
+from momo.adapters.hardware.ftservo_production_bus import FtServoProductionBusFactory
 from momo.adapters.hardware.ftservo_raw_direction_bus import FtServoRawDirectionBus
 from momo.adapters.storage.file_backup_restore_journal import FileBackupRestoreJournal
 from momo.adapters.storage.file_calibration_workflow_repository import (
@@ -49,7 +50,7 @@ from momo.application.services.raw_direction_test_service import RawDirectionTes
 from momo.application.services.real_hardware_authorization import RealHardwareAuthorization
 from momo.application.services.robot_service import PRIMARY_ROBOT_ID, RobotApplicationService
 from momo.application.services.security_service import SecurityService
-from momo.bootstrap import SimulationProductServices
+from momo.bootstrap import ProductServices
 from momo.domain.backup import BackupRestoreCalibrationTarget
 from momo.domain.calibration import CalibrationDocument
 from momo.domain.calibration_workflow import CalibrationWorkflowError
@@ -59,6 +60,7 @@ from momo.domain.real_hardware import (
     RealHardwareContext,
 )
 from momo.domain.security import NetworkExposureMode, NetworkSecurityPolicy
+from momo.ports.servo_bus import ServoBusFactory
 from momo.settings import Settings, repository_root
 
 
@@ -144,7 +146,7 @@ def build_network_policy(settings: Settings) -> NetworkSecurityPolicy:
 def _real_hardware_context(
     settings: Settings,
     robot: RobotApplicationService,
-    application: SimulationProductServices,
+    application: ProductServices,
     calibrations: FileCalibrationWorkflowRepository,
     field_acceptance: FileFieldAcceptanceEvidenceRepository,
     commissioning_evidence: FileCommissioningTestEvidenceRepository,
@@ -232,7 +234,7 @@ def _real_hardware_context(
 def build_release_services(
     settings: Settings,
     robot: RobotApplicationService,
-    application: SimulationProductServices,
+    application: ProductServices,
 ) -> ReleaseServices:
     """Compose bounded Stage 8 services; the real bus factory stays absent by default."""
 
@@ -272,17 +274,19 @@ def build_release_services(
         authorization,
         ttl_s=float(settings.operator_session_ttl_s),
     )
-    bus_factory = (
-        FeetechServoBusFactory(
+    bus_factory: ServoBusFactory | None
+    if settings.feetech_production_motion_adapter_enabled:
+        bus_factory = FtServoProductionBusFactory()
+    elif (
+        settings.feetech_read_only_adapter_enabled
+        or settings.feetech_raw_direction_adapter_enabled
+        or settings.feetech_commissioning_motion_adapter_enabled
+    ):
+        bus_factory = FeetechServoBusFactory(
             verified_bridge_module=REVIEWED_READ_ONLY_BRIDGE_MODULE,
         )
-        if (
-            settings.feetech_read_only_adapter_enabled
-            or settings.feetech_raw_direction_adapter_enabled
-            or settings.feetech_commissioning_motion_adapter_enabled
-        )
-        else None
-    )
+    else:
+        bus_factory = None
     device = DeviceDiagnosticsService(
         context=_real_hardware_context(
             settings,

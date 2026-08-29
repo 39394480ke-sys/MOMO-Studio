@@ -245,9 +245,9 @@ class TrajectoryPreflightReport(BaseModel):
     sample_rate_hz: Annotated[float, Field(strict=True, gt=0, le=100, allow_inf_nan=False)]
     checks: list[TrajectoryPreflightCheck]
     violations: list[TrajectoryViolation]
-    real_motion_ready: Literal[False] = False
-    field_acceptance_ready: Literal[False] = False
-    hardware_accessed: Literal[False] = False
+    real_motion_ready: bool = False
+    field_acceptance_ready: bool = False
+    hardware_accessed: bool = False
 
     @field_validator("checks")
     @classmethod

@@ -160,11 +160,12 @@ use `backend/.venv`; frontend commands run through npm in `frontend/`.
 - `docs/` — product, architecture, safety, operation, acceptance, ADR, and historical
   Stage evidence.
 
-The executable product graph is composed explicitly with
-`build_simulation_robot_service` and `build_simulation_product_services`.  A future REAL
-backend must implement the same lifecycle and motion ports in a separate reviewed outer
-composition; it must not add a second UI/API path or hide hardware behind the simulation
-bootstrap.  See the [architecture cleanup ledger](docs/architecture-cleanup.md).
+The executable product graph is composed explicitly. Development/default settings select
+`build_simulation_robot_service` and `build_simulation_product_services`; an explicitly
+field-authorized configuration selects `build_real_product_composition`. Both use the
+same UI, routes, application services, safety gateway, and persistence contracts. There
+is no silent REAL-to-DRY_RUN fallback. See the
+[architecture cleanup ledger](docs/architecture-cleanup.md).
 
 ## Safety model
 
@@ -176,7 +177,9 @@ bootstrap.  See the [architecture cleanup ledger](docs/architecture-cleanup.md).
 - `REAL_MOTION` is a separate purpose and requires current capability evidence.
 - Session purpose never upgrades; a new purpose requires a new confirmation and session.
 - Field acceptance is staged. No writable global `PASSED` value can authorize motion.
-- The normal release composition does not create a production write-capable Feetech bus.
+- The default release composition does not create a write-capable Feetech bus. The
+  separate production composition requires all local/evidence/operator gates before it
+  can open the exact configured device.
 - Camera access defaults to `SYNTHETIC_ONLY` and never auto-opens a real camera.
 - Live preview requires an ignored local device ID plus an explicit button press; closing
   it releases the device and captured frames are never persisted by MOMO Studio.

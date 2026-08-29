@@ -10,7 +10,8 @@ Vision APIs.  The repository also contains three distinct implementation concern
 
 1. the validated in-memory DRY_RUN product runtime;
 2. the narrowly scoped Real-device commissioning services; and
-3. a not-yet-composed production `RealMotionExecutor` plus read-only Legacy evidence.
+3. a production `RealMotionExecutor` whose outer product composition had not yet been
+   connected when this decision was accepted.
 
 Generic composition names made these concerns look interchangeable.  That ambiguity
 would make it easy to connect the redesigned UI directly to a Legacy controller, add a
@@ -34,18 +35,20 @@ React UI
 DRY_RUN and REAL are execution backends, not separate products, frontends, route sets,
 domain models, or persistence schemas.  V1 and V2 remain hardware variants.
 
-The current product composition is named explicitly:
+The product compositions are named explicitly:
 
 - `build_simulation_robot_service` constructs the in-memory robot lifecycle;
 - `build_simulation_product_services` constructs the product services around
   `DryRunMotionExecutor`;
-- `SimulationProductServices` makes the executable backend visible in the type name.
+- `ProductServices` contains only shared application services and port-typed executors;
+- `build_real_product_composition` supplies `RealRobotDriver`,
+  `RealCommandMotionExecutor`, and `RealPlaybackService` from a separate outer module.
 
 Real-device commissioning remains a separate outer composition in
 `release_bootstrap.py`.  Its read-only, Raw-direction, and bounded single-joint ports are
 not production motion executors and cannot be substituted for one.
 
-The future production REAL composition must:
+The production REAL composition must:
 
 - implement the existing `RobotDriver` and `MotionExecutor` ports, or a reviewed
   successor port introduced by a separate ADR;
@@ -67,13 +70,24 @@ construction to explicit outer compositions and migration tools.
 
 ## Consequences
 
-- The current runtime behavior does not change and no Real motion is enabled.
-- Composition names now state that the normal product graph executes in simulation.
-- Future REAL work has one integration seam instead of a second frontend/backend path.
+- Repository defaults and ordinary development runtime behavior remain DRY_RUN; no Real
+  motion is enabled by tracked configuration.
+- REAL is available only through the explicit field composition after all local,
+  evidence, device, operator-session, and purpose gates pass.
+- REAL and DRY_RUN now share one integration seam instead of separate frontend/backend
+  paths.
 - Commissioning can continue to use its narrower purpose-built ports without becoming a
   hidden production executor.
 - A future commit that imports a concrete adapter from API, application, domain, or ports
   fails the architecture test suite.
+
+## Implementation note — 2026-08-29
+
+The decision is now implemented. The production adapter is inert until an authorized
+connect call, never scans, targets only the configured IDs, and reuses the existing
+prepared-trajectory executor. Cancellation requests software Hold and reports
+`SAFETY_STATE_UNCERTAIN`; it never represents that result as a physical E-stop. REAL
+playback currently fixes rate at 1.0 and rejects pause, resume, and loop controls.
 
 ## Alternatives
 

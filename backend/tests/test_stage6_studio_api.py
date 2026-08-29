@@ -378,7 +378,7 @@ def test_two_frames_compile_save_open_update_conflict_and_save_as(tmp_path: Path
     asyncio.run(scenario())
 
 
-def test_compile_rejection_is_bounded_and_save_never_persists_motion(tmp_path: Path) -> None:
+def test_non_executable_compile_and_save_do_not_require_robot_connection(tmp_path: Path) -> None:
     async def scenario() -> None:
         app = make_stage6_app(tmp_path)
         snapshot = await connect_and_capture(app)
@@ -399,9 +399,10 @@ def test_compile_rejection_is_bounded_and_save_never_persists_motion(tmp_path: P
             json_data={"expected_revision": 1},
         )
         assert compiled.status_code == 200, compiled.text
-        assert compiled.json()["preflight"]["passed"] is False
-        assert compiled.json()["preview"] is None
-        assert compiled.json()["executable"] is False
+        compile_data = compiled.json()
+        assert compile_data["preflight"]["passed"] is True
+        assert compile_data["preview"] is not None
+        assert compile_data["executable"] is False
 
         saved = await api_request(
             app,
@@ -409,10 +410,9 @@ def test_compile_rejection_is_bounded_and_save_never_persists_motion(tmp_path: P
             f"/api/v1/studio/drafts/{draft['id']}/save",
             json_data={"expected_revision": 1},
         )
-        assert saved.status_code == 422
-        assert saved.json()["code"] == "MOTION_PREFLIGHT_REJECTED"
-        assert saved.json()["details"]["reason"] == "DRAFT_COMPILE_REJECTED"
-        assert not tuple((tmp_path / "motions").glob("*.json"))
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["preflight"]["passed"] is True
+        assert len(tuple((tmp_path / "motions").glob("*.json"))) == 1
 
     asyncio.run(scenario())
 

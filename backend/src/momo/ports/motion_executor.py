@@ -8,6 +8,8 @@ from momo.domain.motion_preflight import (
     PreparedContinuousJog,
     PreparedMotion,
 )
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 
 
 @runtime_checkable
@@ -21,10 +23,20 @@ class MotionExecutor(Protocol):
 
     def latest_status(self) -> MotionCommandStatus | None: ...
 
-    async def submit(self, prepared: PreparedMotion) -> MotionCommandStatus: ...
+    async def submit(
+        self,
+        prepared: PreparedMotion,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> MotionCommandStatus: ...
 
     async def submit_continuous_jog(
-        self, prepared: PreparedContinuousJog
+        self,
+        prepared: PreparedContinuousJog,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
     ) -> MotionCommandStatus: ...
 
     async def cancel_active(self) -> MotionCommandStatus | None: ...

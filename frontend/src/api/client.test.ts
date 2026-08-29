@@ -333,7 +333,10 @@ describe('API client errors', () => {
     expect(() => normalizePlaybackStatus({ ...status, progress: 1.01 })).toThrow(
       'invalid playback progress',
     );
-    expect(() => normalizePlaybackStatus({ ...status, hardware_accessed: true })).toThrow(
+    expect(normalizePlaybackStatus({ ...status, hardware_accessed: true })).toMatchObject({
+      hardware_accessed: true,
+    });
+    expect(() => normalizePlaybackStatus({ ...status, hardware_accessed: 'yes' })).toThrow(
       'invalid playback status',
     );
   });

@@ -108,6 +108,7 @@ class Settings(BaseSettings):
     feetech_read_only_adapter_enabled: bool = False
     feetech_raw_direction_adapter_enabled: bool = False
     feetech_commissioning_motion_adapter_enabled: bool = False
+    feetech_production_motion_adapter_enabled: bool = False
     servo_ids: tuple[int, ...] = ()
     servo_protocol: Annotated[
         str,
@@ -510,6 +511,40 @@ def load_settings(
             raise ValueError("Only one Feetech adapter mode may be enabled at a time")
         if settings.servo_protocol != "STS3215":
             raise ValueError("Feetech commissioning adapter supports only STS3215")
+    if settings.feetech_production_motion_adapter_enabled:
+        if local_values.get("feetech_production_motion_adapter_enabled") is not True:
+            raise ValueError(
+                "Feetech production motion adapter must be explicitly enabled by local config"
+            )
+        if not settings.hardware_local_config_enabled:
+            raise ValueError("Feetech production adapter requires local hardware authorization")
+        if settings.control_mode is not ControlMode.REAL:
+            raise ValueError("Feetech production adapter requires REAL control mode")
+        if settings.hardware_access_policy is not HardwareAccessPolicy.FULL:
+            raise ValueError("Feetech production adapter requires FULL hardware policy")
+        if not settings.hardware_startup_enabled or not settings.real_motion_enabled:
+            raise ValueError(
+                "Feetech production adapter requires startup and REAL motion authorization"
+            )
+        if settings.commissioning_motion_test_enabled or settings.raw_direction_test_enabled:
+            raise ValueError(
+                "Production motion cannot share a process with commissioning motion modes"
+            )
+        if (
+            settings.feetech_read_only_adapter_enabled
+            or settings.feetech_raw_direction_adapter_enabled
+            or settings.feetech_commissioning_motion_adapter_enabled
+        ):
+            raise ValueError("Only one Feetech adapter mode may be enabled at a time")
+        if settings.servo_protocol != "STS3215":
+            raise ValueError("Feetech production adapter supports only STS3215")
+        if (
+            local_values.get("software_commit") != settings.software_commit
+            or settings.software_commit == "unknown"
+        ):
+            raise ValueError(
+                "Production REAL motion requires an explicit software_commit from local config"
+            )
     if settings.lan_enabled and local_values.get("lan_enabled") is not True:
         raise ValueError("LAN mode must be explicitly enabled by the supplied local config")
     return settings

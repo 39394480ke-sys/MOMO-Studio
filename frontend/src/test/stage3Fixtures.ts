@@ -135,7 +135,16 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
   const realMotionEnabled = options.realMotionEnabled ?? false;
   const realSessionScopes = options.realSessionScopes ?? null;
   let variant = options.variant ?? 'V2';
-  let currentRobot = robotFor(variant, options.connected ?? true);
+  const robotStatusFor = (nextVariant: RobotVariant, connected: boolean) => ({
+    ...robotFor(nextVariant, connected),
+    control_mode: controlMode,
+    hardware_access_policy: hardwareAccessPolicy,
+    hardware_accessed: connected
+      && controlMode === 'REAL'
+      && hardwareAccessPolicy === 'FULL'
+      && realMotionEnabled,
+  });
+  let currentRobot = robotStatusFor(variant, options.connected ?? true);
   if (options.robotStale !== undefined) {
     currentRobot = { ...currentRobot, stale: options.robotStale };
   }
@@ -302,12 +311,13 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
     }
     if (path === '/robot/diagnostics') {
       return jsonResponse({
-        hardware_access_policy: 'DISABLED', runtime_state_path: 'data/runtime/robots/primary.json',
+        hardware_access_policy: hardwareAccessPolicy, runtime_state_path: 'data/runtime/robots/primary.json',
         runtime_state_valid: true, runtime_state_diagnostic: 'No saved runtime state',
         quarantined_runtime_file: null, backend_version: '0.1.0',
         legacy_source_commit: 'ff8bbda0c2222cb57951c7913f7f12f5777b98fa',
         stage_policy: 'STAGE_4_DRY_RUN_ONLY', active_profile_fingerprint: PROFILE_FINGERPRINT,
-        active_kinematics_fingerprint: KINEMATICS_FINGERPRINT, hardware_accessed: false,
+        active_kinematics_fingerprint: KINEMATICS_FINGERPRINT,
+        hardware_accessed: currentRobot.hardware_accessed,
       });
     }
     if (path === '/robot/fk') {
@@ -319,7 +329,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
           frame: 'base', position_mm: { x: 101, y: 202, z: 303 },
           orientation_quaternion_xyzw: { x: 0, y: 0, z: 0, w: 1 },
         },
-        hardware_accessed: false,
+        hardware_accessed: currentRobot.hardware_accessed,
       });
     }
     if (path === '/robot/connect') {
@@ -331,22 +341,26 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
           request_id: 'request-123',
         }, false, 409);
       }
-      currentRobot = { ...currentRobot, connected: true, connection_state: 'CONNECTED', state_sequence: 7 };
-      return jsonResponse({ status: currentRobot, hardware_accessed: false });
+      currentRobot = { ...robotStatusFor(variant, true), state_sequence: 7 };
+      return jsonResponse({ status: currentRobot, hardware_accessed: currentRobot.hardware_accessed });
     }
     if (path === '/robot/disconnect') {
       await options.disconnectGate;
-      currentRobot = { ...currentRobot, connected: false, connection_state: 'DISCONNECTED', state_sequence: 9 };
-      return jsonResponse({ status: currentRobot, hardware_accessed: false });
+      currentRobot = { ...robotStatusFor(variant, false), state_sequence: 9 };
+      return jsonResponse({ status: currentRobot, hardware_accessed: currentRobot.hardware_accessed });
     }
     if (path === '/robot/stop') {
-      return jsonResponse({ result: 'STOPPED', status: currentRobot, hardware_accessed: false });
+      return jsonResponse({
+        result: 'STOPPED',
+        status: currentRobot,
+        hardware_accessed: currentRobot.hardware_accessed,
+      });
     }
     if (path === '/robot/variant') {
       const next = body as { variant: RobotVariant };
       variant = next.variant;
-      currentRobot = robotFor(variant, false);
-      return jsonResponse({ status: currentRobot, hardware_accessed: false });
+      currentRobot = robotStatusFor(variant, false);
+      return jsonResponse({ status: currentRobot, hardware_accessed: currentRobot.hardware_accessed });
     }
     if (path === '/robot') return jsonResponse(currentRobot);
 
@@ -455,7 +469,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
         started_at: '2026-08-24T00:00:00Z',
         updated_at: '2026-08-24T00:00:01Z',
         finished_at: state === 'COMPLETED' ? '2026-08-24T00:00:02Z' : null,
-        hardware_accessed: false,
+        hardware_accessed: currentRobot.hardware_accessed,
       });
     }
     if (path === '/motion/stop') {
@@ -463,7 +477,7 @@ export function mockStage3Backend(options: MockBackendOptions = {}) {
       return jsonResponse({
         result: options.stopResult ?? 'STOPPED',
         status: currentRobot,
-        hardware_accessed: false,
+        hardware_accessed: currentRobot.hardware_accessed,
       });
     }
     if (

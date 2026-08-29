@@ -1,8 +1,9 @@
 """Side-effect-free FastAPI application factory."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import Depends, FastAPI
 from pydantic import SecretStr
@@ -33,11 +34,14 @@ from momo.api.security import (
     authorize_vision_request,
 )
 from momo.api.static_spa import SpaStaticFiles
+from momo.application.services.product_lifecycle_service import ProductLifecycleService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.bootstrap import (
     build_simulation_product_services,
     build_simulation_robot_service,
 )
+from momo.ports.servo_bus import ServoBus
+from momo.real_bootstrap import build_real_product_composition
 from momo.release_bootstrap import build_release_services
 from momo.settings import Settings, load_settings, repository_root
 
@@ -50,14 +54,36 @@ def create_app(
 
     resolved_settings = settings if settings is not None else load_settings()
     runtime_settings = resolved_settings.model_copy(update={"lan_auth_token": SecretStr("")})
-    resolved_robot_service = (
-        robot_service
-        if robot_service is not None
-        else build_simulation_robot_service(runtime_settings)
-    )
-
-    services = build_simulation_product_services(runtime_settings, resolved_robot_service)
+    real_composition = None
+    if robot_service is None and runtime_settings.feetech_production_motion_adapter_enabled:
+        real_composition = build_real_product_composition(runtime_settings)
+        resolved_robot_service = real_composition.robot
+        services = real_composition.services
+    else:
+        resolved_robot_service = (
+            robot_service
+            if robot_service is not None
+            else build_simulation_robot_service(runtime_settings)
+        )
+        services = build_simulation_product_services(runtime_settings, resolved_robot_service)
     release = build_release_services(resolved_settings, resolved_robot_service, services)
+    services.trajectory.bind_execution_readiness_provider(
+        release.device.product_execution_readiness
+    )
+    bind_real_bus: Callable[[ServoBus, UUID], None] | None = None
+    if real_composition is not None:
+        real_binding = real_composition.binding
+
+        def bind_real_bus(bus: ServoBus, session_id: UUID) -> None:
+            real_binding.bind(bus, session_id=session_id)
+
+    lifecycle = ProductLifecycleService(
+        robot=resolved_robot_service,
+        motion=services.motion,
+        device=release.device,
+        bind_real_bus=bind_real_bus,
+        unbind_real_bus=(real_composition.binding.unbind if real_composition is not None else None),
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -76,12 +102,16 @@ def create_app(
                     await release.calibration.shutdown()
                 finally:
                     try:
-                        await release.device.shutdown()
+                        await services.vision.shutdown()
                     finally:
                         try:
-                            await services.vision.shutdown()
-                        finally:
                             await services.motion.shutdown()
+                        finally:
+                            try:
+                                await release.device.shutdown()
+                            finally:
+                                if real_composition is not None:
+                                    real_composition.binding.unbind()
 
     app = FastAPI(
         title=f"{runtime_settings.product_name} API",
@@ -95,6 +125,7 @@ def create_app(
     app.state.robot_service = resolved_robot_service
     app.state.kinematics_service = services.kinematics
     app.state.motion_service = services.motion
+    app.state.product_lifecycle_service = lifecycle
     app.state.jog_service = services.jog
     app.state.library_service = services.library
     app.state.trajectory_service = services.trajectory

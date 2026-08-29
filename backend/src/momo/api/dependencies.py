@@ -13,12 +13,14 @@ from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.library_service import LibraryApplicationService
 from momo.application.services.motion_service import MotionApplicationService
 from momo.application.services.operator_session_service import OperatorSessionTokenError
+from momo.application.services.product_lifecycle_service import ProductLifecycleService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.application.services.studio_service import StudioApplicationService
 from momo.application.services.trajectory_service import TrajectoryApplicationService
 from momo.application.services.vision_service import VisionApplicationService
 from momo.domain.enums import ControlMode
 from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.settings import Settings
 
 
@@ -36,6 +38,10 @@ def get_kinematics_service(request: Request) -> KinematicsService:
 
 def get_motion_service(request: Request) -> MotionApplicationService:
     return cast(MotionApplicationService, request.app.state.motion_service)
+
+
+def get_product_lifecycle_service(request: Request) -> ProductLifecycleService:
+    return cast(ProductLifecycleService, request.app.state.product_lifecycle_service)
 
 
 def get_jog_service(request: Request) -> JogLeaseService:
@@ -107,25 +113,28 @@ async def _authorize_real_motion_request(
     token: str | None,
     *,
     purpose: RealHardwareAuthorizationPurpose,
-) -> None:
+) -> RealExecutionAuthorization | None:
     device = cast(
         DeviceDiagnosticsService,
         request.app.state.device_diagnostics_service,
     )
     if device.context.control_mode is not ControlMode.REAL:
-        return
+        return None
     if token is None or not 20 <= len(token) <= 200:
         raise OperatorSessionTokenError(
             "A valid operator session token is required for Real motion"
         )
-    await device.authorize_operator_purpose(token, purpose=purpose)
+    if purpose is RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW:
+        await device.authorize_operator_purpose(token, purpose=purpose)
+        return None
+    return await device.authorize_real_execution(token, purpose=purpose)
 
 
 async def authorize_real_joint_motion_request(
     request: Request,
     token: OptionalOperatorToken = None,
-) -> None:
-    await _authorize_real_motion_request(
+) -> RealExecutionAuthorization | None:
+    return await _authorize_real_motion_request(
         request,
         token,
         purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
@@ -135,8 +144,8 @@ async def authorize_real_joint_motion_request(
 async def authorize_real_cartesian_motion_request(
     request: Request,
     token: OptionalOperatorToken = None,
-) -> None:
-    await _authorize_real_motion_request(
+) -> RealExecutionAuthorization | None:
+    return await _authorize_real_motion_request(
         request,
         token,
         purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
@@ -146,8 +155,8 @@ async def authorize_real_cartesian_motion_request(
 async def authorize_real_playback_request(
     request: Request,
     token: OptionalOperatorToken = None,
-) -> None:
-    await _authorize_real_motion_request(
+) -> RealExecutionAuthorization | None:
+    return await _authorize_real_motion_request(
         request,
         token,
         purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
@@ -157,8 +166,8 @@ async def authorize_real_playback_request(
 async def authorize_real_vision_follow_request(
     request: Request,
     token: OptionalOperatorToken = None,
-) -> None:
-    await _authorize_real_motion_request(
+) -> RealExecutionAuthorization | None:
+    return await _authorize_real_motion_request(
         request,
         token,
         purpose=RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,

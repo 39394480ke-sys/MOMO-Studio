@@ -15,6 +15,8 @@ from momo.domain.motion_preflight import (
     PreparedMotion,
 )
 from momo.domain.pose import utc_now
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.robot import JointState
 from momo.ports.clock import Clock
 from momo.ports.motion_state_sink import MotionStateSink
@@ -62,13 +64,26 @@ class DryRunMotionExecutor:
         command_id = self._latest_command_id
         return self._statuses.get(command_id) if command_id is not None else None
 
-    async def submit(self, prepared: PreparedMotion) -> MotionCommandStatus:
+    async def submit(
+        self,
+        prepared: PreparedMotion,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> MotionCommandStatus:
+        if authorization is not None or execution_purpose is not None:
+            raise ValueError("DRY_RUN execution cannot accept a Real authorization")
         return await self._start(prepared.command_id, prepared, continuous=False)
 
     async def submit_continuous_jog(
         self,
         prepared: PreparedContinuousJog,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
     ) -> MotionCommandStatus:
+        if authorization is not None or execution_purpose is not None:
+            raise ValueError("DRY_RUN execution cannot accept a Real authorization")
         return await self._start(prepared.command_id, prepared, continuous=True)
 
     async def _start(

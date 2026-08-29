@@ -21,6 +21,7 @@ from momo.domain.playback import (
     PlaybackState,
     PlaybackStatus,
 )
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.robot import JointState
 from momo.ports.clock import Clock
 from momo.ports.playback import (
@@ -61,6 +62,7 @@ _PUBLIC_VALIDATION_FAULT_CODES = frozenset(
         "PREFLIGHT_NOT_ACCEPTED",
         "PROFILE_CHANGED",
         "PROFILE_FINGERPRINT_CHANGED",
+        "REAL_ARTIFACTS_CHANGED",
         "ROBOT_NOT_CONNECTED",
         "ROBOT_STATE_STALE",
         "ROBOT_VARIANT_CHANGED",
@@ -232,8 +234,12 @@ class PlaybackService:
         rate: float = 1.0,
         loop: bool = False,
         loop_count: int = 2,
+        authorization: RealExecutionAuthorization | None = None,
     ) -> PlaybackStatus:
         """Start one task for an already-preflighted immutable trajectory."""
+
+        if authorization is not None:
+            raise ValueError("DRY_RUN playback cannot accept a REAL authorization")
 
         resolved_rate = self._validate_rate(rate)
         resolved_loop_count = self._validate_loop(loop, loop_count)

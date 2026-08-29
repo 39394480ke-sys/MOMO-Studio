@@ -35,9 +35,9 @@ def preflight_response(outcome: TrajectoryCompileOutcome) -> TrajectoryPreflight
         violations=list(report.violations),
         checks=list(report.checks),
         prepared_at=(outcome.prepared.plan.compiled_at if outcome.prepared is not None else None),
-        real_motion_ready=False,
-        field_acceptance_ready=False,
-        hardware_accessed=False,
+        real_motion_ready=report.real_motion_ready,
+        field_acceptance_ready=report.field_acceptance_ready,
+        hardware_accessed=report.hardware_accessed,
     )
 
 

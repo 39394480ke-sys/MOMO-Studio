@@ -395,7 +395,8 @@ export function normalizeCommandStatus(value: unknown): MotionCommandStatus {
     started_at: stringValue(value.started_at),
     updated_at: stringValue(value.updated_at) ?? undefined,
     finished_at: stringValue(value.finished_at),
-    hardware_accessed: value.hardware_accessed === false ? false : undefined,
+    hardware_accessed:
+      typeof value.hardware_accessed === 'boolean' ? value.hardware_accessed : undefined,
   };
 }
 
@@ -418,7 +419,8 @@ function normalizeSubmission(value: unknown): MotionCommandSubmission {
     command_id: commandId,
     command,
     preflight,
-    hardware_accessed: value.hardware_accessed === false ? false : undefined,
+    hardware_accessed:
+      typeof value.hardware_accessed === 'boolean' ? value.hardware_accessed : undefined,
   };
 }
 
@@ -499,7 +501,11 @@ export function normalizePlaybackStatus(value: unknown): PlaybackStatus {
   const updatedAt = stringValue(value.updated_at);
   if (progress > 1) throw new TypeError('Backend returned an invalid playback progress');
   if (rate > 2) throw new TypeError('Backend returned an invalid playback rate');
-  if (typeof value.loop !== 'boolean' || !updatedAt || value.hardware_accessed !== false) {
+  if (
+    typeof value.loop !== 'boolean' ||
+    !updatedAt ||
+    typeof value.hardware_accessed !== 'boolean'
+  ) {
     throw new TypeError('Backend returned an invalid playback status');
   }
   return {
@@ -517,7 +523,7 @@ export function normalizePlaybackStatus(value: unknown): PlaybackStatus {
     rate,
     error: optionalString(value.error, 'playback error'),
     updated_at: updatedAt,
-    hardware_accessed: false,
+    hardware_accessed: value.hardware_accessed,
   };
 }
 
@@ -630,25 +636,25 @@ export function getCalibrationStatus(signal?: AbortSignal): Promise<CalibrationS
   return requestJson<CalibrationStatus>('/calibration/status', { signal });
 }
 
-export function connectRobot(): Promise<{ status: RobotStatus; hardware_accessed: false }> {
+export function connectRobot(): Promise<{ status: RobotStatus; hardware_accessed: boolean }> {
   return postJson('/robot/connect');
 }
 
-export function disconnectRobot(): Promise<{ status: RobotStatus; hardware_accessed: false }> {
+export function disconnectRobot(): Promise<{ status: RobotStatus; hardware_accessed: boolean }> {
   return postJson('/robot/disconnect');
 }
 
 export function stopRobot(): Promise<{
   result: 'STOPPED' | 'NOT_CONNECTED' | 'FAILED' | 'SAFETY_STATE_UNCERTAIN';
   status: RobotStatus;
-  hardware_accessed: false;
+  hardware_accessed: boolean;
 }> {
   return postJson('/robot/stop');
 }
 
 export function switchRobotVariant(
   variant: RobotVariant,
-): Promise<{ status: RobotStatus; hardware_accessed: false }> {
+): Promise<{ status: RobotStatus; hardware_accessed: boolean }> {
   return requestJson('/robot/variant', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

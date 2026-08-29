@@ -21,17 +21,22 @@ function isSupportedRuntimePolicy(data: BootstrapResponse): boolean {
     data.health.control_mode === data.meta.active_control_mode &&
     data.health.hardware_access_policy === data.meta.hardware_access_policy &&
     data.health.real_motion_enabled === data.meta.real_motion_enabled;
-  const dryRunRuntimeIsIsolated =
-    data.robot.control_mode === 'DRY_RUN' &&
-    data.robot.hardware_access_policy === 'DISABLED' &&
-    data.robot.hardware_accessed === false;
+  const robotPolicyMatches =
+    data.robot.control_mode === data.health.control_mode &&
+    data.robot.hardware_access_policy === data.health.hardware_access_policy;
   const policyCombinationIsValid = data.health.control_mode === 'DRY_RUN'
-    ? data.health.hardware_access_policy === 'DISABLED' && data.health.real_motion_enabled === false
-    : data.health.hardware_access_policy === 'FULL' || data.health.real_motion_enabled === false;
+    ? data.health.hardware_access_policy === 'DISABLED' &&
+      data.health.real_motion_enabled === false &&
+      data.robot.hardware_accessed === false
+    : data.health.hardware_access_policy !== 'DISABLED' &&
+      (!data.robot.hardware_accessed ||
+        (data.health.hardware_access_policy === 'FULL' &&
+          data.health.real_motion_enabled &&
+          data.robot.connected));
   return (
     data.health.status === 'ok' &&
     metadataMatchesHealth &&
-    dryRunRuntimeIsIsolated &&
+    robotPolicyMatches &&
     policyCombinationIsValid
   );
 }

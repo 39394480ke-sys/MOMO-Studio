@@ -15,6 +15,17 @@ from fastapi.testclient import TestClient
 
 import momo.api.routes.ws_robot as ws_robot_route
 from momo.api.app import create_app
+from momo.api.routes.robot import disconnect_robot
+from momo.application.services.product_lifecycle_service import ProductLifecycleService
+from momo.domain.enums import (
+    CalibrationStatus,
+    ControlMode,
+    HardwareAccessPolicy,
+    ProfileVerificationStatus,
+    RobotConnectionState,
+    RobotVariant,
+)
+from momo.domain.runtime import RobotStatus
 from momo.settings import Settings
 
 
@@ -56,6 +67,32 @@ def common_fields(status: dict[str, Any], fk: dict[str, Any], key: str) -> dict[
         "idempotency_key": key,
         "speed_scale": 1.0,
     }
+
+
+def test_real_disconnect_response_reports_the_disconnected_postcondition() -> None:
+    status = RobotStatus(
+        robot_id="primary",
+        variant=RobotVariant.V2,
+        control_mode=ControlMode.REAL,
+        hardware_access_policy=HardwareAccessPolicy.FULL,
+        connection_state=RobotConnectionState.DISCONNECTED,
+        connected=False,
+        profile_fingerprint="a" * 64,
+        profile_verification_status=ProfileVerificationStatus.VERIFIED_FOR_REAL,
+        calibration_status=CalibrationStatus.READY_FOR_REAL,
+        positions={"j11": 0.0},
+        units={"j11": "deg"},
+        hardware_accessed=False,
+    )
+
+    class DisconnectedLifecycle:
+        async def disconnect(self, token: str | None = None) -> RobotStatus:
+            del token
+            return status
+
+    response = asyncio.run(disconnect_robot(cast(ProductLifecycleService, DisconnectedLifecycle())))
+    assert response.status is status
+    assert response.hardware_accessed is False
 
 
 def test_fk_ik_and_joint_motion_round_trip_use_explicit_contracts(tmp_path: Path) -> None:

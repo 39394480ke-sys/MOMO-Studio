@@ -28,10 +28,15 @@ from momo.application.services.trajectory_service import TrajectoryApplicationSe
 from momo.domain.enums import ControlMode, MotionMode
 from momo.domain.playback import PlaybackStatus
 from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 
 router = APIRouter(tags=["trajectory-playback"])
 TrajectoryService = Annotated[TrajectoryApplicationService, Depends(get_trajectory_service)]
 TrajectoryDigestPath = Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")]
+RealPlaybackAuthorization = Annotated[
+    RealExecutionAuthorization | None,
+    Depends(authorize_real_playback_request),
+]
 
 
 async def authorize_motion_playback_kind(
@@ -92,6 +97,7 @@ async def play_motion(
     motion_id: UUID,
     request: PlaybackStartRequest,
     service: TrajectoryService,
+    authorization: RealPlaybackAuthorization,
 ) -> PlaybackStatus:
     return await service.play(
         motion_id,
@@ -99,6 +105,7 @@ async def play_motion(
         trajectory_digest=request.trajectory_digest,
         loop=request.loop,
         rate=request.rate,
+        authorization=authorization,
     )
 
 

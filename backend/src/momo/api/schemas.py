@@ -73,7 +73,7 @@ class RobotCommandResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: RobotStatus
-    hardware_accessed: Literal[False] = False
+    hardware_accessed: bool = False
 
 
 class VariantSwitchRequest(BaseModel):
@@ -88,24 +88,24 @@ class ProfileResponse(BaseModel):
     profile: RobotProfile
     fingerprint: str
     kinematics_fingerprint: str
-    real_eligible: Literal[False] = False
+    real_eligible: bool = False
 
 
 class DiagnosticsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    hardware_access_policy: Literal[HardwareAccessPolicy.DISABLED]
+    hardware_access_policy: HardwareAccessPolicy
     runtime_state_path: str
     runtime_state_valid: bool
     runtime_state_diagnostic: str
     quarantined_runtime_file: str | None
     backend_version: str
     legacy_source_commit: str
-    stage_policy: Literal["DRY_RUN_ONLY"]
+    stage_policy: Literal["DRY_RUN_ONLY", "REVIEWED_REAL_RUNTIME"]
     active_profile_fingerprint: str
     robot_state_freshness_limit_s: float
     runtime_persistence_error: str | None
-    hardware_accessed: Literal[False] = False
+    hardware_accessed: bool = False
 
 
 CalibrationStatusResponse = CalibrationStatusReport

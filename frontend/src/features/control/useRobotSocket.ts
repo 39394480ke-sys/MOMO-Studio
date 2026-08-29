@@ -38,9 +38,14 @@ function robotFrom(records: Record<string, unknown>[]): RobotStatus | null {
     if (
       isRecord(candidate) &&
       typeof candidate.robot_id === 'string' &&
-      candidate.control_mode === 'DRY_RUN' &&
-      candidate.hardware_access_policy === 'DISABLED' &&
-      candidate.hardware_accessed === false &&
+      (candidate.control_mode === 'DRY_RUN' || candidate.control_mode === 'REAL') &&
+      (candidate.hardware_access_policy === 'DISABLED' ||
+        candidate.hardware_access_policy === 'READ_ONLY' ||
+        candidate.hardware_access_policy === 'FULL') &&
+      typeof candidate.hardware_accessed === 'boolean' &&
+      (candidate.control_mode !== 'DRY_RUN' ||
+        (candidate.hardware_access_policy === 'DISABLED' &&
+          candidate.hardware_accessed === false)) &&
       typeof candidate.stale === 'boolean' &&
       isRecord(candidate.positions) &&
       isRecord(candidate.units)

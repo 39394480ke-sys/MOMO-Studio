@@ -40,9 +40,9 @@ class TrajectoryPreflightResponse(BaseModel):
     violations: list[TrajectoryViolation]
     checks: list[TrajectoryPreflightCheck]
     prepared_at: datetime | None = None
-    real_motion_ready: Literal[False] = False
-    field_acceptance_ready: Literal[False] = False
-    hardware_accessed: Literal[False] = False
+    real_motion_ready: bool = False
+    field_acceptance_ready: bool = False
+    hardware_accessed: bool = False
 
 
 class PlaybackStartRequest(BaseModel):

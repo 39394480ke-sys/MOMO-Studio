@@ -49,6 +49,7 @@ async def robot_state_socket(websocket: WebSocket) -> None:
                 robot_id=status.robot_id,
             )
             latest_command = motion.latest_status()
+            playback_status = playback.get_status()
             payload = {
                 "robot_status": status.model_dump(mode="json"),
                 "tcp_pose": fk.tcp_pose.model_dump(mode="json"),
@@ -56,9 +57,13 @@ async def robot_state_socket(websocket: WebSocket) -> None:
                 "command_status": (
                     latest_command.model_dump(mode="json") if latest_command is not None else None
                 ),
-                "playback_status": playback.get_status().model_dump(mode="json"),
+                "playback_status": playback_status.model_dump(mode="json"),
                 "state_sequence": status.state_sequence,
-                "hardware_accessed": False,
+                "hardware_accessed": (
+                    status.hardware_accessed
+                    or bool(latest_command is not None and latest_command.hardware_accessed)
+                    or playback_status.hardware_accessed
+                ),
             }
             # No application queue exists: a slow client can block only its own
             # sender, and is removed after the bounded send timeout.

@@ -269,6 +269,7 @@ async def compile_motion(
     real_readiness: RealReadiness = RealReadiness.BLOCKED_BY_STAGE_POLICY,
     field_acceptance_complete: bool = False,
     cancellation_requested: Any = None,
+    non_executable_preview: bool = False,
 ) -> Any:
     model = compiler.kinematics.model_for(profile)
     return await compiler.compile(
@@ -304,6 +305,7 @@ async def compile_motion(
         real_readiness=real_readiness,
         field_acceptance_complete=field_acceptance_complete,
         cancellation_requested=cancellation_requested,
+        non_executable_preview=non_executable_preview,
     )
 
 
@@ -932,6 +934,45 @@ def test_start_state_must_match_first_keyframe_without_implicit_entry_move() -> 
 
     assert "START_STATE_MISMATCH" in violation_codes(outcome)
     assert outcome.prepared is None
+
+
+def test_non_executable_preview_starts_from_first_keyframe_without_live_robot_state() -> None:
+    kinematics = SyntheticTrajectoryKinematics()
+    profile = canonical_robot_profile(RobotVariant.V1)
+    motion = two_keyframe_motion(kinematics, profile, duration_s=0.05)
+
+    outcome = run(
+        compile_motion(
+            TrajectoryCompiler(kinematics),
+            motion,
+            profile,
+            start_state=state_for(profile, {"j11": 25.0}),
+            start_state_sequence=999,
+            expected_state_sequence=1,
+            connected=False,
+            state_fresh=False,
+            stop_capable=False,
+            source=MotionCommandSource.STUDIO,
+            non_executable_preview=True,
+        )
+    )
+
+    value = prepared(outcome)
+    assert value.plan.start_state_sequence == (
+        motion.keyframes[0].pose_snapshot.state_sequence or 0
+    )
+    assert (
+        value.plan.samples[0].positions == motion.keyframes[0].pose_snapshot.joint_state.positions
+    )
+    assert not violation_codes(outcome)
+    assert any(
+        check.name == "start_state" and "Studio preview" in check.detail
+        for check in outcome.report.checks
+    )
+    assert any(
+        check.name == "velocity" and "Not enforced" in check.detail
+        for check in outcome.report.checks
+    )
 
 
 def test_embedded_joint_limit_violation_is_rejected() -> None:

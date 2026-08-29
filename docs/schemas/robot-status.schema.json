@@ -83,7 +83,6 @@
       "$ref": "#/$defs/HardwareAccessPolicy"
     },
     "hardware_accessed": {
-      "const": false,
       "default": false,
       "title": "Hardware Accessed",
       "type": "boolean"

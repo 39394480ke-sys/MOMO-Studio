@@ -3,6 +3,7 @@
 from typing import Protocol, runtime_checkable
 
 from momo.domain.enums import RobotVariant
+from momo.domain.real_hardware import RealStopOutcome
 from momo.domain.robot import JointState, RobotId, RobotProfile
 
 
@@ -29,4 +30,4 @@ class RobotDriver(Protocol):
 
     async def move_to_joint_state(self, state: JointState) -> None: ...
 
-    async def stop(self) -> None: ...
+    async def stop(self) -> RealStopOutcome | None: ...

@@ -29,11 +29,21 @@ from momo.application.services.motion_service import MotionApplicationService
 from momo.domain.jog import JogLeaseResponse, JogStopResponse
 from momo.domain.motion_command import MotionCommand
 from momo.domain.motion_preflight import MotionAccepted, MotionCommandStatus
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.runtime import StopResponse
 
 router = APIRouter(prefix="/motion", tags=["motion"])
 MotionServiceDependency = Annotated[MotionApplicationService, Depends(get_motion_service)]
 JogServiceDependency = Annotated[JogLeaseService, Depends(get_jog_service)]
+RealJointAuthorization = Annotated[
+    RealExecutionAuthorization | None,
+    Depends(authorize_real_joint_motion_request),
+]
+RealCartesianAuthorization = Annotated[
+    RealExecutionAuthorization | None,
+    Depends(authorize_real_cartesian_motion_request),
+]
 
 
 def _set_motion_audit_context(
@@ -42,12 +52,13 @@ def _set_motion_audit_context(
     command_id: UUID,
     robot_id: str,
     preflight: str,
+    real: bool = False,
 ) -> None:
     """Attach bounded motion evidence to the request-level structured audit."""
 
     http_request.state.command_id = str(command_id)
     http_request.state.robot_id = robot_id
-    http_request.state.mode = "DRY_RUN"
+    http_request.state.mode = "REAL" if real else "DRY_RUN"
     http_request.state.preflight = preflight
 
 
@@ -55,6 +66,8 @@ async def _submit_motion(
     http_request: Request,
     service: MotionApplicationService,
     command: MotionCommand,
+    authorization: RealExecutionAuthorization | None = None,
+    execution_purpose: RealHardwareAuthorizationPurpose | None = None,
 ) -> MotionAccepted:
     command_id = command.command_id
     robot_id = command.robot_id
@@ -63,9 +76,14 @@ async def _submit_motion(
         command_id=command_id,
         robot_id=robot_id,
         preflight="PENDING",
+        real=authorization is not None,
     )
     try:
-        accepted = await service.submit(command)
+        accepted = await service.submit(
+            command,
+            authorization=authorization,
+            execution_purpose=execution_purpose,
+        )
     except Exception:
         http_request.state.preflight = "REJECTED"
         raise
@@ -80,15 +98,21 @@ async def _submit_motion(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_joint_motion_request),
     ],
 )
 async def move_joints(
     request: MoveJointsRequest,
     http_request: Request,
     service: MotionServiceDependency,
+    authorization: RealJointAuthorization,
 ) -> MotionAccepted:
-    return await _submit_motion(http_request, service, request.command())
+    return await _submit_motion(
+        http_request,
+        service,
+        request.command(),
+        authorization,
+        (RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION if authorization is not None else None),
+    )
 
 
 @router.post(
@@ -97,15 +121,21 @@ async def move_joints(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_joint_motion_request),
     ],
 )
 async def joint_jog_step(
     request: JointJogStepRequest,
     http_request: Request,
     service: MotionServiceDependency,
+    authorization: RealJointAuthorization,
 ) -> MotionAccepted:
-    return await _submit_motion(http_request, service, request.command())
+    return await _submit_motion(
+        http_request,
+        service,
+        request.command(),
+        authorization,
+        (RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION if authorization is not None else None),
+    )
 
 
 @router.post(
@@ -114,15 +144,25 @@ async def joint_jog_step(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_cartesian_motion_request),
     ],
 )
 async def cartesian_jog(
     request: CartesianJogRequest,
     http_request: Request,
     service: MotionServiceDependency,
+    authorization: RealCartesianAuthorization,
 ) -> MotionAccepted:
-    return await _submit_motion(http_request, service, request.command())
+    return await _submit_motion(
+        http_request,
+        service,
+        request.command(),
+        authorization,
+        (
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION
+            if authorization is not None
+            else None
+        ),
+    )
 
 
 @router.post(
@@ -131,15 +171,25 @@ async def cartesian_jog(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_cartesian_motion_request),
     ],
 )
 async def move_pose(
     request: MovePoseRequest,
     http_request: Request,
     service: MotionServiceDependency,
+    authorization: RealCartesianAuthorization,
 ) -> MotionAccepted:
-    return await _submit_motion(http_request, service, request.command())
+    return await _submit_motion(
+        http_request,
+        service,
+        request.command(),
+        authorization,
+        (
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION
+            if authorization is not None
+            else None
+        ),
+    )
 
 
 @router.post(
@@ -148,15 +198,21 @@ async def move_pose(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_joint_motion_request),
     ],
 )
 async def home(
     request: HomeRequest,
     http_request: Request,
     service: MotionServiceDependency,
+    authorization: RealJointAuthorization,
 ) -> MotionAccepted:
-    return await _submit_motion(http_request, service, request.command())
+    return await _submit_motion(
+        http_request,
+        service,
+        request.command(),
+        authorization,
+        (RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION if authorization is not None else None),
+    )
 
 
 @router.post(
@@ -165,13 +221,13 @@ async def home(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_joint_motion_request),
     ],
 )
 async def start_continuous_jog(
     request: ContinuousJogStartRequest,
     http_request: Request,
     service: JogServiceDependency,
+    authorization: RealJointAuthorization,
 ) -> JogLeaseResponse:
     command = request.command()
     _set_motion_audit_context(
@@ -179,9 +235,18 @@ async def start_continuous_jog(
         command_id=command.command_id,
         robot_id=command.robot_id,
         preflight="PENDING",
+        real=authorization is not None,
     )
     try:
-        response = await service.start(command)
+        response = await service.start(
+            command,
+            authorization=authorization,
+            execution_purpose=(
+                RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION
+                if authorization is not None
+                else None
+            ),
+        )
     except Exception:
         http_request.state.preflight = "REJECTED"
         raise

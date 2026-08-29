@@ -13,6 +13,7 @@ under otherwise simulation-only services.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +64,8 @@ from momo.application.services.vision_service import VisionApplicationService
 from momo.domain.robot import RobotId, RobotProfile
 from momo.domain.vision import CameraAccessPolicy, VisionProviderCapability
 from momo.ports.frame_source import FrameSource
+from momo.ports.motion_executor import MotionExecutor
+from momo.ports.playback import PlaybackController, PlaybackExecutionValidator, PlaybackObserver
 from momo.ports.robot_driver import RobotDriver
 from momo.ports.vision import FaceDetector, TargetDetector, TargetTracker, VisionStreamEncoder
 from momo.settings import Settings, repository_root
@@ -105,15 +108,15 @@ def build_simulation_robot_service(settings: Settings) -> RobotApplicationServic
 
 
 @dataclass(frozen=True, slots=True)
-class SimulationProductServices:
-    """Product services whose executable motion backend is explicitly DRY_RUN."""
+class ProductServices:
+    """One product service graph with an outer-composition-selected executor."""
 
     kinematics: KinematicsService
     motion: MotionApplicationService
     jog: JogLeaseService
     library: LibraryApplicationService
     trajectory: TrajectoryApplicationService
-    playback: PlaybackService
+    playback: PlaybackController
     studio: StudioApplicationService
     vision: VisionApplicationService
     playback_observer: LatestValuePlaybackObserver
@@ -123,8 +126,49 @@ class SimulationProductServices:
 def build_simulation_product_services(
     settings: Settings,
     robot_service: RobotApplicationService,
-) -> SimulationProductServices:
+) -> ProductServices:
     """Compose one product graph around the DRY_RUN execution backend."""
+
+    def executor_factory(
+        clock: SystemClock,
+        robot: RobotApplicationService,
+        kinematics: KinematicsService,
+    ) -> MotionExecutor:
+        del kinematics
+        return DryRunMotionExecutor(
+            clock,
+            robot,
+            update_hz=settings.motion_update_hz,
+        )
+
+    return build_product_services(settings, robot_service, executor_factory=executor_factory)
+
+
+ExecutorFactory = Callable[
+    [SystemClock, RobotApplicationService, KinematicsService],
+    MotionExecutor,
+]
+PlaybackFactory = Callable[
+    [
+        SystemClock,
+        RobotApplicationService,
+        LibraryApplicationService,
+        KinematicsService,
+        PlaybackExecutionValidator,
+        PlaybackObserver,
+    ],
+    PlaybackController,
+]
+
+
+def build_product_services(
+    settings: Settings,
+    robot_service: RobotApplicationService,
+    *,
+    executor_factory: ExecutorFactory,
+    playback_factory: PlaybackFactory | None = None,
+) -> ProductServices:
+    """Build shared product logic around one explicitly supplied execution port."""
 
     root = repository_root()
     clock = SystemClock()
@@ -134,11 +178,7 @@ def build_simulation_product_services(
         ),
         SerialChainKinematics(),
     )
-    executor = DryRunMotionExecutor(
-        clock,
-        robot_service,
-        update_hz=settings.motion_update_hz,
-    )
+    executor = executor_factory(clock, robot_service, kinematics)
     gateway = MotionSafetyGateway(
         robot_service,
         kinematics,
@@ -170,11 +210,23 @@ def build_simulation_product_services(
         clock,
     )
     playback_observer = LatestValuePlaybackObserver()
-    playback = PlaybackService(
-        clock,
-        robot_service,
-        PlaybackSafetyValidator(library, gateway),
-        playback_observer,
+    validator = PlaybackSafetyValidator(library, gateway)
+    playback = (
+        playback_factory(
+            clock,
+            robot_service,
+            library,
+            kinematics,
+            validator,
+            playback_observer,
+        )
+        if playback_factory is not None
+        else PlaybackService(
+            clock,
+            robot_service,
+            validator,
+            playback_observer,
+        )
     )
     gateway.register_external_motion_guard(lambda: playback.motion_active)
     compiler = TrajectoryCompiler(kinematics)
@@ -288,7 +340,7 @@ def build_simulation_product_services(
         additional_detector_capabilities=additional_detector_capabilities,
     )
     motion.register_stop_hook(follow.stop_all)
-    return SimulationProductServices(
+    return ProductServices(
         kinematics=kinematics,
         motion=motion,
         jog=jog,

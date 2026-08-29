@@ -1,10 +1,16 @@
-"""Stage 3 Dry Run lifecycle and read-only robot diagnostics."""
+"""Mode-aware product lifecycle and read-only robot diagnostics."""
 
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request
 
-from momo.api.dependencies import get_kinematics_service, get_motion_service, get_robot_service
+from momo.api.dependencies import (
+    OptionalOperatorToken,
+    get_kinematics_service,
+    get_motion_service,
+    get_product_lifecycle_service,
+    get_robot_service,
+)
 from momo.api.schemas import (
     DiagnosticsResponse,
     ProfileResponse,
@@ -15,6 +21,7 @@ from momo.api.security import authorize_control_request, authorize_priority_stop
 from momo.application.services.device_diagnostics_service import DeviceDiagnosticsService
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.motion_service import MotionApplicationService
+from momo.application.services.product_lifecycle_service import ProductLifecycleService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.errors import ProfileInvalidError
 from momo.domain.robot import RobotProfile
@@ -24,6 +31,10 @@ router = APIRouter(prefix="/robot", tags=["robot"])
 RobotServiceDependency = Annotated[RobotApplicationService, Depends(get_robot_service)]
 MotionServiceDependency = Annotated[MotionApplicationService, Depends(get_motion_service)]
 KinematicsServiceDependency = Annotated[KinematicsService, Depends(get_kinematics_service)]
+LifecycleServiceDependency = Annotated[
+    ProductLifecycleService,
+    Depends(get_product_lifecycle_service),
+]
 
 
 def get_device_diagnostics_service(request: Request) -> DeviceDiagnosticsService:
@@ -54,7 +65,7 @@ async def robot_profile(
         profile=profile,
         fingerprint=profile.fingerprint,
         kinematics_fingerprint=kinematics.model_for(profile).fingerprint,
-        real_eligible=False,
+        real_eligible=bool(payload.get("real_eligible", False)),
     )
 
 
@@ -70,11 +81,16 @@ async def robot_diagnostics(service: RobotServiceDependency) -> DiagnosticsRespo
 )
 async def connect_robot(
     request: Request,
-    service: RobotServiceDependency,
+    service: LifecycleServiceDependency,
+    token: OptionalOperatorToken = None,
 ) -> RobotCommandResponse:
     if request.query_params or await request.body():
         raise ProfileInvalidError("Stage 3 Connect accepts no mode, body, or query parameters")
-    return RobotCommandResponse(status=await service.connect(), hardware_accessed=False)
+    status = await service.connect(token)
+    return RobotCommandResponse(
+        status=status,
+        hardware_accessed=status.hardware_accessed,
+    )
 
 
 @router.post(
@@ -82,8 +98,15 @@ async def connect_robot(
     response_model=RobotCommandResponse,
     dependencies=[Depends(authorize_control_request)],
 )
-async def disconnect_robot(service: MotionServiceDependency) -> RobotCommandResponse:
-    return RobotCommandResponse(status=await service.disconnect(), hardware_accessed=False)
+async def disconnect_robot(
+    service: LifecycleServiceDependency,
+    token: OptionalOperatorToken = None,
+) -> RobotCommandResponse:
+    status = await service.disconnect(token)
+    return RobotCommandResponse(
+        status=status,
+        hardware_accessed=status.hardware_accessed,
+    )
 
 
 @router.post(

@@ -40,8 +40,8 @@ export interface MetaResponse {
 export interface RobotStatus {
   robot_id: string;
   variant: RobotVariant;
-  control_mode: 'DRY_RUN';
-  hardware_access_policy: 'DISABLED';
+  control_mode: ControlMode;
+  hardware_access_policy: HardwareAccessPolicy;
   connection_state: ConnectionState;
   connected: boolean;
   profile_fingerprint: string;
@@ -61,7 +61,7 @@ export interface RobotStatus {
   last_error: string | null;
   updated_at: string;
   state_sequence: number;
-  hardware_accessed: false;
+  hardware_accessed: boolean;
   stale: boolean;
 }
 
@@ -102,7 +102,7 @@ export interface ProfileResponse {
   profile: RobotProfile;
   fingerprint: string;
   kinematics_fingerprint: string;
-  real_eligible: false;
+  real_eligible: boolean;
 }
 
 export interface CalibrationStatus {
@@ -120,7 +120,7 @@ export interface CalibrationStatus {
 }
 
 export interface DiagnosticsResponse {
-  hardware_access_policy: 'DISABLED';
+  hardware_access_policy: HardwareAccessPolicy;
   runtime_state_path: string;
   runtime_state_valid: boolean;
   runtime_state_diagnostic: string;
@@ -130,7 +130,7 @@ export interface DiagnosticsResponse {
   stage_policy: string;
   active_profile_fingerprint: string;
   active_kinematics_fingerprint?: string;
-  hardware_accessed: false;
+  hardware_accessed: boolean;
 }
 
 export interface ErrorResponse {
@@ -520,6 +520,9 @@ export interface TrajectoryPreflightReport {
   sample_rate_hz: number;
   violations: TrajectoryViolation[];
   checks: TrajectoryCheck[];
+  real_motion_ready?: boolean;
+  field_acceptance_ready?: boolean;
+  hardware_accessed?: boolean;
   prepared_at?: string | null;
 }
 
@@ -556,7 +559,7 @@ export interface PlaybackStatus {
   rate: number;
   error?: string | null;
   updated_at: string;
-  hardware_accessed: false;
+  hardware_accessed: boolean;
 }
 
 export type TrajectorySegmentMode = MotionMode | 'HOLD';
@@ -725,14 +728,14 @@ export interface MotionCommandStatus {
   started_at?: string | null;
   updated_at?: string;
   finished_at?: string | null;
-  hardware_accessed?: false;
+  hardware_accessed?: boolean;
 }
 
 export interface MotionCommandSubmission {
   command_id: string;
   command: MotionCommandStatus;
   preflight?: MotionPreflightReport | null;
-  hardware_accessed?: false;
+  hardware_accessed?: boolean;
 }
 
 export interface JogSessionResponse {
@@ -745,7 +748,7 @@ export interface JogSessionResponse {
 export interface MotionStopResponse {
   result: 'STOPPED' | 'NOT_CONNECTED' | 'FAILED' | 'SAFETY_STATE_UNCERTAIN';
   status: RobotStatus;
-  hardware_accessed: false;
+  hardware_accessed: boolean;
 }
 
 export type RobotWebSocketState = 'disabled' | 'connecting' | 'open' | 'closed' | 'unsupported';

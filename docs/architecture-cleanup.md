@@ -14,7 +14,7 @@ MOMO Studio product flow
   -> MotionSafetyGateway
       -> MotionExecutor
           -> DRY_RUN adapter
-          -> future reviewed REAL adapter
+          -> reviewed REAL adapter (explicit field-only composition)
 ```
 
 ## Keep
@@ -36,16 +36,16 @@ MOMO Studio product flow
 | Generic bootstrap names | Renamed to explicit simulation builders and service bundle | No caller can mistake the current product graph for production REAL execution |
 | Layer rules documented only in prose | Added executable AST dependency tests | API/application/domain/ports cannot import concrete adapters or Legacy controllers |
 | DRY_RUN/REAL product relationship | Recorded ADR 0022 | Both modes share product logic and differ only at reviewed outer adapters |
-| Production REAL composition | Deferred, not hidden in the simulation bootstrap | A later reviewed composition supplies both lifecycle and motion ports and fails closed |
+| Production REAL composition | Implemented in a separate `real_bootstrap.py` outer composition | REAL supplies lifecycle, command, and playback ports; an unavailable or incoherent field configuration fails closed and never falls back to DRY_RUN |
 
-## Migrate later
+## Reviewed Legacy mapping
 
 | Legacy capability | Allowed migration | Not allowed |
 |---|---|---|
-| Explicit serial lifecycle | Adapter behind a port with exact configured device identity | Scan, auto-connect, startup connect, or arbitrary device selection |
-| Joint state readback | Typed Profile-bound `JointState` with explicit units | Raw dictionaries or fixed six-joint assumptions |
-| Joint goal/Stop behavior | Prepared command execution with bounded cancellation and truthful uncertainty | Raw-servo HTTP, direct frontend calls, or success on uncertain Stop |
-| Mapping and direction knowledge | Reviewed tests/evidence tied to exact Profile and Calibration | Copying Legacy Calibration/runtime files or `arm_a` assumptions |
+| Explicit serial lifecycle | `FtServoProductionBus` behind `ServoBus`, exact configured device fingerprint and ID allowlist | Scan, auto-connect, startup connect, or arbitrary device selection |
+| Joint state readback | `RealRobotDriver` converts raw readback into Profile-bound `JointState` with explicit units | Raw dictionaries or fixed six-joint assumptions |
+| Joint goal/Stop behavior | `RealMotionExecutor` receives immutable prepared trajectories; software Stop reads present positions and requests Hold while reporting physical safety as uncertain | Raw-servo HTTP, direct frontend calls, or success on uncertain Stop |
+| Mapping and direction knowledge | Existing named Profile/Calibration boundary conversions plus exact fingerprint checks | Copying Legacy Calibration/runtime files or `arm_a` assumptions |
 
 ## Remove or reject
 
@@ -65,14 +65,21 @@ MOMO Studio product flow
 - [x] Architecture dependency tests cover domain, ports, application, API routes,
   concrete adapter construction, simulation composition, and Legacy imports.
 - [x] ADR 0022 defines the only supported future REAL integration shape.
-- [ ] Characterize and map the pinned Legacy controller into candidate port operations.
-- [ ] Decide whether the existing `RealMotionExecutor` fully satisfies the production
-  port before adding any Legacy adapter.
-- [ ] Add a fail-closed production REAL composition only after the adapter and field
-  evidence are reviewed.
+- [x] Characterized pinned Legacy commit `ff8bbda0` and migrated only explicit-ID
+  lifecycle, readback, bounded goal writes, stream setup, torque-on-before-write, Hold,
+  and torque-off-on-close behavior.
+- [x] Adapted the existing `RealMotionExecutor` behind the product `MotionExecutor` and
+  playback ports with purpose-bound authorization and per-sample context revalidation.
+- [x] Added a fail-closed production REAL composition selected only by an explicitly
+  supplied local field configuration and complete acceptance evidence.
+- [x] Added synthetic-SDK tests proving construction is inert and writes cannot escape
+  the authorized exact joint/Servo-ID set.
 
 ## Scope boundary
 
-This increment changes names, documentation, and architecture enforcement only.  It does
-not change HTTP schemas, persisted schemas, UI behavior, settings gates, hardware
-configuration, Calibration, field evidence, or motion capability.
+The code-side composition is complete, but the repository defaults remain DRY_RUN,
+hardware `DISABLED`, and production adapter disabled. This work does not constitute
+physical acceptance. A field operator must still provide ignored device-local Profile,
+Calibration, kinematics/acceptance evidence, serial identity, software commit, physical
+E-stop confirmation, and a short-lived `REAL_MOTION` session. REAL pause, rate changes,
+and looping remain deliberately unavailable; software Hold never claims a physical stop.

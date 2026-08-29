@@ -77,7 +77,7 @@ class MotionCommandStatus(BaseModel):
     started_at: datetime | None = None
     updated_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
-    hardware_accessed: Literal[False] = False
+    hardware_accessed: bool = False
 
 
 class MotionAccepted(BaseModel):

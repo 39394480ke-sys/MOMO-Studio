@@ -7,8 +7,9 @@ hardware field acceptance remains required. V1 and V2 are physical variants, not
 software versions.
 
 The Stage 8 software gate, Dry Run browser acceptance, and final P1=0/P2=0 independent
-audit pass; its dedicated commit is pushed and Draft PR #1 is open. Do not treat the
-release banner as evidence that any field item or Feetech adapter behavior has passed.
+audit pass. The production Feetech adapter has synthetic-SDK contract coverage, but do
+not treat that software evidence or the release banner as proof that a physical robot,
+Calibration, geometry, timing, or Stop behavior has passed field acceptance.
 
 The safe repository defaults are:
 
@@ -19,6 +20,7 @@ control_mode: DRY_RUN
 hardware_access_policy: DISABLED
 commissioning_motion_test_enabled: false
 real_motion_enabled: false
+feetech_production_motion_adapter_enabled: false
 hardware_startup_enabled: false
 hardware_local_config_enabled: false
 robot_unit_id: ""

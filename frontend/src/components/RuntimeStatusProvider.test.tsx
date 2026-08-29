@@ -137,6 +137,11 @@ describe('RuntimeStatusProvider refresh lifecycle', () => {
       active_control_mode: 'REAL',
       hardware_access_policy: 'READ_ONLY',
     };
+    commissioning.robot = {
+      ...commissioning.robot,
+      control_mode: 'REAL',
+      hardware_access_policy: 'READ_ONLY',
+    };
     vi.mocked(getBootstrapData).mockResolvedValue(commissioning);
 
     render(
@@ -149,6 +154,45 @@ describe('RuntimeStatusProvider refresh lifecycle', () => {
     expect(screen.getByText('READ_ONLY')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Connect probe' }));
     expect(connectRobot).not.toHaveBeenCalled();
+  });
+
+  it('accepts a coherent connected REAL product runtime with truthful hardware access', async () => {
+    const production = bootstrap(true);
+    production.health = {
+      ...production.health,
+      control_mode: 'REAL',
+      hardware_access_policy: 'FULL',
+      real_motion_enabled: true,
+    };
+    production.meta = {
+      ...production.meta,
+      active_control_mode: 'REAL',
+      hardware_access_policy: 'FULL',
+      real_motion_enabled: true,
+    };
+    production.robot = {
+      ...production.robot,
+      control_mode: 'REAL',
+      hardware_access_policy: 'FULL',
+      hardware_accessed: true,
+    };
+    production.diagnostics = {
+      ...production.diagnostics,
+      hardware_access_policy: 'FULL',
+      hardware_accessed: true,
+    };
+    vi.mocked(getBootstrapData).mockResolvedValue(production);
+
+    render(
+      <RuntimeStatusProvider>
+        <RuntimeProbe />
+      </RuntimeStatusProvider>,
+    );
+
+    expect(await screen.findByText('REAL')).toBeVisible();
+    expect(screen.getByText('FULL')).toBeVisible();
+    expect(screen.getByText('BACKEND_CONNECTED')).toBeVisible();
+    expect(screen.getByText('CONNECTED')).toBeVisible();
   });
 
   it('does not let a deferred bootstrap overwrite a newer Connect response', async () => {

@@ -18,6 +18,7 @@ from momo.domain.enums import (
     JointType,
     MotionCommandSource,
     MotionCommandType,
+    ProfileVerificationStatus,
     RobotConnectionState,
 )
 from momo.domain.errors import HardwareMappingError, MotionConflictError, MotionPreflightError
@@ -145,14 +146,34 @@ class MotionSafetyGateway:
         check(
             status.connection_state is RobotConnectionState.CONNECTED,
             "connected",
-            "active Dry Run robot must be connected",
+            "active robot must be connected",
         )
-        check(status.control_mode is ControlMode.DRY_RUN, "control_mode", "DRY_RUN required")
-        check(
-            status.hardware_access_policy is HardwareAccessPolicy.DISABLED,
-            "hardware_policy",
-            "hardware access must remain DISABLED",
-        )
+        if status.control_mode is ControlMode.DRY_RUN:
+            check(
+                status.hardware_access_policy is HardwareAccessPolicy.DISABLED,
+                "hardware_policy",
+                "DRY_RUN requires hardware access DISABLED",
+            )
+        else:
+            check(
+                status.hardware_access_policy is HardwareAccessPolicy.FULL,
+                "hardware_policy",
+                "REAL motion requires FULL hardware policy",
+            )
+            check(
+                profile.verification_status is ProfileVerificationStatus.VERIFIED_FOR_REAL,
+                "profile_verified_for_real",
+                "REAL motion requires a Profile verified for Real hardware",
+            )
+            calibration = self.calibration_service.get_for_variant(profile.variant)
+            calibration_report = self.calibration_service.status(profile, calibration)
+            check(
+                calibration is not None
+                and calibration.template is False
+                and calibration_report.calibration_valid,
+                "calibration_verified_for_real",
+                "REAL motion requires a complete, non-template matching Calibration",
+            )
         check(
             command.expected_profile_fingerprint == profile.fingerprint,
             "profile_fingerprint",
@@ -341,10 +362,23 @@ class MotionSafetyGateway:
             reasons.append("ROBOT_NOT_CONNECTED")
         if status.stale:
             reasons.append("ROBOT_STATE_STALE")
-        if status.control_mode is not ControlMode.DRY_RUN:
-            reasons.append("CONTROL_MODE_CHANGED")
-        if status.hardware_access_policy is not HardwareAccessPolicy.DISABLED:
+        expected_policy = (
+            HardwareAccessPolicy.DISABLED
+            if status.control_mode is ControlMode.DRY_RUN
+            else HardwareAccessPolicy.FULL
+        )
+        if status.hardware_access_policy is not expected_policy:
             reasons.append("HARDWARE_POLICY_CHANGED")
+        if status.control_mode is ControlMode.REAL:
+            calibration = self.calibration_service.get_for_variant(profile.variant)
+            calibration_report = self.calibration_service.status(profile, calibration)
+            if (
+                profile.verification_status is not ProfileVerificationStatus.VERIFIED_FOR_REAL
+                or calibration is None
+                or calibration.template
+                or not calibration_report.calibration_valid
+            ):
+                reasons.append("REAL_ARTIFACTS_CHANGED")
         if self.executor.active_command_id is not None:
             reasons.append("MOTION_COMMAND_ACTIVE")
         first = plan.samples[0]

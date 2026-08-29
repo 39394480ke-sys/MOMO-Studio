@@ -23,6 +23,8 @@ from momo.domain.motion_preflight import (
     MotionCommandStatus,
     PreparedContinuousJog,
 )
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.runtime import RobotStatus, StopResponse
 from momo.ports.motion_executor import MotionExecutor
 
@@ -55,7 +57,13 @@ class MotionApplicationService:
     def register_stop_hook(self, hook: Callable[[], Awaitable[None]]) -> None:
         self._stop_hooks.append(hook)
 
-    async def submit(self, command: MotionCommand) -> MotionAccepted:
+    async def submit(
+        self,
+        command: MotionCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> MotionAccepted:
         submission_epoch = self.gateway.motion_admission.capture_lifecycle_epoch()
         digest = self._command_digest(command)
         async with self._dispatch_lock:
@@ -93,9 +101,23 @@ class MotionApplicationService:
                         details={"reason": "PREPARED_STATE_CHANGED"},
                     )
                 if isinstance(prepared, PreparedContinuousJog):
-                    status = await self.executor.submit_continuous_jog(prepared)
+                    if authorization is None and execution_purpose is None:
+                        status = await self.executor.submit_continuous_jog(prepared)
+                    else:
+                        status = await self.executor.submit_continuous_jog(
+                            prepared,
+                            authorization=authorization,
+                            execution_purpose=execution_purpose,
+                        )
                 else:
-                    status = await self.executor.submit(prepared)
+                    if authorization is None and execution_purpose is None:
+                        status = await self.executor.submit(prepared)
+                    else:
+                        status = await self.executor.submit(
+                            prepared,
+                            authorization=authorization,
+                            execution_purpose=execution_purpose,
+                        )
                 try:
                     # Executor submission is an await boundary. Lifecycle Stop
                     # fences immediately, before it can acquire this dispatch

@@ -156,8 +156,9 @@ with an existing route. None satisfies all four.
 
 ## Intentional overlaps
 
-- `/robot/connect` is the in-memory Dry Run lifecycle; `/device/connect` is an explicit
-  Real read-only diagnostics connection. They are not aliases.
+- `/robot/connect` is the product lifecycle: DRY_RUN uses the in-memory driver; REAL
+  first obtains and binds an authorized production bus. `/device/connect` remains the
+  separate commissioning diagnostics connection. They are not aliases.
 - Robot, motion, Jog, Playback, Vision, Device, and Commissioning Stop endpoints stop
   different owners/scopes. All use priority authentication where applicable and converge
   on bounded service Stop handling; collapsing them would weaken ownership semantics.

@@ -1,11 +1,11 @@
-"""Serialized single-robot Dry Run lifecycle and diagnostics."""
+"""Serialized single-robot lifecycle and unit-safe runtime state."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from momo.application.robot_manager import RobotManager, RobotRuntime
@@ -13,8 +13,11 @@ from momo.application.services.calibration_service import CalibrationService
 from momo.application.services.profile_service import ProfileService
 from momo.domain.calibration import CalibrationStatusReport
 from momo.domain.enums import (
+    CalibrationStatus,
     ControlMode,
     HardwareAccessPolicy,
+    ProfileVerificationStatus,
+    RealReadiness,
     RobotConnectionState,
     RobotVariant,
     StopResult,
@@ -26,6 +29,7 @@ from momo.domain.errors import (
     RobotBusyError,
     VariantSwitchWhileConnectedError,
 )
+from momo.domain.real_hardware import RealStopResult
 from momo.domain.robot import JointState, RobotId, RobotProfile
 from momo.domain.runtime import RobotStatus, RuntimeState, StopResponse
 from momo.ports.clock import Clock
@@ -40,7 +44,7 @@ BeforeVariantSwitch = Callable[[], Awaitable[None]]
 
 
 class RobotApplicationService:
-    """The single-robot lifecycle and atomic Dry Run state application service."""
+    """The single-robot lifecycle shared by DRY_RUN and reviewed REAL adapters."""
 
     def __init__(
         self,
@@ -194,7 +198,23 @@ class RobotApplicationService:
             await asyncio.gather(task, return_exceptions=True)
 
     def _calibration_status(self, profile: RobotProfile) -> CalibrationStatusReport:
-        return self.calibration_service.status(profile)
+        report = self.calibration_service.status(profile)
+        calibration = self.calibration_service.get_for_variant(profile.variant)
+        if (
+            self.settings.control_mode is ControlMode.REAL
+            and report.calibration_valid
+            and calibration is not None
+            and not calibration.template
+            and profile.verification_status is ProfileVerificationStatus.VERIFIED_FOR_REAL
+        ):
+            return report.model_copy(
+                update={
+                    "status": CalibrationStatus.READY_FOR_REAL,
+                    "real_readiness": RealReadiness.READY,
+                    "blocking_reasons": [],
+                }
+            )
+        return report
 
     def _status_unlocked(self) -> RobotStatus:
         runtime = self.manager.get_active()
@@ -206,8 +226,8 @@ class RobotApplicationService:
         return RobotStatus(
             robot_id=runtime.robot_id.root,
             variant=runtime.profile.variant,
-            control_mode=ControlMode.DRY_RUN,
-            hardware_access_policy=HardwareAccessPolicy.DISABLED,
+            control_mode=self.settings.control_mode,
+            hardware_access_policy=self.settings.hardware_access_policy,
             connection_state=runtime.connection_state,
             connected=runtime.connection_state is RobotConnectionState.CONNECTED,
             profile_fingerprint=runtime.profile.fingerprint,
@@ -219,7 +239,10 @@ class RobotApplicationService:
             last_error=runtime.last_error,
             updated_at=runtime.updated_at,
             state_sequence=runtime.state_sequence,
-            hardware_accessed=False,
+            hardware_accessed=(
+                self.settings.control_mode is ControlMode.REAL
+                and runtime.connection_state is RobotConnectionState.CONNECTED
+            ),
             stale=stale,
         )
 
@@ -246,8 +269,7 @@ class RobotApplicationService:
     async def _refresh_observation_unlocked(self) -> None:
         """Refresh connected state through the high-level, unit-safe driver port.
 
-        The Stage 3 composition always injects the in-memory Dry Run driver, so
-        this operation cannot scan, connect, or touch hardware.  A failed or
+        The selected outer composition owns any hardware access. A failed or
         timed-out observation deliberately leaves both observation timestamps
         unchanged; monotonic age then makes status stale and preflight fails.
         """
@@ -281,15 +303,35 @@ class RobotApplicationService:
         runtime.observed_monotonic = self.clock.monotonic()
 
     async def apply_motion_state(self, command_id: UUID, state: JointState) -> int:
-        """Short atomic Dry Run update used by the prepared-motion executor."""
+        """Short atomic simulation update used by the DRY_RUN executor."""
 
         del command_id
         async with self._command_lock:
             runtime = self.manager.get_active()
             if runtime.connection_state is not RobotConnectionState.CONNECTED:
-                raise RobotApplicationError("Dry Run robot disconnected during motion")
+                raise RobotApplicationError("Robot disconnected during motion")
             validated = state.validate_against(runtime.profile)
             await runtime.driver.move_to_joint_state(validated)
+            runtime.positions = dict(validated.positions)
+            runtime.units = {
+                definition.joint_id: definition.domain_unit.value
+                for definition in runtime.profile.joint_definitions
+            }
+            self._touch()
+            return runtime.state_sequence
+
+    async def apply_real_readback(self, execution_id: UUID, state: JointState) -> int:
+        """Publish one verified REAL readback without issuing another driver write."""
+
+        del execution_id
+        async with self._command_lock:
+            runtime = self.manager.get_active()
+            if (
+                self.settings.control_mode is not ControlMode.REAL
+                or runtime.connection_state is not RobotConnectionState.CONNECTED
+            ):
+                raise RobotApplicationError("REAL robot disconnected during readback")
+            validated = state.validate_against(runtime.profile)
             runtime.positions = dict(validated.positions)
             runtime.units = {
                 definition.joint_id: definition.domain_unit.value
@@ -310,17 +352,25 @@ class RobotApplicationService:
         async with self._command_lock:
             self._transition(
                 RobotConnectionState.FAULTED,
-                error=f"Dry Run motion fault: {error[:160]}",
+                error=f"Motion fault: {error[:160]}",
             )
             self._queue_save_unlocked()
 
     async def connect(self) -> RobotStatus:
         async with self._command_lock:
             runtime = self.manager.get_active()
-            if self.settings.hardware_access_policy is not HardwareAccessPolicy.DISABLED:
-                raise HardwareAccessDisabledError("Stage 3 hardware access must remain disabled")
+            if self.settings.control_mode is ControlMode.DRY_RUN:
+                if self.settings.hardware_access_policy is not HardwareAccessPolicy.DISABLED:
+                    raise HardwareAccessDisabledError("DRY_RUN requires hardware access DISABLED")
+            elif (
+                self.settings.hardware_access_policy is not HardwareAccessPolicy.FULL
+                or not self.settings.real_motion_enabled
+            ):
+                raise HardwareAccessDisabledError(
+                    "REAL robot connection requires FULL policy and real_motion_enabled"
+                )
             if runtime.connection_state is RobotConnectionState.CONNECTED:
-                raise RobotAlreadyConnectedError("The active Dry Run robot is already connected")
+                raise RobotAlreadyConnectedError("The active robot is already connected")
             if runtime.connection_state is not RobotConnectionState.DISCONNECTED:
                 raise RobotBusyError(f"Robot cannot connect while {runtime.connection_state.value}")
 
@@ -335,13 +385,16 @@ class RobotApplicationService:
                 self._transition(RobotConnectionState.CONNECTED)
                 self._queue_save_unlocked()
             except Exception as error:
+                runtime_label = (
+                    "Dry Run" if self.settings.control_mode is ControlMode.DRY_RUN else "REAL"
+                )
                 self._transition(
                     RobotConnectionState.FAULTED,
-                    error=f"Dry Run connect failed: {type(error).__name__}",
+                    error=f"{runtime_label} connect failed: {type(error).__name__}",
                 )
                 with suppress(OSError):
                     self._queue_save_unlocked()
-                raise RobotApplicationError("Dry Run robot connection failed") from error
+                raise RobotApplicationError("Robot connection failed") from error
             return self._status_unlocked()
 
     async def disconnect(self) -> RobotStatus:
@@ -364,9 +417,9 @@ class RobotApplicationService:
             except Exception as error:
                 self._transition(
                     RobotConnectionState.FAULTED,
-                    error=f"Dry Run disconnect failed: {type(error).__name__}",
+                    error=f"Robot disconnect failed: {type(error).__name__}",
                 )
-                raise RobotApplicationError("Dry Run robot disconnection failed") from error
+                raise RobotApplicationError("Robot disconnection failed") from error
             return self._status_unlocked()
 
     async def stop(self) -> StopResponse:
@@ -382,48 +435,62 @@ class RobotApplicationService:
                 )
             if runtime.connection_state is RobotConnectionState.FAULTED:
                 try:
-                    await runtime.driver.stop()
+                    stop_outcome = await runtime.driver.stop()
                     await runtime.driver.disconnect()
                     self._transition(RobotConnectionState.DISCONNECTED)
                     self._queue_save_unlocked()
                     return StopResponse(
-                        result=StopResult.STOPPED.value,
+                        result=self._stop_result(stop_outcome),
                         status=self._status_unlocked(),
-                        hardware_accessed=False,
+                        hardware_accessed=self.settings.control_mode is ControlMode.REAL,
                     )
                 except Exception as error:
                     self._transition(
                         RobotConnectionState.FAULTED,
-                        error=f"Dry Run fault recovery failed: {type(error).__name__}",
+                        error=f"Robot fault recovery failed: {type(error).__name__}",
                     )
                     self._queue_save_unlocked()
                     return StopResponse(
                         result=StopResult.FAILED.value,
                         status=self._status_unlocked(),
-                        hardware_accessed=False,
+                        hardware_accessed=self.settings.control_mode is ControlMode.REAL,
                     )
             if runtime.connection_state is not RobotConnectionState.CONNECTED:
                 raise RobotBusyError(f"Robot cannot stop while {runtime.connection_state.value}")
             try:
-                await runtime.driver.stop()
+                stop_outcome = await runtime.driver.stop()
                 self._touch()
                 self._queue_save_unlocked()
                 return StopResponse(
-                    result=StopResult.STOPPED.value,
+                    result=self._stop_result(stop_outcome),
                     status=self._status_unlocked(),
-                    hardware_accessed=False,
+                    hardware_accessed=self.settings.control_mode is ControlMode.REAL,
                 )
             except Exception as error:
                 self._transition(
                     RobotConnectionState.FAULTED,
-                    error=f"Dry Run stop failed: {type(error).__name__}",
+                    error=f"Robot stop failed: {type(error).__name__}",
                 )
                 self._queue_save_unlocked()
                 return StopResponse(
                     result=StopResult.FAILED.value,
                     status=self._status_unlocked(),
-                    hardware_accessed=False,
+                    hardware_accessed=self.settings.control_mode is ControlMode.REAL,
                 )
+
+    @staticmethod
+    def _stop_result(
+        outcome: object,
+    ) -> Literal["STOPPED", "NOT_CONNECTED", "FAILED", "SAFETY_STATE_UNCERTAIN"]:
+        if outcome is None:
+            return StopResult.STOPPED.value
+        result = getattr(outcome, "result", None)
+        safety_known = getattr(outcome, "safety_state_known", False)
+        if result is RealStopResult.STOPPED_AND_VERIFIED and safety_known:
+            return StopResult.STOPPED.value
+        if result is RealStopResult.NOT_CONNECTED:
+            return StopResult.NOT_CONNECTED.value
+        return StopResult.SAFETY_STATE_UNCERTAIN.value
 
     async def switch_variant(
         self,
@@ -466,7 +533,10 @@ class RobotApplicationService:
             return {
                 "profile": profile,
                 "fingerprint": profile.fingerprint,
-                "real_eligible": False,
+                "real_eligible": (
+                    self.settings.control_mode is ControlMode.REAL
+                    and profile.verification_status is ProfileVerificationStatus.VERIFIED_FOR_REAL
+                ),
             }
 
     async def get_calibration_status(self) -> CalibrationStatusReport:
@@ -477,16 +547,23 @@ class RobotApplicationService:
         async with self._command_lock:
             runtime = self.manager.get_active()
             return {
-                "hardware_access_policy": HardwareAccessPolicy.DISABLED.value,
+                "hardware_access_policy": self.settings.hardware_access_policy.value,
                 "runtime_state_path": self.runtime_repository.path_description,
                 "runtime_state_valid": self.runtime_repository.last_load_valid,
                 "runtime_state_diagnostic": self.runtime_repository.last_diagnostic,
                 "quarantined_runtime_file": self.runtime_repository.last_quarantined_file,
                 "backend_version": self.settings.version,
                 "legacy_source_commit": "ff8bbda0c2222cb57951c7913f7f12f5777b98fa",
-                "stage_policy": "DRY_RUN_ONLY",
+                "stage_policy": (
+                    "REVIEWED_REAL_RUNTIME"
+                    if self.settings.control_mode is ControlMode.REAL
+                    else "DRY_RUN_ONLY"
+                ),
                 "active_profile_fingerprint": runtime.profile.fingerprint,
                 "robot_state_freshness_limit_s": self.settings.robot_state_freshness_limit_s,
                 "runtime_persistence_error": self._persistence_error,
-                "hardware_accessed": False,
+                "hardware_accessed": (
+                    self.settings.control_mode is ControlMode.REAL
+                    and runtime.connection_state is RobotConnectionState.CONNECTED
+                ),
             }

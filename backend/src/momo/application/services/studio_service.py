@@ -464,6 +464,7 @@ class StudioApplicationService:
             source=MotionCommandSource.STUDIO,
             real_readiness=RealReadiness.BLOCKED_BY_STAGE_POLICY,
             field_acceptance_complete=False,
+            non_executable_preview=True,
         )
 
     async def _require_draft_unchanged(self, draft: MotionDraft) -> None:

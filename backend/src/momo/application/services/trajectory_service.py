@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from uuid import UUID
@@ -15,7 +15,6 @@ from momo.application.services.motion_safety_gateway import (
     MotionAdmissionCoordinator,
     MotionSafetyGateway,
 )
-from momo.application.services.playback_service import PlaybackService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.application.services.trajectory_compiler import TrajectoryCompiler
 from momo.domain.enums import MotionCommandSource, RealReadiness
@@ -34,11 +33,12 @@ from momo.domain.playback import (
     PlaybackState,
     PlaybackStatus,
 )
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.trajectory import (
     PreparedTrajectory,
     TrajectoryCompileOutcome,
 )
-from momo.ports.playback import PreparedTrajectoryView
+from momo.ports.playback import PlaybackController, PreparedTrajectoryView
 
 PREPARED_TRAJECTORY_CACHE_LIMIT = 16
 PREVIEW_POINT_LIMIT = 1000
@@ -106,7 +106,7 @@ class TrajectoryApplicationService:
         robot: RobotApplicationService,
         kinematics: KinematicsService,
         compiler: TrajectoryCompiler,
-        playback: PlaybackService,
+        playback: PlaybackController,
         motion_admission: MotionAdmissionCoordinator,
         *,
         cache_limit: int = PREPARED_TRAJECTORY_CACHE_LIMIT,
@@ -122,6 +122,21 @@ class TrajectoryApplicationService:
         self._preflight_lock = asyncio.Lock()
         self._preflight_generation = 0
         self._preflight_cancel: asyncio.Event | None = None
+        self._execution_readiness_provider: Callable[[], Awaitable[tuple[RealReadiness, bool]]] = (
+            self._dry_run_execution_readiness
+        )
+
+    def bind_execution_readiness_provider(
+        self,
+        provider: Callable[[], Awaitable[tuple[RealReadiness, bool]]],
+    ) -> None:
+        """Bind the release-owned readiness resolver without importing hardware adapters."""
+
+        self._execution_readiness_provider = provider
+
+    @staticmethod
+    async def _dry_run_execution_readiness() -> tuple[RealReadiness, bool]:
+        return RealReadiness.BLOCKED_BY_STAGE_POLICY, False
 
     async def preflight(
         self,
@@ -194,6 +209,7 @@ class TrajectoryApplicationService:
             await self._require_lifecycle_after_claim(lifecycle_epoch)
             model = self.kinematics.model_for(profile)
             calibration = self.robot.calibration_service.get_for_variant(profile.variant)
+            real_readiness, field_acceptance_complete = await self._execution_readiness_provider()
             outcome = await self.compiler.compile(
                 motion=motion,
                 profile=profile,
@@ -212,8 +228,8 @@ class TrajectoryApplicationService:
                 control_mode=status.control_mode,
                 stop_capable=True,
                 source=MotionCommandSource.LIBRARY,
-                real_readiness=RealReadiness.BLOCKED_BY_STAGE_POLICY,
-                field_acceptance_complete=False,
+                real_readiness=real_readiness,
+                field_acceptance_complete=field_acceptance_complete,
                 cancellation_requested=cancellation.is_set,
             )
         except asyncio.CancelledError:
@@ -290,6 +306,7 @@ class TrajectoryApplicationService:
         trajectory_digest: str,
         loop: bool,
         rate: float,
+        authorization: RealExecutionAuthorization | None = None,
     ) -> PlaybackStatus:
         lifecycle_epoch = self.motion_admission.capture_lifecycle_epoch()
         prepared, _ = self._prepared_for(trajectory_digest)
@@ -318,13 +335,23 @@ class TrajectoryApplicationService:
                     "Another motion owns the shared motion slot",
                     details={"reason": "MOTION_SLOT_OCCUPIED"},
                 )
-            status = await self.playback.play(
-                prepared,
-                intent,
-                rate=rate,
-                loop=loop,
-                loop_count=MAX_PLAYBACK_LOOPS if loop else 1,
-            )
+            if authorization is None:
+                status = await self.playback.play(
+                    prepared,
+                    intent,
+                    rate=rate,
+                    loop=loop,
+                    loop_count=MAX_PLAYBACK_LOOPS if loop else 1,
+                )
+            else:
+                status = await self.playback.play(
+                    prepared,
+                    intent,
+                    rate=rate,
+                    loop=loop,
+                    loop_count=MAX_PLAYBACK_LOOPS if loop else 1,
+                    authorization=authorization,
+                )
             try:
                 # PlaybackService.play can await its own guard.  A concurrent
                 # preflight/Stop may invalidate the cache while that happens.

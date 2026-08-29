@@ -78,7 +78,7 @@ class PlaybackExecutionSnapshot(BaseModel):
     control_mode: ControlMode
     hardware_access_policy: HardwareAccessPolicy
     safety_gateway_validated: Literal[True]
-    hardware_accessed: Literal[False] = False
+    hardware_accessed: bool = False
 
 
 class PlaybackStatus(BaseModel):
@@ -106,7 +106,7 @@ class PlaybackStatus(BaseModel):
     started_at: datetime | None = None
     updated_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
-    hardware_accessed: Literal[False] = False
+    hardware_accessed: bool = False
 
     @model_validator(mode="after")
     def timestamps_are_aware(self) -> PlaybackStatus:

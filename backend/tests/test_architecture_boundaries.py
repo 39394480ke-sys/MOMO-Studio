@@ -88,6 +88,7 @@ def test_adapter_construction_stays_in_explicit_outer_compositions_or_tools() ->
     allowed_roots = {
         Path("adapters"),
         Path("bootstrap.py"),
+        Path("real_bootstrap.py"),
         Path("release_bootstrap.py"),
         Path("tools"),
     }

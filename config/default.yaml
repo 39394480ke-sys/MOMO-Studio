@@ -14,6 +14,7 @@ hardware_local_config_enabled: false
 feetech_read_only_adapter_enabled: false
 feetech_raw_direction_adapter_enabled: false
 feetech_commissioning_motion_adapter_enabled: false
+feetech_production_motion_adapter_enabled: false
 servo_ids: []
 servo_protocol: ""
 field_acceptance_checklist_version: "1"

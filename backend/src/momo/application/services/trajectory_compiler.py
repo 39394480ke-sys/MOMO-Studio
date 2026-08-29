@@ -128,17 +128,28 @@ class TrajectoryCompiler:
         real_readiness: RealReadiness = RealReadiness.BLOCKED_BY_STAGE_POLICY,
         field_acceptance_complete: bool = False,
         cancellation_requested: CancelCheck | None = None,
+        non_executable_preview: bool = False,
     ) -> TrajectoryCompileOutcome:
         """Return structured rejection evidence or the exact prepared trajectory.
 
         No hardware operation or implicit entry move occurs. ``start_state`` must
-        already match the first embedded keyframe, and every mutable binding supplied
-        by the caller is incorporated into preflight evidence.
+        already match the first embedded keyframe for executable preflight. A Studio
+        preview is explicitly non-executable and instead begins from its immutable
+        first keyframe without depending on live robot state. Every execution binding
+        supplied by normal callers remains incorporated into preflight evidence.
         """
 
         checks: list[TrajectoryPreflightCheck] = []
         violations: list[TrajectoryViolation] = []
         effective_rate = self._validated_sample_rate(sample_rate_hz, checks, violations)
+        effective_start_state = (
+            motion.keyframes[0].pose_snapshot.joint_state if non_executable_preview else start_state
+        )
+        effective_start_state_sequence = (
+            motion.keyframes[0].pose_snapshot.state_sequence or 0
+            if non_executable_preview
+            else start_state_sequence
+        )
 
         self._check(
             motion.schema_version == MOTION_SCHEMA_VERSION,
@@ -189,12 +200,16 @@ class TrajectoryCompiler:
             failed_detail="Expected, active, and embedded profile fingerprints do not match",
         )
         self._check(
-            expected_state_sequence == start_state_sequence,
+            non_executable_preview or expected_state_sequence == start_state_sequence,
             checks,
             violations,
             name="state_sequence",
             code="STATE_SEQUENCE_MISMATCH",
-            passed_detail=f"Start state sequence {start_state_sequence} matches",
+            passed_detail=(
+                "Not applicable: non-executable Studio preview is snapshot-bound"
+                if non_executable_preview
+                else f"Start state sequence {start_state_sequence} matches"
+            ),
             failed_detail="Expected robot state sequence is stale",
         )
         self._check(
@@ -207,67 +222,107 @@ class TrajectoryCompiler:
             failed_detail="Trajectory compilation only accepts Library or Studio motion intent",
         )
         self._check(
-            connected,
+            non_executable_preview or connected,
             checks,
             violations,
             name="connected",
             code="ROBOT_NOT_CONNECTED",
-            passed_detail="Active Dry Run robot is connected",
+            passed_detail=(
+                "Not applicable: non-executable Studio preview needs no robot connection"
+                if non_executable_preview
+                else "Active Dry Run robot is connected"
+            ),
             failed_detail="Trajectory preflight requires a connected Dry Run robot",
         )
         self._check(
-            state_fresh,
+            non_executable_preview or state_fresh,
             checks,
             violations,
             name="state_freshness",
             code="ROBOT_STATE_STALE",
-            passed_detail="Active robot state is fresh",
+            passed_detail=(
+                "Not applicable: non-executable Studio preview needs no live robot state"
+                if non_executable_preview
+                else "Active robot state is fresh"
+            ),
             failed_detail="Trajectory preflight rejects stale robot state",
         )
+        real_execution = (
+            control_mode is ControlMode.REAL
+            and hardware_access_policy is HardwareAccessPolicy.FULL
+            and real_readiness is RealReadiness.READY
+            and field_acceptance_complete
+        )
+        dry_run_execution = (
+            control_mode is ControlMode.DRY_RUN
+            and hardware_access_policy is HardwareAccessPolicy.DISABLED
+            and real_readiness is RealReadiness.BLOCKED_BY_STAGE_POLICY
+            and not field_acceptance_complete
+        )
         self._check(
-            hardware_access_policy is HardwareAccessPolicy.DISABLED,
+            non_executable_preview or dry_run_execution or real_execution,
             checks,
             violations,
             name="hardware_policy",
             code="HARDWARE_ACCESS_POLICY_INVALID",
-            passed_detail="Hardware access policy is DISABLED",
-            failed_detail="Current product policy requires hardware access DISABLED",
+            passed_detail=(
+                "Not applicable: preview performs no execution"
+                if non_executable_preview
+                else f"{control_mode.value} execution policy is internally consistent"
+            ),
+            failed_detail="Control mode, hardware policy, and readiness evidence disagree",
         )
         self._check(
-            control_mode is ControlMode.DRY_RUN,
+            non_executable_preview or dry_run_execution or real_execution,
             checks,
             violations,
             name="control_mode",
             code="REAL_MOTION_DISABLED",
-            passed_detail="Control mode is DRY_RUN",
-            failed_detail="Trajectory compilation is currently restricted to DRY_RUN",
+            passed_detail=(
+                "Not applicable: preview performs no execution"
+                if non_executable_preview
+                else f"Control mode {control_mode.value} is authorized for this preflight"
+            ),
+            failed_detail="Trajectory execution mode is not authorized",
         )
         self._check(
-            stop_capable,
+            non_executable_preview or stop_capable,
             checks,
             violations,
             name="stop_capability",
             code="STOP_CAPABILITY_UNAVAILABLE",
-            passed_detail="Executor stop capability is available",
+            passed_detail=(
+                "Not applicable: non-executable Studio preview has no executor"
+                if non_executable_preview
+                else "Executor stop capability is available"
+            ),
             failed_detail="Trajectory playback requires a working stop capability",
         )
         self._check(
-            real_readiness is RealReadiness.BLOCKED_BY_STAGE_POLICY,
+            non_executable_preview or dry_run_execution or real_execution,
             checks,
             violations,
             name="real_readiness",
             code="REAL_READINESS_INVALID",
-            passed_detail="Real motion remains blocked by product stage policy",
-            failed_detail="The compiler cannot claim real-hardware readiness",
+            passed_detail=(
+                "Not applicable: preview performs no execution"
+                if non_executable_preview
+                else f"Real readiness is {real_readiness.value}"
+            ),
+            failed_detail="Real readiness does not match the selected execution mode",
         )
         self._check(
-            not field_acceptance_complete,
+            non_executable_preview or dry_run_execution or real_execution,
             checks,
             violations,
             name="field_acceptance",
             code="FIELD_ACCEPTANCE_INVALID",
-            passed_detail="Real-hardware field acceptance remains outstanding",
-            failed_detail="The compiler cannot claim real-hardware field acceptance",
+            passed_detail=(
+                "Not applicable: preview performs no execution"
+                if non_executable_preview
+                else "Field acceptance state matches the selected execution mode"
+            ),
+            failed_detail="Field acceptance state does not match execution readiness",
         )
 
         model: KinematicsModel | None = None
@@ -305,9 +360,10 @@ class TrajectoryCompiler:
         self._validate_motion_and_start(
             motion,
             profile,
-            start_state,
+            effective_start_state,
             checks,
             violations,
+            non_executable_preview=non_executable_preview,
         )
         raw_limits = self._raw_limits(calibration, profile, checks, violations)
         specs = self._segment_specs(motion)
@@ -370,19 +426,20 @@ class TrajectoryCompiler:
             samples, segments = await self._compile_samples(
                 motion=motion,
                 profile=profile,
-                start_state=start_state,
-                start_state_sequence=start_state_sequence,
+                start_state=effective_start_state,
+                start_state_sequence=effective_start_state_sequence,
                 sample_rate_hz=effective_rate,
                 specs=specs,
                 duration_s=duration_s,
                 raw_limits=raw_limits,
                 cancellation_requested=cancellation_requested,
             )
-            await self._validate_dynamics(
-                samples,
-                profile,
-                cancellation_requested=cancellation_requested,
-            )
+            if not non_executable_preview:
+                await self._validate_dynamics(
+                    samples,
+                    profile,
+                    cancellation_requested=cancellation_requested,
+                )
         except _CompilationFailure as error:
             self._failed_check(
                 checks,
@@ -417,14 +474,24 @@ class TrajectoryCompiler:
                 TrajectoryPreflightCheck(
                     name="velocity",
                     passed=True,
-                    detail="Every sample interval is within provisional per-joint velocity limits",
+                    detail=(
+                        "Not enforced: non-executable Studio preview has no motion executor"
+                        if non_executable_preview
+                        else (
+                            "Every sample interval is within provisional per-joint velocity limits"
+                        )
+                    ),
                 ),
                 TrajectoryPreflightCheck(
                     name="acceleration",
                     passed=True,
                     detail=(
-                        "Every sampled velocity transition is within provisional acceleration "
-                        "limits"
+                        "Not enforced: non-executable Studio preview has no motion executor"
+                        if non_executable_preview
+                        else (
+                            "Every sampled velocity transition is within provisional acceleration "
+                            "limits"
+                        )
                     ),
                 ),
                 TrajectoryPreflightCheck(
@@ -461,7 +528,7 @@ class TrajectoryCompiler:
                 motion,
                 profile,
                 model,
-                start_state_sequence,
+                effective_start_state_sequence,
                 effective_rate,
                 duration_s,
                 segments,
@@ -481,7 +548,7 @@ class TrajectoryCompiler:
             robot_variant=motion.robot_variant,
             profile_fingerprint=profile.fingerprint,
             kinematics_fingerprint=model.fingerprint,
-            start_state_sequence=start_state_sequence,
+            start_state_sequence=effective_start_state_sequence,
             sample_rate_hz=effective_rate,
             duration_s=duration_s,
             segments=segments,
@@ -500,6 +567,8 @@ class TrajectoryCompiler:
             sample_rate_hz=effective_rate,
             checks=checks,
             violations=[],
+            real_motion_ready=real_execution,
+            field_acceptance_ready=real_execution,
         )
         prepared = PreparedTrajectory(plan=plan, preflight=report)
         return TrajectoryCompileOutcome(report=report, prepared=prepared)
@@ -606,6 +675,8 @@ class TrajectoryCompiler:
         start_state: JointState,
         checks: list[TrajectoryPreflightCheck],
         violations: list[TrajectoryViolation],
+        *,
+        non_executable_preview: bool,
     ) -> None:
         try:
             motion.validate_against(profile)
@@ -625,7 +696,11 @@ class TrajectoryCompiler:
                 violations,
                 name="start_state",
                 code="START_STATE_INVALID",
-                detail=f"Active start state is invalid: {error}",
+                detail=(
+                    f"Studio preview first keyframe is invalid: {error}"
+                    if non_executable_preview
+                    else f"Active start state is invalid: {error}"
+                ),
             )
             return
         expected_units = {
@@ -638,7 +713,11 @@ class TrajectoryCompiler:
                 violations,
                 name="start_state",
                 code="START_STATE_UNITS_INVALID",
-                detail="Active start state must include exact canonical units",
+                detail=(
+                    "Studio preview first keyframe must include exact canonical units"
+                    if non_executable_preview
+                    else "Active start state must include exact canonical units"
+                ),
             )
             return
         first = motion.keyframes[0].pose_snapshot.joint_state
@@ -672,7 +751,11 @@ class TrajectoryCompiler:
             TrajectoryPreflightCheck(
                 name="start_state",
                 passed=True,
-                detail="Active state exactly matches the Motion first keyframe",
+                detail=(
+                    "Non-executable Studio preview starts from the Motion first keyframe"
+                    if non_executable_preview
+                    else "Active state exactly matches the Motion first keyframe"
+                ),
             )
         )
 

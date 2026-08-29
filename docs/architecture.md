@@ -134,12 +134,12 @@ MOMO Studio is one product rather than a redesigned frontend layered over a seco
 Legacy control application.  Control, Library, Studio, Playback, and Vision keep one
 set of routes, application services, domain contracts, and safety admission rules.
 
-The current executable product graph is intentionally named as simulation composition:
+The default executable product graph is intentionally named as simulation composition:
 
 ```text
 build_simulation_robot_service
   + build_simulation_product_services
-      -> SimulationProductServices
+      -> ProductServices
           -> DryRunRobotDriver
           -> MotionSafetyGateway
           -> DryRunMotionExecutor
@@ -149,12 +149,23 @@ Real-device commissioning is a separate outer graph in `release_bootstrap.py`.  
 read-only, Raw-direction, and single-joint buses are purpose-limited field tools, not a
 second product runtime and not a production REAL executor.
 
-Future REAL product motion must replace only the outer lifecycle/executor adapters while
-retaining the same inward product chain.  It may reuse reviewed Legacy low-level behavior
-only through those adapters; no frontend, API route, application service, or domain
-module may import the Legacy controller.  Requested REAL execution must fail closed when
-that reviewed composition is unavailable and must never silently run the simulation
-backend.  See [ADR 0022](adr/0022-unified-product-motion-runtime.md) and the
+The explicit field composition now replaces only those outer adapters:
+
+```text
+build_real_product_composition
+  -> ProductServices
+      -> RealRobotDriver
+      -> MotionSafetyGateway
+      -> RealCommandMotionExecutor / RealPlaybackService
+          -> RealMotionExecutor
+              -> exact-ID FtServoProductionBus
+```
+
+It reuses reviewed Legacy low-level behavior only through those adapters; no frontend,
+API route, application service, or domain module imports the Legacy controller.
+Requested REAL execution fails closed when the composition or current evidence is
+unavailable and never silently runs the simulation backend. See
+[ADR 0022](adr/0022-unified-product-motion-runtime.md) and the
 [architecture cleanup ledger](architecture-cleanup.md).
 
 ## Active Robot and lifecycle

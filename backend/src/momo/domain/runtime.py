@@ -81,7 +81,7 @@ class RobotStatus(BaseModel):
     last_error: str | None = None
     updated_at: datetime = Field(default_factory=utc_now)
     state_sequence: int = Field(default=0, ge=0)
-    hardware_accessed: Literal[False] = False
+    hardware_accessed: bool = False
     stale: bool = False
 
     @field_validator("positions", "units", "raw_positions")
@@ -98,7 +98,7 @@ class StopResponse(BaseModel):
 
     result: Literal["STOPPED", "NOT_CONNECTED", "FAILED", "SAFETY_STATE_UNCERTAIN"]
     status: RobotStatus
-    hardware_accessed: Literal[False] = False
+    hardware_accessed: bool = False
 
 
 # Name used by the application contract and ADRs.

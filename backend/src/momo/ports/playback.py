@@ -12,7 +12,9 @@ from momo.domain.playback import (
     PlaybackEvent,
     PlaybackExecutionSnapshot,
     PlaybackOperatorIntent,
+    PlaybackStatus,
 )
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.robot import JointState
 
 
@@ -115,3 +117,44 @@ class PlaybackObserver(Protocol):
     """Non-blocking latest-value publication port for WebSocket integration."""
 
     def publish_playback_event(self, event: PlaybackEvent) -> None: ...
+
+
+@runtime_checkable
+class PlaybackController(Protocol):
+    """Mode-specific execution engine behind shared trajectory orchestration."""
+
+    @property
+    def motion_active(self) -> bool: ...
+
+    def get_status(self) -> PlaybackStatus: ...
+
+    async def begin_preflight(self, motion_id: UUID, motion_revision: int) -> PlaybackStatus: ...
+
+    async def preflight_failed(self, reason: str = "") -> PlaybackStatus: ...
+
+    async def clear_ready(self) -> PlaybackStatus: ...
+
+    async def set_ready(self, prepared: PreparedTrajectoryView) -> PlaybackStatus: ...
+
+    async def play(
+        self,
+        prepared: PreparedTrajectoryView,
+        intent: PlaybackOperatorIntent,
+        *,
+        rate: float = 1.0,
+        loop: bool = False,
+        loop_count: int = 2,
+        authorization: RealExecutionAuthorization | None = None,
+    ) -> PlaybackStatus: ...
+
+    async def pause(self) -> PlaybackStatus: ...
+
+    async def resume(self) -> PlaybackStatus: ...
+
+    async def stop(self) -> PlaybackStatus: ...
+
+    async def set_rate(self, rate: float) -> PlaybackStatus: ...
+
+    async def set_loop(self, enabled: bool, *, loop_count: int = 2) -> PlaybackStatus: ...
+
+    async def shutdown(self) -> None: ...

@@ -22,6 +22,7 @@ from momo.domain.enums import (
     HardwareAccessPolicy,
     KinematicsVerificationStatus,
     ProfileVerificationStatus,
+    RealReadiness,
 )
 from momo.domain.errors import HardwareMappingError, RobotApplicationError
 from momo.domain.hardware_mapping import effective_raw_bounds, goal_raw_to_logical
@@ -49,6 +50,7 @@ from momo.domain.real_hardware import (
     field_acceptance_evidence_state,
     kinematics_verification_evidence_state,
 )
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.ports.clock import Clock
 from momo.ports.servo_bus import (
     ReadOnlyServoBus,
@@ -165,6 +167,22 @@ class DeviceDiagnosticsService:
             session=report.session,
         )
 
+    async def product_execution_readiness(self) -> tuple[RealReadiness, bool]:
+        """Return only the compiler inputs; authorization remains per request."""
+
+        if self.context.control_mode.value != "REAL":
+            return RealReadiness.BLOCKED_BY_STAGE_POLICY, False
+        report = await self.readiness()
+        ready = report.capabilities.real_playback_ready
+        return (
+            (RealReadiness.READY, True)
+            if ready
+            else (
+                RealReadiness.BLOCKED_BY_STAGE_POLICY,
+                False,
+            )
+        )
+
     async def issue_operator_session(
         self,
         *,
@@ -198,6 +216,46 @@ class DeviceDiagnosticsService:
 
         return await self.sessions.authorize(token, self.context, purpose=purpose)
 
+    async def authorize_real_execution(
+        self,
+        token: str,
+        *,
+        purpose: RealHardwareAuthorizationPurpose,
+    ) -> RealExecutionAuthorization:
+        """Resolve a token-free, purpose-bound permit for one product execution."""
+
+        if purpose not in {
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        }:
+            raise ValueError("purpose is not a product REAL execution capability")
+        evidence = await self.sessions.authorize(token, self.context, purpose=purpose)
+        report = self.authorization.require_authorized(
+            RealHardwareGateInput(
+                context=self.context,
+                evaluated_at=self.clock.now(),
+                operator_session=evidence,
+            ),
+            purpose=purpose,
+        )
+        calibration = self.context.calibration
+        if calibration is None or evidence.calibration_fingerprint is None:
+            raise DeviceConnectionError("REAL execution Calibration is unavailable")
+        return RealExecutionAuthorization(
+            session_id=evidence.session_id,
+            robot_id=evidence.robot_id,
+            variant=evidence.variant,
+            profile_fingerprint=evidence.profile_fingerprint,
+            calibration_fingerprint=evidence.calibration_fingerprint,
+            allowed_servo_ids=evidence.allowed_servo_ids,
+            issued_at=evidence.issued_at,
+            expires_at=evidence.expires_at,
+            confirmed=True,
+            purpose=purpose,
+            capabilities=report.capabilities,
+        )
+
     async def revoke_operator_session(self, token: str) -> None:
         async with self._guard:
             await self.sessions.revoke(token)
@@ -207,10 +265,37 @@ class DeviceDiagnosticsService:
                 await self.sessions.invalidate()
 
     async def connect(self, token: str) -> DeviceDiagnosticsSnapshot:
+        return await self._connect(
+            token,
+            purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+        )
+
+    async def connect_for_product_motion(
+        self,
+        token: str,
+        *,
+        purpose: RealHardwareAuthorizationPurpose,
+    ) -> tuple[ServoBus, OperatorSessionEvidence, DeviceDiagnosticsSnapshot]:
+        if purpose not in {
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        }:
+            raise ValueError("product connection requires a REAL motion purpose")
+        snapshot = await self._connect(token, purpose=purpose)
+        bus, evidence = await self.require_authorized_motion_bus(token, purpose=purpose)
+        return bus, evidence, snapshot
+
+    async def _connect(
+        self,
+        token: str,
+        *,
+        purpose: RealHardwareAuthorizationPurpose,
+    ) -> DeviceDiagnosticsSnapshot:
         await self.sessions.authorize(
             token,
             self.context,
-            purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+            purpose=purpose,
         )
         async with self._guard:
             if self._has_bus_reference:
@@ -222,7 +307,7 @@ class DeviceDiagnosticsService:
             evidence = await self.sessions.authorize(
                 token,
                 self.context,
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=purpose,
             )
             grant = self.authorization.require_authorized(
                 RealHardwareGateInput(
@@ -230,7 +315,7 @@ class DeviceDiagnosticsService:
                     evaluated_at=self.clock.now(),
                     operator_session=evidence,
                 ),
-                purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                purpose=purpose,
             )
             factory = self.bus_factory
             device = self.context.device
@@ -273,7 +358,7 @@ class DeviceDiagnosticsService:
                 current = await self.sessions.authorize(
                     token,
                     self.context,
-                    purpose=RealHardwareAuthorizationPurpose.DIAGNOSTICS,
+                    purpose=purpose,
                 )
                 if current.session_id != evidence.session_id:
                     raise DeviceConnectionError(
@@ -300,7 +385,7 @@ class DeviceDiagnosticsService:
                 if isinstance(error, RobotApplicationError):
                     raise
                 raise DeviceConnectionError(
-                    "Explicit read-only device connection failed",
+                    "Explicit device connection failed",
                     details={"reason": type(error).__name__},
                 ) from error
             self._bus = bus
@@ -314,6 +399,26 @@ class DeviceDiagnosticsService:
                 evidence.expires_at,
             )
         return snapshot
+
+    async def require_authorized_motion_bus(
+        self,
+        token: str,
+        *,
+        purpose: RealHardwareAuthorizationPurpose,
+    ) -> tuple[ServoBus, OperatorSessionEvidence]:
+        """Return the already-open full bus for the exact active motion session."""
+
+        evidence = await self.sessions.authorize(token, self.context, purpose=purpose)
+        async with self._guard:
+            current = await self.sessions.authorize(token, self.context, purpose=purpose)
+            bus = self._bus
+            if bus is None or self._connected_session_id != current.session_id:
+                raise DeviceNotConnectedError(
+                    "The product REAL ServoBus is not connected for this session"
+                )
+            if current.session_id != evidence.session_id:
+                raise DeviceNotConnectedError("Operator session changed during bus resolution")
+            return bus, current
 
     async def diagnostics(
         self,
