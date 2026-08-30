@@ -71,7 +71,7 @@ async def issue_browser_session(
             authorization=authorization,
             principal_id=principal.principal_id,
             surfaces=surfaces,
-            ttl=timedelta(seconds=settings.operator_session_ttl_s),
+            ttl=timedelta(seconds=settings.browser_security_session_ttl_s),
         )
     except SecurityViolation as error:
         raise security_http_error(error) from error

@@ -18,6 +18,8 @@ from momo.domain.errors import (
     VisionProviderUnavailableError,
     VisionSelectionRequiredError,
 )
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.vision import (
     CameraAccessPolicy,
     Detection,
@@ -505,7 +507,13 @@ class VisionApplicationService:
             )
         return capability, tuple(detections)
 
-    async def start_follow(self, configuration: FollowConfiguration) -> FollowStatus:
+    async def start_follow(
+        self,
+        configuration: FollowConfiguration,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> FollowStatus:
         if self.camera_access_policy is CameraAccessPolicy.LIVE_CAMERA_ALLOWED:
             raise VisionFollowConflictError(
                 "The live camera session is read-only; tracking and Follow are disabled"
@@ -530,7 +538,9 @@ class VisionApplicationService:
                     FollowOperatorIntent(
                         confirmed=True,
                         configuration=configuration,
-                    )
+                    ),
+                    authorization=authorization,
+                    execution_purpose=execution_purpose,
                 )
                 lease = status.lease
                 if lease is None:  # pragma: no cover - domain state invariant
@@ -558,8 +568,18 @@ class VisionApplicationService:
         self._start_follow_pump()
         return self.follow.get_status()
 
-    async def heartbeat_follow(self, lease_id: UUID) -> FollowStatus:
-        return await self.follow.heartbeat(lease_id)
+    async def heartbeat_follow(
+        self,
+        lease_id: UUID,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> FollowStatus:
+        return await self.follow.heartbeat(
+            lease_id,
+            authorization=authorization,
+            execution_purpose=execution_purpose,
+        )
 
     async def stop_follow(self, lease_id: UUID) -> VisionRuntimeSnapshot:
         cleanup = asyncio.create_task(

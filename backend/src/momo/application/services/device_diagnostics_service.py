@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import suppress
 from datetime import datetime
 from typing import TypeVar
 from uuid import UUID
@@ -27,6 +28,7 @@ from momo.domain.enums import (
 from momo.domain.errors import HardwareMappingError, RobotApplicationError
 from momo.domain.hardware_mapping import effective_raw_bounds, goal_raw_to_logical
 from momo.domain.real_hardware import (
+    AUTHORIZATION_PURPOSE_SCOPE,
     DeviceDiagnosticsSnapshot,
     HardwareArtifactStatus,
     HardwareDependencyState,
@@ -60,6 +62,16 @@ from momo.ports.servo_bus import (
 )
 
 _T = TypeVar("_T")
+
+_PRODUCT_PURPOSE_BY_SCOPE = {
+    AUTHORIZATION_PURPOSE_SCOPE[purpose]: purpose
+    for purpose in (
+        RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+        RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+        RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+    )
+}
 
 
 async def _wait_task_terminal(task: asyncio.Task[_T]) -> asyncio.CancelledError | None:
@@ -132,12 +144,20 @@ class DeviceDiagnosticsService:
         self._uncertain_bus: ServoBus | None = None
         self._connected_session_id: UUID | None = None
         self._expiry_watchdog: asyncio.Task[None] | None = None
+        self._product_cleanup_hook: Callable[[], Awaitable[None]] | None = None
         self._records: tuple[ServoDiagnosticRecord, ...] = ()
         self._last_error = ""
 
     @property
     def connected(self) -> bool:
         return self._bus is not None
+
+    def bind_product_cleanup(self, hook: Callable[[], Awaitable[None]]) -> None:
+        """Bind backend-owned motion cancellation/binding revocation for cleanup."""
+
+        if self._product_cleanup_hook is not None:
+            raise RuntimeError("product cleanup hook is already bound")
+        self._product_cleanup_hook = hook
 
     async def readiness(self) -> RealHardwareReadinessReport:
         evidence = await self.sessions.current_evidence(self.context)
@@ -228,6 +248,7 @@ class DeviceDiagnosticsService:
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
         }:
             raise ValueError("purpose is not a product REAL execution capability")
         evidence = await self.sessions.authorize(token, self.context, purpose=purpose)
@@ -242,12 +263,51 @@ class DeviceDiagnosticsService:
         calibration = self.context.calibration
         if calibration is None or evidence.calibration_fingerprint is None:
             raise DeviceConnectionError("REAL execution Calibration is unavailable")
+        required_capabilities = {
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+            },
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+                FieldAcceptanceCapability.CARTESIAN,
+            },
+            RealHardwareAuthorizationPurpose.REAL_PLAYBACK: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+                FieldAcceptanceCapability.PLAYBACK,
+            },
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+                FieldAcceptanceCapability.VISION_FOLLOW,
+            },
+        }[purpose]
+        if (
+            purpose is RealHardwareAuthorizationPurpose.REAL_PLAYBACK
+            and report.capabilities.real_cartesian_motion_ready
+        ):
+            required_capabilities.add(FieldAcceptanceCapability.CARTESIAN)
+        capability_evidence_ids = {
+            capability: evidence.capability_evidence_ids[capability]
+            for capability in required_capabilities
+        }
+        kinematics_scoped = (
+            purpose
+            in {
+                RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+                RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+            }
+            or FieldAcceptanceCapability.CARTESIAN in capability_evidence_ids
+        )
         return RealExecutionAuthorization(
             session_id=evidence.session_id,
             robot_id=evidence.robot_id,
             variant=evidence.variant,
             profile_fingerprint=evidence.profile_fingerprint,
             calibration_fingerprint=evidence.calibration_fingerprint,
+            kinematics_fingerprint=(evidence.kinematics_fingerprint if kinematics_scoped else None),
+            kinematics_verification_evidence_id=(
+                evidence.kinematics_verification_evidence_id if kinematics_scoped else None
+            ),
+            capability_evidence_ids=capability_evidence_ids,
             allowed_servo_ids=evidence.allowed_servo_ids,
             issued_at=evidence.issued_at,
             expires_at=evidence.expires_at,
@@ -257,12 +317,7 @@ class DeviceDiagnosticsService:
         )
 
     async def revoke_operator_session(self, token: str) -> None:
-        async with self._guard:
-            await self.sessions.revoke(token)
-            try:
-                await self._close_connected_bus_unlocked()
-            finally:
-                await self.sessions.invalidate()
+        await self.disconnect(token)
 
     async def connect(self, token: str) -> DeviceDiagnosticsSnapshot:
         return await self._connect(
@@ -280,10 +335,52 @@ class DeviceDiagnosticsService:
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
         }:
             raise ValueError("product connection requires a REAL motion purpose")
         snapshot = await self._connect(token, purpose=purpose)
         bus, evidence = await self.require_authorized_motion_bus(token, purpose=purpose)
+        return bus, evidence, snapshot
+
+    async def connect_for_product_session(
+        self,
+        token: str,
+    ) -> tuple[ServoBus, OperatorSessionEvidence, DeviceDiagnosticsSnapshot]:
+        """Open one session-scoped product bus without inventing a Joint capability.
+
+        The selected factory purpose is one scope that the immutable session really
+        owns.  The returned evidence (not that bootstrap purpose) is bound to the
+        product bus, and every later execution must still authorize its exact purpose.
+        """
+
+        evidence_hint = await self.sessions.current_evidence(self.context)
+        if evidence_hint is None or evidence_hint.purpose is not OperatorSessionPurpose.REAL_MOTION:
+            raise DeviceConnectionError(
+                "An active production motion session is required",
+                details={"reason": "SESSION_UNAVAILABLE"},
+            )
+        available_scopes = tuple(
+            sorted(
+                evidence_hint.scopes & frozenset(_PRODUCT_PURPOSE_BY_SCOPE),
+                key=lambda scope: scope.value,
+            )
+        )
+        if not available_scopes:
+            raise DeviceConnectionError(
+                "The active session has no production motion scope",
+                details={"reason": "SCOPE_UNAVAILABLE"},
+            )
+        bootstrap_purpose = _PRODUCT_PURPOSE_BY_SCOPE[available_scopes[0]]
+        snapshot = await self._connect(token, purpose=bootstrap_purpose)
+        bus, evidence = await self.require_authorized_motion_bus(
+            token,
+            purpose=bootstrap_purpose,
+        )
+        if (
+            evidence.session_id != evidence_hint.session_id
+            or evidence.scopes != evidence_hint.scopes
+        ):
+            raise DeviceConnectionError("Operator session changed during product connection")
         return bus, evidence, snapshot
 
     async def _connect(
@@ -694,13 +791,63 @@ class DeviceDiagnosticsService:
                 await self.sessions.invalidate()
 
     async def disconnect(self, token: str) -> DeviceDiagnosticsSnapshot:
+        cleanup = asyncio.create_task(
+            self._disconnect_safely(token=token),
+            name="authenticated-servo-bus-disconnect",
+        )
+        cancellation = await _wait_task_terminal(cleanup)
+        result = cleanup.result()
+        if cancellation is not None:
+            raise cancellation
+        return result
+
+    async def disconnect_trusted(self) -> DeviceDiagnosticsSnapshot:
+        """Token-independent backend cleanup for expiry, failure, and shutdown."""
+
+        cleanup = asyncio.create_task(
+            self._disconnect_safely(token=None),
+            name="trusted-servo-bus-disconnect",
+        )
+        cancellation = await _wait_task_terminal(cleanup)
+        result = cleanup.result()
+        if cancellation is not None:
+            raise cancellation
+        return result
+
+    async def _disconnect_safely(self, *, token: str | None) -> DeviceDiagnosticsSnapshot:
+        stop_outcome = await self.stop()
+        authorization_error: Exception | None = None
+        product_cleanup_error: Exception | None = None
+        if self._product_cleanup_hook is not None:
+            try:
+                await self._product_cleanup_hook()
+            except Exception as error:
+                # Port close and session invalidation remain mandatory even if
+                # higher-level Robot state cleanup failed.
+                product_cleanup_error = error
         async with self._guard:
-            await self.sessions.revoke(token)
+            if token is not None:
+                try:
+                    await self.sessions.revoke(token)
+                except Exception as error:
+                    # Authentication errors still cannot strand a bus or torque.
+                    authorization_error = error
+            else:
+                await self.sessions.invalidate()
             try:
                 await self._close_connected_bus_unlocked()
             finally:
                 await self.sessions.invalidate()
+            if stop_outcome.connected and not stop_outcome.safety_state_known:
+                self._last_error = (
+                    "Software Stop safety state remains uncertain after cleanup; "
+                    "use the physical E-stop"
+                )
             snapshot = await self._snapshot(())
+        if authorization_error is not None:
+            raise authorization_error
+        if product_cleanup_error is not None:
+            raise product_cleanup_error
         return snapshot
 
     async def stop(self) -> RealStopOutcome:
@@ -759,11 +906,7 @@ class DeviceDiagnosticsService:
             )
 
     async def shutdown(self) -> None:
-        async with self._guard:
-            try:
-                await self._close_connected_bus_unlocked()
-            finally:
-                await self.sessions.invalidate()
+        await self.disconnect_trusted()
 
     async def _close_connected_bus_unlocked(self) -> None:
         await self._cancel_expiry_watchdog_unlocked()
@@ -861,6 +1004,12 @@ class DeviceDiagnosticsService:
                 if remaining > 0:
                     await self.clock.sleep(remaining)
                     continue
+                # Expiry removes write authorization in RealMotionExecutor.  Ask
+                # the bus to Hold/Stop before closing its session-owned handle.
+                await self.stop()
+                if self._product_cleanup_hook is not None:
+                    with suppress(Exception):
+                        await self._product_cleanup_hook()
                 async with self._guard:
                     if self._connected_session_id != session_id:
                         return

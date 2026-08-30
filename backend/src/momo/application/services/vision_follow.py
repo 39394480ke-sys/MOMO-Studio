@@ -29,6 +29,8 @@ from momo.domain.errors import (
     VisionFollowConflictError,
     VisionFollowLeaseNotFoundError,
 )
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.vision import TrackingResult, TrackingStatus
 from momo.domain.vision_follow import (
     FollowController,
@@ -54,6 +56,8 @@ class _FollowSession:
     expires_at_monotonic: float
     generation: int
     command_epoch: int
+    authorization: RealExecutionAuthorization | None = None
+    execution_purpose: RealHardwareAuthorizationPurpose | None = None
     state: FollowState = FollowState.ACTIVE
     stop_reason: FollowStopReason | None = None
     metrics: FollowMetrics | None = None
@@ -107,7 +111,14 @@ class VisionFollowService:
     def follow_active(self) -> bool:
         return self._latest_status.state is FollowState.ACTIVE
 
-    async def start(self, intent: FollowOperatorIntent) -> FollowStatus:
+    async def start(
+        self,
+        intent: FollowOperatorIntent,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> FollowStatus:
+        self._validate_execution_binding(authorization, execution_purpose)
         async with self._guard:
             if self._closed:
                 raise VisionFollowConflictError(
@@ -159,16 +170,33 @@ class VisionFollowService:
                 expires_at_monotonic=now_monotonic + configuration.lease_ttl_s,
                 generation=self._generation,
                 command_epoch=command_epoch,
+                authorization=authorization,
+                execution_purpose=execution_purpose,
                 last_frame_received_monotonic=now_monotonic,
             )
             self._session = session
             self._restart_watchdog_unlocked(session)
             return self._publish_unlocked(session)
 
-    async def heartbeat(self, lease_id: UUID) -> FollowStatus:
+    async def heartbeat(
+        self,
+        lease_id: UUID,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> FollowStatus:
+        self._validate_execution_binding(authorization, execution_purpose)
         expired = False
         async with self._guard:
             session = self._require_session_unlocked(lease_id)
+            if (
+                session.authorization != authorization
+                or session.execution_purpose is not execution_purpose
+            ):
+                raise VisionFollowConflictError(
+                    "Vision Follow authority cannot be replaced in-place",
+                    details={"reason": "AUTHORIZATION_SESSION_CHANGED"},
+                )
             if session.state is not FollowState.ACTIVE:
                 return self._latest_status
             now_monotonic = self.clock.monotonic()
@@ -365,7 +393,12 @@ class VisionFollowService:
         if command is None:
             return self._latest_status
         try:
-            accepted_id = await self.commands.dispatch(command_epoch, command)
+            accepted_id = await self.commands.dispatch(
+                command_epoch,
+                command,
+                authorization=retained.authorization,
+                execution_purpose=retained.execution_purpose,
+            )
         except MotionConflictError:
             return await self._stop_current(FollowStopReason.MOTION_CONFLICT)
         except MotionPreflightError:
@@ -558,6 +591,27 @@ class VisionFollowService:
         if session is None or session.lease_id != lease_id:
             raise VisionFollowLeaseNotFoundError(f"Unknown Follow lease: {lease_id}")
         return session
+
+    @staticmethod
+    def _validate_execution_binding(
+        authorization: RealExecutionAuthorization | None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None,
+    ) -> None:
+        if (authorization is None) is not (execution_purpose is None):
+            raise VisionFollowConflictError(
+                "Vision Follow requires a complete execution authorization binding",
+                details={"reason": "AUTHORIZATION_BINDING_INCOMPLETE"},
+            )
+        if authorization is None:
+            return
+        if (
+            execution_purpose is not RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW
+            or authorization.purpose is not execution_purpose
+        ):
+            raise VisionFollowConflictError(
+                "Vision Follow requires its dedicated execution capability",
+                details={"reason": "AUTHORIZATION_PURPOSE_MISMATCH"},
+            )
 
     def _publish_unlocked(self, session: _FollowSession) -> FollowStatus:
         lease = FollowLease(

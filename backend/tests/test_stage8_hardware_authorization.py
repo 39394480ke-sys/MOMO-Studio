@@ -18,7 +18,11 @@ from momo.application.services.operator_session_service import (
 from momo.application.services.real_hardware_authorization import (
     RealHardwareAuthorization,
 )
-from momo.domain.commissioning import PhysicalStopVerification, ValidatedFieldAcceptanceBundle
+from momo.domain.commissioning import (
+    FieldAcceptanceCapability,
+    PhysicalStopVerification,
+    ValidatedFieldAcceptanceBundle,
+)
 from momo.domain.enums import (
     ControlMode,
     HardwareAccessPolicy,
@@ -33,6 +37,7 @@ from momo.domain.real_hardware import (
     FieldAcceptanceStatus,
     HardwareDependencyState,
     OperatorSessionPurpose,
+    OperatorSessionScope,
     RealHardwareAuthorizationPurpose,
     RealHardwareBlocker,
     RealHardwareContext,
@@ -41,7 +46,12 @@ from momo.domain.real_hardware import (
     RealHardwareReadinessState,
 )
 from tests.stage3_helpers import FakeClock
-from tests.stage8_hardware_helpers import real_calibration, real_context, real_profile
+from tests.stage8_hardware_helpers import (
+    device_service,
+    real_calibration,
+    real_context,
+    real_profile,
+)
 
 
 def evaluate(
@@ -200,10 +210,10 @@ def test_read_only_identity_characterization_does_not_promote_template_profile()
     assert RealHardwareBlocker.PROFILE_NOT_VERIFIED_FOR_REAL not in report.blocking_reasons
     assert report.capabilities.commissioning_read_only_ready is True
     assert report.capabilities.real_joint_motion_ready is False
-    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE not in (
+    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE.value in (
         report.capability_details.real_joint_motion.blocked_reasons
     )
-    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE not in (
+    assert RealHardwareBlocker.PROFILE_IS_TEMPLATE.value in (
         report.capability_details.real_playback.blocked_reasons
     )
 
@@ -237,7 +247,155 @@ def test_all_nonoperator_gates_yield_exact_authorizable_state_and_confirmation()
     assert all(str(servo_id) not in report.confirmation.masked_servo_ids for servo_id in (1, 2))
 
 
-def test_manual_and_studio_real_control_share_one_operator_session() -> None:
+def test_full_production_session_binds_every_scope_and_vision_execution_evidence() -> None:
+    async def scenario() -> None:
+        context = real_context()
+        device, _, _ = device_service(context)
+        issued = await device.issue_operator_session(
+            purpose=OperatorSessionPurpose.REAL_MOTION,
+            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        token = issued.session_token.get_secret_value()
+        evidence = issued.evidence
+        current_ids = device.authorization.current_capability_evidence_ids(context)
+
+        assert evidence.scopes == frozenset(
+            {
+                OperatorSessionScope.REAL_JOINT_MOTION,
+                OperatorSessionScope.REAL_CARTESIAN_MOTION,
+                OperatorSessionScope.REAL_PLAYBACK,
+                OperatorSessionScope.REAL_VISION_FOLLOW,
+            }
+        )
+        assert dict(evidence.capability_evidence_ids) == current_ids
+        assert (
+            evidence.field_acceptance_evidence_id
+            == current_ids[FieldAcceptanceCapability.JOINT_MOTION]
+        )
+        assert context.kinematics_verification_evidence is not None
+        assert evidence.kinematics_verification_evidence_id == (
+            context.kinematics_verification_evidence.id
+        )
+        with pytest.raises(TypeError, match="immutable"):
+            evidence.capability_evidence_ids[FieldAcceptanceCapability.JOINT_MOTION] = uuid4()
+
+        vision = await device.authorize_real_execution(
+            token,
+            purpose=RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+        )
+        assert vision.purpose is RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW
+        assert set(vision.capability_evidence_ids) == {
+            FieldAcceptanceCapability.JOINT_MOTION,
+            FieldAcceptanceCapability.VISION_FOLLOW,
+        }
+        assert vision.kinematics_fingerprint == evidence.kinematics_fingerprint
+        assert vision.kinematics_verification_evidence_id == (
+            evidence.kinematics_verification_evidence_id
+        )
+
+        invalid_alias = evidence.model_dump(mode="python")
+        invalid_alias["field_acceptance_evidence_id"] = current_ids[
+            FieldAcceptanceCapability.CARTESIAN
+        ]
+        with pytest.raises(ValidationError, match="JOINT_MOTION compatibility alias"):
+            type(evidence).model_validate(invalid_alias)
+
+        await device.sessions.invalidate()
+        with pytest.raises(OperatorSessionTokenError):
+            await device.authorize_real_execution(
+                token,
+                purpose=RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+            )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("capability", "scope", "purpose", "blocker"),
+    [
+        (
+            FieldAcceptanceCapability.JOINT_MOTION,
+            OperatorSessionScope.REAL_JOINT_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            RealHardwareBlocker.JOINT_MOTION_ACCEPTANCE_PENDING,
+        ),
+        (
+            FieldAcceptanceCapability.CARTESIAN,
+            OperatorSessionScope.REAL_CARTESIAN_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+            RealHardwareBlocker.CARTESIAN_ACCEPTANCE_PENDING,
+        ),
+        (
+            FieldAcceptanceCapability.PLAYBACK,
+            OperatorSessionScope.REAL_PLAYBACK,
+            RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            RealHardwareBlocker.PLAYBACK_ACCEPTANCE_PENDING,
+        ),
+        (
+            FieldAcceptanceCapability.VISION_FOLLOW,
+            OperatorSessionScope.REAL_VISION_FOLLOW,
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+            RealHardwareBlocker.VISION_FOLLOW_ACCEPTANCE_PENDING,
+        ),
+    ],
+)
+def test_capability_matrix_never_issues_a_scope_without_its_current_acceptance(
+    capability: FieldAcceptanceCapability,
+    scope: OperatorSessionScope,
+    purpose: RealHardwareAuthorizationPurpose,
+    blocker: RealHardwareBlocker,
+) -> None:
+    async def scenario() -> None:
+        context = real_context()
+        records = tuple(
+            record
+            for record in context.field_acceptance_bundle.records
+            if record.capability is not capability
+        )
+        narrowed = context.model_copy(
+            update={"field_acceptance_bundle": ValidatedFieldAcceptanceBundle(records=records)}
+        )
+        report = evaluate(narrowed, FakeClock())
+        detail = {
+            FieldAcceptanceCapability.JOINT_MOTION: report.capability_details.real_joint_motion,
+            FieldAcceptanceCapability.CARTESIAN: (report.capability_details.real_cartesian_motion),
+            FieldAcceptanceCapability.PLAYBACK: report.capability_details.real_playback,
+            FieldAcceptanceCapability.VISION_FOLLOW: (report.capability_details.real_vision_follow),
+        }[capability]
+        assert blocker.value in detail.blocked_reasons
+
+        sessions = OperatorSessionService(FakeClock(), RealHardwareAuthorization(), ttl_s=60.0)
+        if capability is FieldAcceptanceCapability.JOINT_MOTION:
+            assert report.motion_session_authorizable is False
+            with pytest.raises(OperatorSessionPrerequisiteError):
+                await sessions.issue(
+                    narrowed,
+                    purpose=OperatorSessionPurpose.REAL_MOTION,
+                    confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+                    physical_estop_confirmed=True,
+                )
+            return
+
+        issued = await sessions.issue(
+            narrowed,
+            purpose=OperatorSessionPurpose.REAL_MOTION,
+            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        assert scope not in issued.evidence.scopes
+        assert capability not in issued.evidence.capability_evidence_ids
+        with pytest.raises(OperatorSessionScopeError):
+            await sessions.authorize(
+                issued.session_token.get_secret_value(),
+                narrowed,
+                purpose=purpose,
+            )
+
+    asyncio.run(scenario())
+
+
+def test_production_session_cannot_bypass_profile_acceptance_or_physical_stop() -> None:
     async def scenario() -> None:
         base = real_context()
         assert base.profile is not None
@@ -269,41 +427,28 @@ def test_manual_and_studio_real_control_share_one_operator_session() -> None:
         authorization = RealHardwareAuthorization()
         report = evaluate(context, clock)
 
-        assert report.motion_session_authorizable is True
-        assert report.capability_details.real_joint_motion.blocked_reasons == (
-            "OPERATOR_SESSION_MISSING",
+        assert report.motion_session_authorizable is False
+        assert RealHardwareBlocker.PROFILE_IS_TEMPLATE.value in (
+            report.capability_details.real_joint_motion.blocked_reasons
         )
-        assert report.capability_details.real_cartesian_motion.blocked_reasons == (
-            "OPERATOR_SESSION_MISSING",
+        assert RealHardwareBlocker.PROFILE_NOT_VERIFIED_FOR_REAL.value in (
+            report.capability_details.real_joint_motion.blocked_reasons
         )
-        assert report.capability_details.real_playback.blocked_reasons == (
-            "OPERATOR_SESSION_MISSING",
+        assert RealHardwareBlocker.JOINT_MOTION_ACCEPTANCE_PENDING.value in (
+            report.capability_details.real_joint_motion.blocked_reasons
+        )
+        assert RealHardwareBlocker.PHYSICAL_STOP_NOT_VERIFIED.value in (
+            report.capability_details.real_joint_motion.blocked_reasons
         )
 
         sessions = OperatorSessionService(clock, authorization, ttl_s=60.0)
-        issued = await sessions.issue(
-            context,
-            purpose=OperatorSessionPurpose.REAL_MOTION,
-            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
-            physical_estop_confirmed=True,
-        )
-        token = issued.session_token.get_secret_value()
-        assert issued.evidence.field_acceptance_evidence_id is None
-        await sessions.authorize(
-            token,
-            context,
-            purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
-        )
-        await sessions.authorize(
-            token,
-            context,
-            purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
-        )
-        await sessions.authorize(
-            token,
-            context,
-            purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
-        )
+        with pytest.raises(OperatorSessionPrerequisiteError):
+            await sessions.issue(
+                context,
+                purpose=OperatorSessionPurpose.REAL_MOTION,
+                confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+                physical_estop_confirmed=True,
+            )
 
     asyncio.run(scenario())
 
@@ -447,6 +592,21 @@ def test_operator_confirmation_must_be_exact_and_estop_explicit() -> None:
             )
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("ttl_s", [29.999, 900.001, float("inf")])
+def test_hardware_operator_session_ttl_is_strictly_short_lived(ttl_s: float) -> None:
+    with pytest.raises(ValueError, match="between 30 and 900 seconds"):
+        OperatorSessionService(FakeClock(), RealHardwareAuthorization(), ttl_s=ttl_s)
+
+    assert (
+        OperatorSessionService(
+            FakeClock(),
+            RealHardwareAuthorization(),
+            ttl_s=900.0,
+        ).ttl_s
+        == 900.0
+    )
 
 
 def test_token_is_in_memory_single_active_short_lived_and_never_in_evidence() -> None:
@@ -623,7 +783,109 @@ def test_context_drift_revokes_effective_authorization() -> None:
     asyncio.run(scenario())
 
 
-def test_missing_kinematics_evidence_allows_manual_geometry_but_blocks_automation() -> None:
+@pytest.mark.parametrize(
+    ("capability", "purpose"),
+    [
+        (
+            FieldAcceptanceCapability.JOINT_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+        ),
+        (
+            FieldAcceptanceCapability.CARTESIAN,
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+        ),
+        (
+            FieldAcceptanceCapability.PLAYBACK,
+            RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        ),
+        (
+            FieldAcceptanceCapability.VISION_FOLLOW,
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+        ),
+    ],
+)
+def test_replacing_any_bound_acceptance_immediately_invalidates_the_session(
+    capability: FieldAcceptanceCapability,
+    purpose: RealHardwareAuthorizationPurpose,
+) -> None:
+    async def scenario() -> None:
+        context = real_context()
+        clock = FakeClock()
+        sessions = OperatorSessionService(clock, RealHardwareAuthorization(), ttl_s=60.0)
+        issued = await sessions.issue(
+            context,
+            purpose=OperatorSessionPurpose.REAL_MOTION,
+            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        token = issued.session_token.get_secret_value()
+        changed_records = tuple(
+            record.model_copy(update={"evidence_id": uuid4()})
+            if record.capability is capability
+            else record
+            for record in context.field_acceptance_bundle.records
+        )
+        changed = context.model_copy(
+            update={
+                "field_acceptance_bundle": ValidatedFieldAcceptanceBundle(records=changed_records)
+            }
+        )
+
+        assert await sessions.current_evidence(changed) is None
+        with pytest.raises(OperatorSessionTokenError, match="context changed"):
+            await sessions.authorize(token, changed, purpose=purpose)
+
+    asyncio.run(scenario())
+
+
+def test_replacing_kinematics_evidence_invalidates_geometry_and_does_not_upgrade_scope() -> None:
+    async def scenario() -> None:
+        full = real_context()
+        assert full.kinematics_verification_evidence is not None
+        without_kinematics = full.model_copy(update={"kinematics_verification_evidence": None})
+        clock = FakeClock()
+        sessions = OperatorSessionService(clock, RealHardwareAuthorization(), ttl_s=60.0)
+        issued = await sessions.issue(
+            without_kinematics,
+            purpose=OperatorSessionPurpose.REAL_MOTION,
+            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        token = issued.session_token.get_secret_value()
+        assert OperatorSessionScope.REAL_CARTESIAN_MOTION not in issued.evidence.scopes
+        assert OperatorSessionScope.REAL_VISION_FOLLOW not in issued.evidence.scopes
+        assert issued.evidence.kinematics_verification_evidence_id is None
+
+        assert await sessions.current_evidence(full) is None
+        with pytest.raises(OperatorSessionTokenError, match="context changed"):
+            await sessions.authorize(
+                token,
+                full,
+                purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            )
+        with pytest.raises(OperatorSessionScopeError):
+            await sessions.authorize(
+                token,
+                full,
+                purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+            )
+
+        replacement = await sessions.issue(
+            full,
+            purpose=OperatorSessionPurpose.REAL_MOTION,
+            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+        )
+        assert replacement.evidence.session_id != issued.evidence.session_id
+        assert OperatorSessionScope.REAL_CARTESIAN_MOTION in replacement.evidence.scopes
+        assert replacement.evidence.kinematics_verification_evidence_id == (
+            full.kinematics_verification_evidence.id
+        )
+
+    asyncio.run(scenario())
+
+
+def test_missing_kinematics_evidence_blocks_geometry_without_blocking_joint_playback() -> None:
     async def scenario() -> None:
         accepted_context = real_context()
         assert accepted_context.kinematics is not None
@@ -663,14 +925,15 @@ def test_missing_kinematics_evidence_allows_manual_geometry_but_blocks_automatio
         assert report.ready is False
         assert report.state is RealHardwareReadinessState.BLOCKED_BY_KINEMATICS
         assert report.capabilities.real_joint_motion_ready is True
-        assert report.capabilities.real_cartesian_motion_ready is True
+        assert report.capabilities.real_cartesian_motion_ready is False
         assert report.capabilities.real_playback_ready is True
         assert report.capabilities.real_vision_follow_ready is False
-        await sessions.authorize(
-            token,
-            context,
-            purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
-        )
+        with pytest.raises(OperatorSessionScopeError):
+            await sessions.authorize(
+                token,
+                context,
+                purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+            )
         with pytest.raises(OperatorSessionScopeError):
             await sessions.authorize(
                 token,
@@ -690,12 +953,18 @@ def test_missing_kinematics_evidence_allows_manual_geometry_but_blocks_automatio
                 )
             }
         )
+        assert await sessions.current_evidence(upgraded_context) is None
         with pytest.raises(OperatorSessionTokenError):
+            await sessions.authorize(
+                token,
+                upgraded_context,
+                purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            )
+        with pytest.raises(OperatorSessionScopeError):
             await sessions.authorize(
                 token,
                 upgraded_context,
                 purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
             )
-        assert await sessions.current_evidence(upgraded_context) is None
 
     asyncio.run(scenario())

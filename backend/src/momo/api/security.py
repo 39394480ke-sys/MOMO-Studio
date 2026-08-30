@@ -200,6 +200,7 @@ def set_session_cookie(response: Response, issued: IssuedSession, *, secure: boo
         key=SESSION_COOKIE_NAME,
         value=issued.token,
         max_age=max_age,
+        expires=issued.grant.expires_at,
         path="/api/v1",
         secure=secure,
         httponly=True,

@@ -30,6 +30,7 @@ from momo.domain.real_hardware import (
     OperatorSessionScope,
     OperatorSessionStatus,
     RealHardwareAuthorizationPurpose,
+    RealHardwareBlocker,
     RealHardwareContext,
     RealHardwareGateInput,
     calibration_fingerprint,
@@ -76,10 +77,8 @@ class OperatorSessionService:
         *,
         ttl_s: float = 300.0,
     ) -> None:
-        if not isfinite(ttl_s) or ttl_s < 30.0 or ttl_s > 31_536_000.0:
-            raise ValueError(
-                "operator session ttl_s must be between 30 seconds and one year"
-            )
+        if not isfinite(ttl_s) or ttl_s < 30.0 or ttl_s > 900.0:
+            raise ValueError("operator session ttl_s must be between 30 and 900 seconds")
         self.clock = clock
         self.authorization = authorization
         self.ttl_s = float(ttl_s)
@@ -197,14 +196,58 @@ class OperatorSessionService:
                 envelope_duration_s,
             )
         expires_at = now + timedelta(seconds=session_ttl_s)
-        scopes = {
-            OperatorSessionPurpose.COMMISSIONING_READ_ONLY: COMMISSIONING_SCOPES,
-            OperatorSessionPurpose.COMMISSIONING_MOTION_TEST: COMMISSIONING_MOTION_SCOPES,
-            OperatorSessionPurpose.RAW_DIRECTION_TEST: RAW_DIRECTION_SCOPES,
-            OperatorSessionPurpose.REAL_MOTION: frozenset({OperatorSessionScope.REAL_JOINT_MOTION}),
-        }[resolved_purpose]
-        joint_acceptance = context.field_acceptance_bundle.newest_for(
-            FieldAcceptanceCapability.JOINT_MOTION
+        if resolved_purpose is OperatorSessionPurpose.REAL_MOTION:
+            scope_details = {
+                OperatorSessionScope.REAL_JOINT_MOTION: (
+                    report.capability_details.real_joint_motion
+                ),
+                OperatorSessionScope.REAL_CARTESIAN_MOTION: (
+                    report.capability_details.real_cartesian_motion
+                ),
+                OperatorSessionScope.REAL_PLAYBACK: report.capability_details.real_playback,
+                OperatorSessionScope.REAL_VISION_FOLLOW: (
+                    report.capability_details.real_vision_follow
+                ),
+            }
+            scopes = frozenset(
+                scope
+                for scope, detail in scope_details.items()
+                if detail.blocked_reasons == (RealHardwareBlocker.OPERATOR_SESSION_MISSING.value,)
+            )
+        else:
+            scopes = {
+                OperatorSessionPurpose.COMMISSIONING_READ_ONLY: COMMISSIONING_SCOPES,
+                OperatorSessionPurpose.COMMISSIONING_MOTION_TEST: COMMISSIONING_MOTION_SCOPES,
+                OperatorSessionPurpose.RAW_DIRECTION_TEST: RAW_DIRECTION_SCOPES,
+            }[resolved_purpose]
+        scope_capabilities = {
+            OperatorSessionScope.REAL_JOINT_MOTION: FieldAcceptanceCapability.JOINT_MOTION,
+            OperatorSessionScope.REAL_CARTESIAN_MOTION: FieldAcceptanceCapability.CARTESIAN,
+            OperatorSessionScope.REAL_PLAYBACK: FieldAcceptanceCapability.PLAYBACK,
+            OperatorSessionScope.REAL_VISION_FOLLOW: FieldAcceptanceCapability.VISION_FOLLOW,
+        }
+        current_capability_ids = self.authorization.current_capability_evidence_ids(context)
+        capability_evidence_ids = {
+            capability: current_capability_ids[capability]
+            for scope, capability in scope_capabilities.items()
+            if scope in scopes and capability in current_capability_ids
+        }
+        required_capabilities = {
+            capability for scope, capability in scope_capabilities.items() if scope in scopes
+        }
+        if resolved_purpose is OperatorSessionPurpose.REAL_MOTION and (
+            OperatorSessionScope.REAL_JOINT_MOTION not in scopes
+            or set(capability_evidence_ids) != required_capabilities
+        ):
+            raise OperatorSessionPrerequisiteError(
+                "No complete production capability scope can be bound to current evidence"
+            )
+        kinematics_scoped = bool(
+            scopes
+            & {
+                OperatorSessionScope.REAL_CARTESIAN_MOTION,
+                OperatorSessionScope.REAL_VISION_FOLLOW,
+            }
         )
         pre_motion = context.field_acceptance_bundle.newest_for(
             FieldAcceptanceCapability.PRE_MOTION_CHECKS
@@ -232,13 +275,19 @@ class OperatorSessionService:
                 context.kinematics.fingerprint
                 if context.kinematics is not None
                 and resolved_purpose is OperatorSessionPurpose.REAL_MOTION
+                and kinematics_scoped
                 else None
             ),
-            field_acceptance_evidence_id=(
-                joint_acceptance.evidence_id
-                if joint_acceptance is not None
+            kinematics_verification_evidence_id=(
+                context.kinematics_verification_evidence.id
+                if context.kinematics_verification_evidence is not None
                 and resolved_purpose is OperatorSessionPurpose.REAL_MOTION
+                and kinematics_scoped
                 else None
+            ),
+            capability_evidence_ids=capability_evidence_ids,
+            field_acceptance_evidence_id=(
+                capability_evidence_ids.get(FieldAcceptanceCapability.JOINT_MOTION)
             ),
             pre_motion_evidence_id=(
                 pre_motion.evidence_id
@@ -280,22 +329,24 @@ class OperatorSessionService:
             )
         )
         if resolved_purpose is OperatorSessionPurpose.REAL_MOTION:
-            expanded_scopes = {OperatorSessionScope.REAL_JOINT_MOTION}
-            if issued_report.capabilities.real_cartesian_motion_ready:
-                expanded_scopes.add(OperatorSessionScope.REAL_CARTESIAN_MOTION)
-            if issued_report.capabilities.real_playback_ready:
-                expanded_scopes.add(OperatorSessionScope.REAL_PLAYBACK)
-            if issued_report.capabilities.real_vision_follow_ready:
-                expanded_scopes.add(OperatorSessionScope.REAL_VISION_FOLLOW)
-            evidence = evidence.model_copy(update={"scopes": frozenset(expanded_scopes)})
-            # Re-evaluate the exact final immutable evidence before publishing it.
-            self.authorization.evaluate(
-                RealHardwareGateInput(
-                    context=context,
-                    evaluated_at=now,
-                    operator_session=evidence,
+            ready_by_scope = {
+                OperatorSessionScope.REAL_JOINT_MOTION: (
+                    issued_report.capabilities.real_joint_motion_ready
+                ),
+                OperatorSessionScope.REAL_CARTESIAN_MOTION: (
+                    issued_report.capabilities.real_cartesian_motion_ready
+                ),
+                OperatorSessionScope.REAL_PLAYBACK: (
+                    issued_report.capabilities.real_playback_ready
+                ),
+                OperatorSessionScope.REAL_VISION_FOLLOW: (
+                    issued_report.capabilities.real_vision_follow_ready
+                ),
+            }
+            if any(not ready_by_scope[scope] for scope in scopes):
+                raise OperatorSessionPrerequisiteError(
+                    "Final immutable production scope evidence failed revalidation"
                 )
-            )
         active = _ActiveOperatorSession(
             token_digest=_digest(raw_token),
             context_digest=_context_digest(context, resolved_purpose),
@@ -493,12 +544,16 @@ def _context_digest(
                 "expected_kinematics_fingerprint": context.expected_kinematics_fingerprint,
                 "field_acceptance_status": context.field_acceptance_status.value,
                 "field_acceptance_bundle": context.field_acceptance_bundle.model_dump(mode="json"),
+                "physical_stop_verification": context.physical_stop_verification.value,
                 "kinematics_verification_evidence": (
                     context.kinematics_verification_evidence.model_dump(mode="json")
                     if context.kinematics_verification_evidence is not None
                     else None
                 ),
                 "field_acceptance_checklist_version": (context.field_acceptance_checklist_version),
+                "kinematics_verification_checklist_version": (
+                    context.kinematics_verification_checklist_version
+                ),
             }
         )
     encoded = json.dumps(

@@ -40,6 +40,8 @@ from momo.application.services.vision_service import (
     VisionRuntimeSnapshot,
 )
 from momo.domain.errors import VisionProviderUnavailableError
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.security import SecuritySurface
 from momo.domain.vision import (
     NormalizedBoundingBox,
@@ -57,6 +59,10 @@ from momo.domain.vision_follow import (
 
 router = APIRouter(prefix="/vision", tags=["vision"])
 VisionServiceDependency = Annotated[VisionApplicationService, Depends(get_vision_service)]
+RealVisionAuthorization = Annotated[
+    RealExecutionAuthorization | None,
+    Depends(authorize_real_vision_follow_request),
+]
 STREAM_BOUNDARY = "momo-vision-frame"
 PublicTrackingStatus = Literal["LOCKED", "LOST", "STALE", "FAULTED"]
 
@@ -325,13 +331,13 @@ async def reset_tracking(service: VisionServiceDependency) -> VisionStatusRespon
     "/follow/start",
     response_model=VisionFollowLeaseResponse,
     dependencies=[
-        Depends(authorize_control_keepalive_request),
-        Depends(authorize_real_vision_follow_request),
+        Depends(authorize_control_request),
     ],
 )
 async def start_follow(
     request: VisionFollowStartRequest,
     service: VisionServiceDependency,
+    authorization: RealVisionAuthorization,
 ) -> VisionFollowLeaseResponse:
     mapping = FollowActuatorMapping.model_validate(request.mapping.model_dump(mode="python"))
     configuration = FollowConfiguration.model_validate(
@@ -340,7 +346,15 @@ async def start_follow(
             "mapping": mapping,
         }
     )
-    follow = await service.start_follow(configuration)
+    follow = await service.start_follow(
+        configuration,
+        authorization=authorization,
+        execution_purpose=(
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW
+            if authorization is not None
+            else None
+        ),
+    )
     lease = follow.lease
     if lease is None:  # pragma: no cover - Follow domain invariant
         raise AssertionError("Follow start omitted its lease")
@@ -356,15 +370,23 @@ async def start_follow(
     "/follow/{lease_id}/heartbeat",
     response_model=VisionFollowLeaseResponse,
     dependencies=[
-        Depends(authorize_control_request),
-        Depends(authorize_real_vision_follow_request),
+        Depends(authorize_control_keepalive_request),
     ],
 )
 async def heartbeat_follow(
     lease_id: UUID,
     service: VisionServiceDependency,
+    authorization: RealVisionAuthorization,
 ) -> VisionFollowLeaseResponse:
-    follow = await service.heartbeat_follow(lease_id)
+    follow = await service.heartbeat_follow(
+        lease_id,
+        authorization=authorization,
+        execution_purpose=(
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW
+            if authorization is not None
+            else None
+        ),
+    )
     lease = follow.lease
     if lease is None:  # pragma: no cover - Follow domain invariant
         raise AssertionError("Follow heartbeat omitted its lease")

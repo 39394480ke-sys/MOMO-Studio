@@ -34,6 +34,8 @@ from momo.domain.errors import (
 from momo.domain.motion_command import JointMovePayload, MotionCommand
 from momo.domain.motion_preflight import MotionAccepted, MotionCommandStatus
 from momo.domain.profiles import canonical_robot_profile
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.robot import JointState, RobotProfile
 from momo.domain.runtime import RobotStatus
 from momo.domain.vision import (
@@ -111,6 +113,8 @@ class RecordingSafetyGateway:
     def __init__(self, clock: FakeClock) -> None:
         self.clock = clock
         self.commands: list[MotionCommand] = []
+        self.authorizations: list[RealExecutionAuthorization | None] = []
+        self.execution_purposes: list[RealHardwareAuthorizationPurpose | None] = []
         self.statuses: dict[UUID, MotionCommandStatus] = {}
         self.cancel_calls: list[UUID] = []
         self.raise_conflict = False
@@ -120,8 +124,16 @@ class RecordingSafetyGateway:
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def submit(self, command: MotionCommand) -> MotionAccepted:
+    async def submit(
+        self,
+        command: MotionCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> MotionAccepted:
         self.commands.append(command)
+        self.authorizations.append(authorization)
+        self.execution_purposes.append(execution_purpose)
         if self.raise_conflict:
             raise MotionConflictError("synthetic motion conflict")
         if self.block_before_accept:
@@ -334,6 +346,48 @@ def test_configuration_is_dry_run_verified_and_rejects_unsafe_mapping() -> None:
         )
         assert started.lease is not None
         await service.stop(started.lease.lease_id)
+
+    asyncio.run(scenario())
+
+
+def test_real_follow_binds_one_immutable_authorization_for_every_emitted_command() -> None:
+    async def scenario() -> None:
+        service, clock, _, motion = follow_service()
+        purpose = RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW
+        authorization = RealExecutionAuthorization.model_construct(  # type: ignore[call-arg]
+            session_id=UUID("00000000-0000-0000-0000-000000000101"),
+            purpose=purpose,
+        )
+        replacement = RealExecutionAuthorization.model_construct(  # type: ignore[call-arg]
+            session_id=UUID("00000000-0000-0000-0000-000000000102"),
+            purpose=purpose,
+        )
+        started = await service.start(
+            intent(),
+            authorization=authorization,
+            execution_purpose=purpose,
+        )
+        assert started.lease is not None
+        lease_id = started.lease.lease_id
+        await service.heartbeat(
+            lease_id,
+            authorization=authorization,
+            execution_purpose=purpose,
+        )
+        await service.process_tracking(
+            lease_id,
+            locked_result(clock, 1, center_x=0.8, center_y=0.2),
+        )
+        assert motion.authorizations == [authorization]
+        assert motion.execution_purposes == [purpose]
+
+        with pytest.raises(VisionFollowConflictError) as changed:
+            await service.heartbeat(
+                lease_id,
+                authorization=replacement,
+                execution_purpose=purpose,
+            )
+        assert changed.value.details == {"reason": "AUTHORIZATION_SESSION_CHANGED"}
 
     asyncio.run(scenario())
 

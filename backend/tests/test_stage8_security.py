@@ -194,6 +194,9 @@ def test_lan_browser_exchange_uses_httponly_cookie_without_returning_a_token() -
         assert "HttpOnly" in cookie
         assert "SameSite=strict" in cookie
         assert "Path=/api/v1" in cookie
+        assert "Max-Age=1800" in cookie
+        assert "expires=" in cookie.lower()
+        assert "Secure" not in cookie
 
         authenticated = client.get("/api/v1/health", headers={"Origin": ui_origin})
         assert authenticated.status_code == 200
@@ -206,6 +209,40 @@ def test_lan_browser_exchange_uses_httponly_cookie_without_returning_a_token() -
         assert "momo_session=" in revoked.headers["set-cookie"]
         denied = client.get("/api/v1/health", headers={"Origin": ui_origin})
         assert denied.status_code == 401
+
+
+def test_browser_cookie_ttl_is_independent_from_short_hardware_operator_ttl() -> None:
+    ui_origin = "http://192.168.10.5:5173"
+    settings = Settings(
+        server_host="192.168.10.5",
+        lan_enabled=True,
+        lan_auth_token=SecretStr(STRONG_TOKEN),
+        lan_allowed_origins=(ui_origin,),
+        operator_session_ttl_s=30,
+        browser_security_session_ttl_s=3600,
+    )
+    app = create_app(settings=settings)
+    assert app.state.device_diagnostics_service.sessions.ttl_s == 30.0
+
+    with TestClient(app, base_url="https://192.168.10.5") as client:
+        issued = client.post(
+            "/api/v1/security/session",
+            headers={
+                "Origin": ui_origin,
+                "Authorization": f"Bearer {STRONG_TOKEN}",
+            },
+        )
+        assert issued.status_code == 200, issued.text
+        payload = issued.json()
+        issued_at = datetime.fromisoformat(payload["issued_at"])
+        expires_at = datetime.fromisoformat(payload["expires_at"])
+        assert expires_at - issued_at == timedelta(seconds=3600)
+        cookie = issued.headers["set-cookie"]
+        assert "Max-Age=3600" in cookie
+        assert "expires=" in cookie.lower()
+        assert "Secure" in cookie
+        assert "HttpOnly" in cookie
+        assert "SameSite=strict" in cookie
 
 
 def test_lan_bearer_exchange_replaces_stale_cookie_after_backend_restart() -> None:

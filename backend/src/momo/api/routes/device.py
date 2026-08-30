@@ -76,6 +76,8 @@ def _confirmation(value: HardwareConfirmationEvidence) -> HardwareConfirmationRe
         profile_fingerprint=value.profile_fingerprint,
         calibration_fingerprint=value.calibration_fingerprint,
         kinematics_fingerprint=value.kinematics_fingerprint,
+        kinematics_verification_evidence_id=(value.kinematics_verification_evidence_id),
+        capability_evidence_ids=dict(value.capability_evidence_ids),
         field_acceptance_evidence_id=value.field_acceptance_evidence_id,
         pre_motion_evidence_id=value.pre_motion_evidence_id,
         masked_serial_port=value.masked_serial_port,
