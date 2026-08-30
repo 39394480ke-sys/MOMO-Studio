@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from momo.domain.commissioning import FieldAcceptanceEvidenceState
+from momo.domain.commissioning import FieldAcceptanceCapability, FieldAcceptanceEvidenceState
 from momo.domain.enums import HardwareAccessPolicy, RobotVariant
 from momo.domain.real_hardware import (
     FieldAcceptanceStatus,
@@ -29,6 +29,8 @@ class HardwareConfirmationResponse(BaseModel):
     profile_fingerprint: str | None
     calibration_fingerprint: str | None
     kinematics_fingerprint: str | None
+    kinematics_verification_evidence_id: UUID | None
+    capability_evidence_ids: dict[FieldAcceptanceCapability, UUID]
     field_acceptance_evidence_id: UUID | None
     pre_motion_evidence_id: UUID | None
     masked_serial_port: str | None

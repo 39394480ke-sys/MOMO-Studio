@@ -35,6 +35,8 @@ from momo.domain.motion_command import JointMovePayload, MotionCommand
 from momo.domain.motion_draft import legacy_snapshot_sha256
 from momo.domain.motion_preflight import MotionAccepted
 from momo.domain.pose import Pose, PoseSnapshot, SnapshotJointState
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.ports.clock import Clock
 from momo.ports.motion_repository import MotionRepository
 from momo.ports.pose_repository import PoseRepository
@@ -268,7 +270,14 @@ class LibraryApplicationService:
         if not deleted:
             raise EntityNotFoundError("Pose was not found")
 
-    async def goto_pose(self, pose_id: UUID, request: GotoPoseCommand) -> MotionAccepted:
+    async def goto_pose(
+        self,
+        pose_id: UUID,
+        request: GotoPoseCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> MotionAccepted:
         pose = await self.get_pose(pose_id)
         self._check_revision(pose.revision, request.expected_revision)
         status, profile, _ = await self.robot.get_motion_snapshot()
@@ -306,7 +315,11 @@ class LibraryApplicationService:
             speed_scale=request.speed_scale,
             idempotency_key=request.idempotency_key,
         )
-        return await self.motion.submit(command)
+        return await self.motion.submit(
+            command,
+            authorization=authorization,
+            execution_purpose=execution_purpose,
+        )
 
     async def create_motion(self, request: MotionCreateCommand) -> Motion:
         self._reject_client_owned_provenance(

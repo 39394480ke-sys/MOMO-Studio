@@ -196,6 +196,10 @@ class RealPlaybackService:
             raise PermissionError("REAL playback requires an execution authorization")
         if authorization.purpose is not RealHardwareAuthorizationPurpose.REAL_PLAYBACK:
             raise PermissionError("REAL playback authorization purpose does not match")
+        self.binding.require_execution_scope(
+            session_id=authorization.session_id,
+            purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        )
         if rate != 1.0 or loop:
             raise MotionPreflightError(
                 "REAL playback currently requires rate 1.0 and loop disabled",

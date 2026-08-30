@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from momo.domain.commissioning import (
     FieldAcceptanceCapability,
+    FieldAcceptanceEvidenceState,
     KinematicsEvidenceState,
     PhysicalStopVerification,
 )
@@ -16,6 +19,7 @@ from momo.domain.real_hardware import (
     HardwareConfirmationEvidence,
     HardwareDependencyState,
     OperatorSessionPurpose,
+    OperatorSessionScope,
     OperatorSessionStatus,
     RealHardwareAccessGrant,
     RealHardwareAuthorizationPurpose,
@@ -29,6 +33,7 @@ from momo.domain.real_hardware import (
     calibration_fingerprint,
     confirmation_text_for,
     explicit_device_fingerprint,
+    field_acceptance_evidence_state,
     kinematics_verification_evidence_state,
 )
 
@@ -36,6 +41,20 @@ from momo.domain.real_hardware import (
 class RealHardwareAuthorizationError(RobotApplicationError):
     code = "REAL_HARDWARE_NOT_AUTHORIZED"
     status_code = 403
+
+
+_SCOPE_ACCEPTANCE_CAPABILITY = {
+    OperatorSessionScope.REAL_JOINT_MOTION: FieldAcceptanceCapability.JOINT_MOTION,
+    OperatorSessionScope.REAL_CARTESIAN_MOTION: FieldAcceptanceCapability.CARTESIAN,
+    OperatorSessionScope.REAL_PLAYBACK: FieldAcceptanceCapability.PLAYBACK,
+    OperatorSessionScope.REAL_VISION_FOLLOW: FieldAcceptanceCapability.VISION_FOLLOW,
+}
+_KINEMATICS_SCOPES = frozenset(
+    {
+        OperatorSessionScope.REAL_CARTESIAN_MOTION,
+        OperatorSessionScope.REAL_VISION_FOLLOW,
+    }
+)
 
 
 class RealHardwareAuthorization:
@@ -122,10 +141,10 @@ class RealHardwareAuthorization:
         if len(context.software_commit) < 7 or context.software_commit == "unknown":
             raw_direction_base.append(RealHardwareBlocker.SOFTWARE_COMMIT_REQUIRED)
 
-        # Manual REAL control and Studio playback share one operator session and
-        # the same runtime safety entry point. Stored motion still passes the
-        # trajectory compiler and playback intent checks; it does not require a
-        # second field-acceptance session before using that reviewed executor.
+        # Production control shares one safety entry point, but every capability
+        # retains its own acceptance gate. Commissioning purposes are the only
+        # way to gather pre-production motion evidence; REAL_MOTION is never a
+        # field-test bypass.
         manual_motion_base = [*shared, *calibration_blockers]
         if context.hardware_access_policy is not HardwareAccessPolicy.FULL:
             manual_motion_base.insert(1, RealHardwareBlocker.HARDWARE_POLICY_MUST_BE_FULL)
@@ -165,9 +184,20 @@ class RealHardwareAuthorization:
         elif kinematics_state is KinematicsEvidenceState.STALE:
             kinematics_evidence_blockers.append(RealHardwareBlocker.KINEMATICS_EVIDENCE_STALE)
 
-        joint_blockers = list(manual_motion_base)
-        cartesian_blockers = [*manual_motion_base, *kinematics_model_blockers]
-        playback_blockers = [*manual_motion_base, *kinematics_model_blockers]
+        joint_blockers = list(production_base)
+        cartesian_blockers = [
+            *production_base,
+            *kinematics_model_blockers,
+            *kinematics_evidence_blockers,
+        ]
+        if FieldAcceptanceCapability.CARTESIAN not in valid_acceptance:
+            cartesian_blockers.append(RealHardwareBlocker.CARTESIAN_ACCEPTANCE_PENDING)
+        # This is the readiness for a joint-only PreparedTrajectory. Execution of
+        # a trajectory containing CARTESIAN_LINEAR segments must additionally
+        # require REAL_CARTESIAN_MOTION from the same immutable session.
+        playback_blockers = list(production_base)
+        if FieldAcceptanceCapability.PLAYBACK not in valid_acceptance:
+            playback_blockers.append(RealHardwareBlocker.PLAYBACK_ACCEPTANCE_PENDING)
         vision_blockers = [
             *production_base,
             *kinematics_model_blockers,
@@ -188,6 +218,22 @@ class RealHardwareAuthorization:
             gate, OperatorSessionPurpose.RAW_DIRECTION_TEST
         )
         motion_session_valid = self._session_valid_for(gate, OperatorSessionPurpose.REAL_MOTION)
+        joint_session_valid = motion_session_valid and self._session_has_scope(
+            gate,
+            OperatorSessionScope.REAL_JOINT_MOTION,
+        )
+        cartesian_session_valid = motion_session_valid and self._session_has_scope(
+            gate,
+            OperatorSessionScope.REAL_CARTESIAN_MOTION,
+        )
+        playback_session_valid = motion_session_valid and self._session_has_scope(
+            gate,
+            OperatorSessionScope.REAL_PLAYBACK,
+        )
+        vision_session_valid = motion_session_valid and self._session_has_scope(
+            gate,
+            OperatorSessionScope.REAL_VISION_FOLLOW,
+        )
         commissioning_base = list(dict.fromkeys(commissioning_base))
         motion_test_base = list(dict.fromkeys(motion_test_base))
         raw_direction_base = list(dict.fromkeys(raw_direction_base))
@@ -200,10 +246,10 @@ class RealHardwareAuthorization:
         commissioning_ready = not commissioning_base
         motion_test_ready = not motion_test_base and motion_test_session_valid
         raw_direction_ready = not raw_direction_base and raw_direction_session_valid
-        joint_ready = not joint_blockers and motion_session_valid
-        cartesian_ready = not cartesian_blockers and motion_session_valid
-        playback_ready = not playback_blockers and motion_session_valid
-        vision_ready = not vision_blockers and motion_session_valid
+        joint_ready = not joint_blockers and joint_session_valid
+        cartesian_ready = not cartesian_blockers and cartesian_session_valid
+        playback_ready = not playback_blockers and playback_session_valid
+        vision_ready = not vision_blockers and vision_session_valid
         capabilities = RealHardwareCapabilityReadiness(
             commissioning_read_only_ready=commissioning_ready,
             commissioning_diagnostics_ready=commissioning_ready,
@@ -258,34 +304,46 @@ class RealHardwareAuthorization:
             ),
             real_joint_motion=detail(
                 joint_blockers,
-                session_valid=motion_session_valid,
+                session_valid=joint_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
-                evidence=("CALIBRATION", "EXPLICIT_OPERATOR_SESSION"),
+                evidence=(
+                    "VERIFIED_PROFILE",
+                    "CALIBRATION",
+                    "JOINT_MOTION_ACCEPTANCE",
+                    "PHYSICAL_STOP_VERIFICATION",
+                    "EXPLICIT_OPERATOR_SESSION",
+                ),
             ),
             real_cartesian_motion=detail(
                 cartesian_blockers,
-                session_valid=motion_session_valid,
+                session_valid=cartesian_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
                 evidence=(
+                    "JOINT_MOTION_ACCEPTANCE",
                     "CALIBRATION",
                     "KINEMATICS_MODEL",
+                    "KINEMATICS_VERIFICATION",
+                    "CARTESIAN_ACCEPTANCE",
+                    "PHYSICAL_STOP_VERIFICATION",
                     "EXPLICIT_OPERATOR_SESSION",
                 ),
             ),
             real_playback=detail(
                 playback_blockers,
-                session_valid=motion_session_valid,
+                session_valid=playback_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
                 evidence=(
+                    "JOINT_MOTION_ACCEPTANCE",
                     "CALIBRATION",
-                    "KINEMATICS_MODEL",
+                    "PLAYBACK_ACCEPTANCE",
+                    "PHYSICAL_STOP_VERIFICATION",
                     "TRAJECTORY_PREFLIGHT",
                     "EXPLICIT_OPERATOR_SESSION",
                 ),
             ),
             real_vision_follow=detail(
                 vision_blockers,
-                session_valid=motion_session_valid,
+                session_valid=vision_session_valid,
                 session_blocker=RealHardwareBlocker.OPERATOR_SESSION_MISSING,
                 evidence=(
                     "JOINT_MOTION_ACCEPTANCE",
@@ -430,9 +488,19 @@ class RealHardwareAuthorization:
             raise RealHardwareAuthorizationError(
                 "Real hardware device or adapter identity is missing from the authorization matrix"
             )
+        confirmation = self.confirmation_for(gate.context, purpose=session.purpose).model_copy(
+            update={
+                "kinematics_fingerprint": session.kinematics_fingerprint,
+                "kinematics_verification_evidence_id": (
+                    session.kinematics_verification_evidence_id
+                ),
+                "capability_evidence_ids": session.capability_evidence_ids,
+                "field_acceptance_evidence_id": session.field_acceptance_evidence_id,
+            }
+        )
         return RealHardwareAccessGrant(
             session=session,
-            confirmation=self.confirmation_for(gate.context, purpose=session.purpose),
+            confirmation=confirmation,
             adapter_id=adapter_id,
             device_fingerprint=explicit_device_fingerprint(device),
             purpose=purpose,
@@ -467,8 +535,18 @@ class RealHardwareAuthorization:
             resolved_purpose = OperatorSessionPurpose.COMMISSIONING_MOTION_TEST
         else:
             resolved_purpose = OperatorSessionPurpose.REAL_MOTION
-        joint_acceptance = context.field_acceptance_bundle.newest_for(
-            FieldAcceptanceCapability.JOINT_MOTION
+        capability_evidence_ids = (
+            RealHardwareAuthorization.current_capability_evidence_ids(context)
+            if resolved_purpose is OperatorSessionPurpose.REAL_MOTION
+            else {}
+        )
+        kinematics_state, _ = kinematics_verification_evidence_state(context)
+        kinematics_evidence_id = (
+            context.kinematics_verification_evidence.id
+            if resolved_purpose is OperatorSessionPurpose.REAL_MOTION
+            and kinematics_state is KinematicsEvidenceState.VALID
+            and context.kinematics_verification_evidence is not None
+            else None
         )
         pre_motion = context.field_acceptance_bundle.newest_for(
             FieldAcceptanceCapability.PRE_MOTION_CHECKS
@@ -493,11 +571,10 @@ class RealHardwareAuthorization:
                 if kinematics is not None and resolved_purpose is OperatorSessionPurpose.REAL_MOTION
                 else None
             ),
+            kinematics_verification_evidence_id=kinematics_evidence_id,
+            capability_evidence_ids=capability_evidence_ids,
             field_acceptance_evidence_id=(
-                joint_acceptance.evidence_id
-                if joint_acceptance is not None
-                and resolved_purpose is OperatorSessionPurpose.REAL_MOTION
-                else None
+                capability_evidence_ids.get(FieldAcceptanceCapability.JOINT_MOTION)
             ),
             pre_motion_evidence_id=(
                 pre_motion.evidence_id
@@ -592,6 +669,42 @@ class RealHardwareAuthorization:
         )
 
     @staticmethod
+    def _session_has_scope(
+        gate: RealHardwareGateInput,
+        scope: OperatorSessionScope,
+    ) -> bool:
+        session = gate.operator_session
+        return bool(session is not None and scope in session.scopes)
+
+    @staticmethod
+    def current_capability_evidence_ids(
+        context: RealHardwareContext,
+    ) -> dict[FieldAcceptanceCapability, UUID]:
+        """Return only the newest currently valid record for each production capability."""
+
+        current: dict[FieldAcceptanceCapability, UUID] = {}
+        validated_capabilities = context.field_acceptance_bundle.valid_capabilities(context)
+        for capability in (
+            FieldAcceptanceCapability.JOINT_MOTION,
+            FieldAcceptanceCapability.CARTESIAN,
+            FieldAcceptanceCapability.PLAYBACK,
+            FieldAcceptanceCapability.VISION_FOLLOW,
+        ):
+            if capability not in validated_capabilities:
+                continue
+            valid_records = [
+                record
+                for record in context.field_acceptance_bundle.records
+                if record.capability is capability
+                and field_acceptance_evidence_state(context, record)[0]
+                is FieldAcceptanceEvidenceState.VALID
+            ]
+            if valid_records:
+                newest = max(valid_records, key=lambda record: record.accepted_at)
+                current[capability] = newest.evidence_id
+        return current
+
+    @staticmethod
     def _session_matches_context(
         context: RealHardwareContext,
         session: object,
@@ -622,6 +735,8 @@ class RealHardwareAuthorization:
                 getattr(session, "hardware_access_policy", None) is HardwareAccessPolicy.READ_ONLY
                 and getattr(session, "calibration_fingerprint", None) is None
                 and getattr(session, "kinematics_fingerprint", None) is None
+                and getattr(session, "kinematics_verification_evidence_id", None) is None
+                and not getattr(session, "capability_evidence_ids", {})
             )
         if purpose is OperatorSessionPurpose.RAW_DIRECTION_TEST:
             return bool(
@@ -630,6 +745,8 @@ class RealHardwareAuthorization:
                 and getattr(session, "hardware_access_policy", None) is HardwareAccessPolicy.FULL
                 and getattr(session, "calibration_fingerprint", None) is None
                 and getattr(session, "kinematics_fingerprint", None) is None
+                and getattr(session, "kinematics_verification_evidence_id", None) is None
+                and not getattr(session, "capability_evidence_ids", {})
                 and getattr(session, "pre_motion_evidence_id", None) is None
                 and getattr(session, "raw_direction_envelope", None)
                 == context.raw_direction_safety_envelope
@@ -645,34 +762,52 @@ class RealHardwareAuthorization:
                 and getattr(session, "hardware_access_policy", None) is HardwareAccessPolicy.FULL
                 and getattr(session, "calibration_fingerprint", None)
                 == calibration_fingerprint(calibration)
+                and getattr(session, "kinematics_fingerprint", None) is None
                 and getattr(session, "commissioning_envelope", None)
                 == context.commissioning_safety_envelope
                 and getattr(session, "workspace_clear_confirmed", False) is True
                 and getattr(session, "field_acceptance_evidence_id", None) is None
+                and getattr(session, "kinematics_verification_evidence_id", None) is None
+                and not getattr(session, "capability_evidence_ids", {})
             )
-        acceptance = context.field_acceptance_bundle.newest_for(
-            FieldAcceptanceCapability.JOINT_MOTION
-        )
-        current_acceptance_id = (
-            acceptance.evidence_id
-            if acceptance is not None
-            and FieldAcceptanceCapability.JOINT_MOTION
-            in context.field_acceptance_bundle.valid_capabilities(context)
+        scopes = frozenset(getattr(session, "scopes", ()))
+        required_capabilities = {
+            capability
+            for scope, capability in _SCOPE_ACCEPTANCE_CAPABILITY.items()
+            if scope in scopes
+        }
+        current_capability_ids = RealHardwareAuthorization.current_capability_evidence_ids(context)
+        expected_capability_ids = {
+            capability: current_capability_ids[capability]
+            for capability in required_capabilities
+            if capability in current_capability_ids
+        }
+        session_capability_ids = dict(getattr(session, "capability_evidence_ids", {}))
+        needs_kinematics = bool(scopes & _KINEMATICS_SCOPES)
+        kinematics_state, _ = kinematics_verification_evidence_state(context)
+        current_kinematics_evidence_id = (
+            context.kinematics_verification_evidence.id
+            if needs_kinematics
+            and kinematics_state is KinematicsEvidenceState.VALID
+            and context.kinematics_verification_evidence is not None
             else None
         )
-        session_kinematics_fingerprint = getattr(session, "kinematics_fingerprint", None)
         current_kinematics_fingerprint = (
-            context.kinematics.fingerprint if context.kinematics is not None else None
+            context.kinematics.fingerprint
+            if needs_kinematics and context.kinematics is not None
+            else None
         )
         return bool(
             getattr(session, "hardware_access_policy", None) is HardwareAccessPolicy.FULL
             and getattr(session, "calibration_fingerprint", None)
             == calibration_fingerprint(calibration)
-            and getattr(session, "field_acceptance_evidence_id", None) == current_acceptance_id
-            and (
-                session_kinematics_fingerprint is None
-                or session_kinematics_fingerprint == current_kinematics_fingerprint
-            )
+            and required_capabilities == set(expected_capability_ids)
+            and session_capability_ids == expected_capability_ids
+            and getattr(session, "field_acceptance_evidence_id", None)
+            == expected_capability_ids.get(FieldAcceptanceCapability.JOINT_MOTION)
+            and getattr(session, "kinematics_fingerprint", None) == current_kinematics_fingerprint
+            and getattr(session, "kinematics_verification_evidence_id", None)
+            == current_kinematics_evidence_id
         )
 
     @staticmethod
@@ -714,6 +849,10 @@ class RealHardwareAuthorization:
             RealHardwareBlocker.FIELD_ACCEPTANCE_NOT_PASSED,
             RealHardwareBlocker.FIELD_ACCEPTANCE_EVIDENCE_MISSING,
             RealHardwareBlocker.FIELD_ACCEPTANCE_EVIDENCE_STALE,
+            RealHardwareBlocker.JOINT_MOTION_ACCEPTANCE_PENDING,
+            RealHardwareBlocker.CARTESIAN_ACCEPTANCE_PENDING,
+            RealHardwareBlocker.PLAYBACK_ACCEPTANCE_PENDING,
+            RealHardwareBlocker.VISION_FOLLOW_ACCEPTANCE_PENDING,
         }:
             return RealHardwareReadinessState.BLOCKED_BY_FIELD_ACCEPTANCE
         if first in {

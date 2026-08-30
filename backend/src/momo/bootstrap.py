@@ -184,6 +184,7 @@ def build_product_services(
         kinematics,
         robot_service.calibration_service,
         executor,
+        update_hz=settings.motion_update_hz,
     )
     motion = MotionApplicationService(robot_service, gateway, executor)
     jog = JogLeaseService(

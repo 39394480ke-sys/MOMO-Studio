@@ -1,7 +1,11 @@
-import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Copy, MoreHorizontal, Pencil, Trash2, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { PoseSummary } from '../../api/types';
+import {
+  poseLegacyCompatibility,
+  type LibraryCompatibilityContract,
+} from './legacyCompatibility';
 import { ResourceSimulationThumbnail } from './ResourceSimulationThumbnail';
 
 interface PoseCardProps {
@@ -16,6 +20,7 @@ interface PoseCardProps {
   onRename: (pose: PoseSummary) => void;
   onSelect: (pose: PoseSummary) => void;
   onTagSelect: (tag: string) => void;
+  compatibilityContract: LibraryCompatibilityContract | null;
 }
 
 function number(value: number): string {
@@ -34,11 +39,13 @@ export function PoseCard({
   onRename,
   onSelect,
   onTagSelect,
+  compatibilityContract,
 }: PoseCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const titleId = `pose-title-${pose.id}`;
   const position = pose.tcp_pose.position_mm;
+  const compatibility = poseLegacyCompatibility(pose, compatibilityContract);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -84,6 +91,15 @@ export function PoseCard({
           <small>
             X {number(position.x)} · Y {number(position.y)} · Z {number(position.z)} mm
           </small>
+          {compatibility ? (
+            <span
+              className={`library-legacy-status library-legacy-status--${compatibility.state}`}
+              title={compatibility.detail}
+            >
+              <TriangleAlert aria-hidden="true" />
+              {compatibility.summary}
+            </span>
+          ) : null}
         </div>
       </button>
 

@@ -164,3 +164,28 @@ those historical results.
 - Stage 8 commit/push/PR result: PASS —
   `4f7a75606aacb3fc93128445d7487ff196ce9efb` pushed; Draft PR
   [#1](https://github.com/39394480ke-sys/MOMO-Studio/pull/1) open against `main`.
+
+## 9da6853 system-audit repair
+
+This is the current pre-merge evidence; older counts above remain historical snapshots.
+
+- [x] Capability-specific Joint/Cartesian/Playback/Vision evidence is restored and
+  immutable per Session; no scope upgrades in place.
+- [x] REAL execution consumes only the exact digest-bound trajectory accepted by final
+  gateway validation.
+- [x] Production and Raw Direction buses use monotonic Stop/session/Close fences;
+  blocking Fake tests prove no stale command can report success after the fence.
+- [x] Torque arm/disarm is executor-owned, per-Servo, rollback-capable, and never runs at
+  startup or through a product-facing bypass.
+- [x] Hardware operator TTL is 300 seconds by default; browser transport TTL is an
+  independent 1,800 seconds.
+- [x] Full backend: 728 passed. Full frontend: 295 passed across 31 files.
+- [x] Hardware/camera/commissioning/production-Bomb isolation: 187 passed.
+- [x] Ruff, Ruff format, strict mypy, ESLint, TypeScript, Vite build, lock/dependency
+  checks, `pip-audit`, npm audit, deterministic schemas, and `git diff --check` pass.
+- [x] Isolated DRY RUN browser flow passes at 1440×960, 1280×800, and 390×844 with no
+  horizontal overflow and clean acceptance-tab warning/error console.
+- [x] Exact Three.js 0.171.0 MIT and `urdf-loader` 0.13.1 Apache-2.0 texts are tracked.
+- [x] Draft PR #2 CI is green for Backend/static/isolation, Frontend/lint/types/build/audit,
+  and secret scan; base remains `codex/frontend-figma-redesign` and `main` is untouched.
+- [ ] Repository distribution license decision is resolved.

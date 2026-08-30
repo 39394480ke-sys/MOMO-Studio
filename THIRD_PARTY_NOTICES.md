@@ -70,8 +70,15 @@ validation.
 
 The viewer uses Three.js `0.171.0` under MIT and `urdf-loader` `0.13.1` under
 Apache-2.0 as npm dependencies; no library source from the archive's `vendor/` directory
-was copied. The direct rights-holder authorization above is independent of those library
-licenses.
+was copied. Exact upstream texts are retained as
+`THIRD_PARTY_LICENSES/three-0.171.0-MIT.txt` and
+`THIRD_PARTY_LICENSES/urdf-loader-0.13.1-Apache-2.0.txt`. The Three.js text is
+byte-for-byte the `LICENSE` shipped in the locked npm package and matches upstream tag
+`r171`. The `urdf-loader` npm package identifies Apache-2.0 but its published `files`
+allowlist omits the repository license file; the retained text is therefore copied from
+the exact upstream `v0.13.1` tag, including its California Institute of Technology
+copyright notice. The direct rights-holder authorization for the MOMO meshes above is
+independent of those library licenses and does not label the meshes MIT or Apache-2.0.
 
 ### Stage 3 numerical dependency
 

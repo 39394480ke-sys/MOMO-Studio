@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict, deque
-from datetime import datetime
-from math import ceil
-from uuid import UUID, uuid4
+from collections.abc import Callable
+from uuid import UUID
 
 from momo.adapters.hardware.real_robot_driver import AuthorizedServoBusBinding
 from momo.adapters.motion.real_motion_executor import RealMotionExecutor
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.calibration import CalibrationDocument
-from momo.domain.enums import Easing, MotionCommandState
+from momo.domain.enums import MotionCommandState
 from momo.domain.motion_preflight import (
     MotionCommandStatus,
     PreparedContinuousJog,
@@ -30,17 +29,8 @@ from momo.domain.real_motion import (
     RealMotionState,
     RealMotionStatus,
 )
-from momo.domain.robot import JointState, RobotProfile
-from momo.domain.trajectory import (
-    PreparedTrajectory,
-    TrajectoryDigest,
-    TrajectoryPlan,
-    TrajectoryPreflightCheck,
-    TrajectoryPreflightReport,
-    TrajectorySample,
-    TrajectorySegment,
-    TrajectorySegmentKind,
-)
+from momo.domain.robot import JointState
+from momo.domain.trajectory import PreparedTrajectory
 from momo.ports.clock import Clock
 
 
@@ -131,8 +121,14 @@ class RealCommandMotionExecutor:
         *,
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> MotionCommandStatus:
-        return await self._submit_prepared(prepared, authorization, execution_purpose)
+        return await self._submit_prepared(
+            prepared,
+            authorization,
+            execution_purpose,
+            continuous_write_guard,
+        )
 
     async def submit_continuous_jog(
         self,
@@ -140,17 +136,28 @@ class RealCommandMotionExecutor:
         *,
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> MotionCommandStatus:
-        return await self._submit_prepared(prepared, authorization, execution_purpose)
+        return await self._submit_prepared(
+            prepared,
+            authorization,
+            execution_purpose,
+            continuous_write_guard,
+        )
 
     async def _submit_prepared(
         self,
         prepared: PreparedMotion | PreparedContinuousJog,
         authorization: RealExecutionAuthorization | None,
         execution_purpose: RealHardwareAuthorizationPurpose | None,
+        continuous_write_guard: Callable[[], bool] | None,
     ) -> MotionCommandStatus:
         if authorization is None or execution_purpose is None:
             raise PermissionError("REAL motion requires a purpose-bound execution authorization")
+        self.binding.require_execution_scope(
+            session_id=authorization.session_id,
+            purpose=execution_purpose,
+        )
         async with self._guard:
             if self.active_command_id is not None:
                 raise RuntimeError("another REAL motion command is active")
@@ -158,14 +165,32 @@ class RealCommandMotionExecutor:
             calibration = self.robot.calibration_service.get_for_variant(profile.variant)
             if calibration is None:
                 raise RuntimeError("REAL motion calibration is unavailable")
-            trajectory = _prepared_command_trajectory(
-                prepared,
-                profile,
-                status.state_sequence,
-                execution_purpose,
-                compiled_at=self.clock.now(),
-                update_hz=self.update_hz,
+            if prepared.executable_trajectory is None:
+                raise RuntimeError(
+                    "REAL execution requires the exact digest-bound trajectory "
+                    "returned by MotionSafetyGateway"
+                )
+            trajectory = PreparedTrajectory.model_validate(prepared.executable_trajectory)
+            current_kinematics = self.kinematics.model_for(profile).fingerprint
+            if (
+                trajectory.plan.start_state_sequence != status.state_sequence
+                or trajectory.plan.profile_fingerprint != profile.fingerprint
+                or trajectory.plan.kinematics_fingerprint != current_kinematics
+                or trajectory.plan.motion_id != prepared.command_id
+                or trajectory.plan.sample_rate_hz != self.update_hz
+            ):
+                raise RuntimeError(
+                    "Gateway executable trajectory became stale before REAL dispatch"
+                )
+            expected_checks = tuple(
+                (check.name, check.passed, check.detail) for check in prepared.preflight.checks
             )
+            actual_checks = tuple(
+                (check.name, check.passed, check.detail)
+                for check in trajectory.preflight.checks[: len(expected_checks)]
+            )
+            if actual_checks != expected_checks:
+                raise RuntimeError("Gateway command report does not match the executable preflight")
             context = _CommandExecutionContext(self.robot, trajectory, calibration, self.binding)
             inner = RealMotionExecutor(
                 self.binding.require_bus(),
@@ -183,6 +208,7 @@ class RealCommandMotionExecutor:
                 expected_digest=trajectory.plan.digest.sha256,
                 authorization=authorization,
                 execution_purpose=execution_purpose,
+                continuous_write_guard=continuous_write_guard,
             )
             self._inner = inner
             self._command_by_execution[accepted.execution_id] = prepared.command_id
@@ -251,6 +277,7 @@ class RealCommandMotionExecutor:
             state=state,
             progress=status.progress,
             preflight=prepared.preflight,
+            trajectory_preflight=status.preflight,
             error=(status.fault_code.value if status.fault_code is not None else None),
             started_at=status.started_at,
             updated_at=status.updated_at,
@@ -264,168 +291,6 @@ class RealCommandMotionExecutor:
         self._latest_command_id = status.command_id
         while len(self._statuses) > self.history_limit:
             self._statuses.popitem(last=False)
-
-
-def _prepared_command_trajectory(
-    prepared: PreparedMotion | PreparedContinuousJog,
-    profile: RobotProfile,
-    state_sequence: int,
-    purpose: RealHardwareAuthorizationPurpose,
-    *,
-    compiled_at: datetime,
-    update_hz: float,
-) -> PreparedTrajectory:
-    start_id = uuid4()
-    end_id = uuid4()
-    kind = (
-        TrajectorySegmentKind.CARTESIAN_LINEAR
-        if purpose is RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION
-        else TrajectorySegmentKind.JOINT
-    )
-    if isinstance(prepared, PreparedMotion):
-        duration_s = prepared.duration_s
-        samples: list[TrajectorySample] = []
-        if prepared.trajectory_samples is not None:
-            for index, prepared_sample in enumerate(prepared.trajectory_samples):
-                samples.append(
-                    TrajectorySample(
-                        time_s=float(prepared_sample.time_s),
-                        positions=dict(prepared_sample.joint_state.positions),
-                        units=dict(prepared_sample.joint_state.units or {}),
-                        keyframe_id=(start_id if index == 0 else end_id),
-                        segment_index=0,
-                        sample_index=index,
-                    )
-                )
-        else:
-            count = max(2, ceil(duration_s * update_hz) + 1)
-            for index in range(count):
-                time_s = duration_s if index == count - 1 else index / update_hz
-                progress = min(1.0, time_s / duration_s)
-                interpolation = progress * progress * (3.0 - 2.0 * progress)
-                positions = {
-                    joint_id: prepared.start_state.positions[joint_id]
-                    + (
-                        prepared.target_state.positions[joint_id]
-                        - prepared.start_state.positions[joint_id]
-                    )
-                    * interpolation
-                    for joint_id in profile.enabled_joints
-                }
-                samples.append(
-                    TrajectorySample(
-                        time_s=float(time_s),
-                        positions=positions,
-                        units=dict(prepared.target_state.units or {}),
-                        keyframe_id=(start_id if index == 0 else end_id),
-                        segment_index=0,
-                        sample_index=index,
-                    )
-                )
-    else:
-        start_value = prepared.start_state.positions[prepared.joint_id]
-        travel = (
-            prepared.maximum - start_value
-            if prepared.direction > 0
-            else start_value - prepared.minimum
-        )
-        ramp_duration = prepared.speed_units_s / prepared.acceleration_units_s2
-        ramp_distance = 0.5 * prepared.acceleration_units_s2 * ramp_duration * ramp_duration
-        duration_s = (
-            (2.0 * travel / prepared.acceleration_units_s2) ** 0.5
-            if travel <= ramp_distance
-            else ramp_duration + (travel - ramp_distance) / prepared.speed_units_s
-        )
-        duration_s = max(0.05, min(30.0, duration_s))
-        count = max(2, ceil(duration_s * update_hz) + 1)
-        samples = []
-        for index in range(count):
-            time_s = duration_s if index == count - 1 else index / update_hz
-            if time_s < ramp_duration:
-                distance = 0.5 * prepared.acceleration_units_s2 * time_s * time_s
-            else:
-                distance = ramp_distance + prepared.speed_units_s * (time_s - ramp_duration)
-            value = start_value + prepared.direction * min(travel, distance)
-            positions = dict(prepared.start_state.positions)
-            positions[prepared.joint_id] = value
-            samples.append(
-                TrajectorySample(
-                    time_s=float(time_s),
-                    positions=positions,
-                    units=dict(prepared.start_state.units or {}),
-                    keyframe_id=(start_id if index == 0 else end_id),
-                    segment_index=0,
-                    sample_index=index,
-                )
-            )
-
-    segment = TrajectorySegment(
-        segment_index=0,
-        kind=kind,
-        from_keyframe_id=start_id,
-        to_keyframe_id=end_id,
-        easing=(
-            Easing.LINEAR
-            if isinstance(prepared, PreparedMotion) and prepared.trajectory_samples is not None
-            else Easing.SMOOTHSTEP
-        ),
-        start_time_s=0.0,
-        end_time_s=float(duration_s),
-        duration_s=float(duration_s),
-        start_sample_index=0,
-        end_sample_index=len(samples) - 1,
-        generated_sample_count=len(samples) - 1,
-    )
-    provisional = TrajectoryPlan.model_construct(
-        motion_id=prepared.command_id,
-        motion_revision=1,
-        robot_variant=profile.variant,
-        profile_fingerprint=profile.fingerprint,
-        kinematics_fingerprint=prepared.preflight.kinematics_fingerprint,
-        start_state_sequence=state_sequence,
-        sample_rate_hz=float(update_hz),
-        duration_s=float(duration_s),
-        segments=[segment],
-        samples=samples,
-        digest=TrajectoryDigest(sha256="0" * 64),
-        compiled_at=compiled_at,
-    )
-    digest = TrajectoryDigest(sha256=provisional.computed_sha256)
-    plan = TrajectoryPlan(
-        motion_id=prepared.command_id,
-        motion_revision=1,
-        robot_variant=profile.variant,
-        profile_fingerprint=profile.fingerprint,
-        kinematics_fingerprint=prepared.preflight.kinematics_fingerprint,
-        start_state_sequence=state_sequence,
-        sample_rate_hz=float(update_hz),
-        duration_s=float(duration_s),
-        segments=[segment],
-        samples=samples,
-        digest=digest,
-        compiled_at=compiled_at,
-    )
-    report = TrajectoryPreflightReport(
-        accepted=True,
-        motion_id=plan.motion_id,
-        motion_revision=plan.motion_revision,
-        digest=digest,
-        duration_s=plan.duration_s,
-        sample_count=len(plan.samples),
-        segment_count=len(plan.segments),
-        sample_rate_hz=plan.sample_rate_hz,
-        checks=[
-            TrajectoryPreflightCheck(
-                name="motion_safety_gateway",
-                passed=True,
-                detail="Command prepared by the single Motion Safety Gateway",
-            )
-        ],
-        violations=[],
-        real_motion_ready=True,
-        field_acceptance_ready=False,
-    )
-    return PreparedTrajectory(plan=plan, preflight=report)
 
 
 __all__ = ["RealCommandMotionExecutor"]

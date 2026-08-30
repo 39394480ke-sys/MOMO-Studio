@@ -19,6 +19,8 @@ from momo.domain.motion_command import JointMovePayload, MotionCommand
 from momo.domain.motion_draft import MotionDraft
 from momo.domain.motion_preflight import MotionAccepted
 from momo.domain.pose import PoseSnapshot, SnapshotJointState
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.ports.clock import Clock
 
 CAPTURE_ATTEMPTS = 3
@@ -90,6 +92,8 @@ class StudioRobotActions:
         draft: MotionDraft,
         keyframe_id: UUID,
         request: MotionDraftGotoCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
     ) -> MotionAccepted:
         """Submit one persisted keyframe snapshot as a Studio motion intent."""
 
@@ -142,4 +146,10 @@ class StudioRobotActions:
             speed_scale=request.speed_scale,
             idempotency_key=request.idempotency_key,
         )
-        return await self.motion.submit(command)
+        if authorization is None:
+            return await self.motion.submit(command)
+        return await self.motion.submit(
+            command,
+            authorization=authorization,
+            execution_purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+        )

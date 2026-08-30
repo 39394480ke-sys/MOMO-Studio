@@ -35,7 +35,9 @@ from momo.domain.enums import (
     ProfileVerificationStatus,
 )
 from momo.domain.real_hardware import (
+    AUTHORIZATION_PURPOSE_SCOPE,
     REQUIRED_COMMISSIONING_CONFIRMATION_TEXT,
+    REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
     DeviceDiagnosticsSnapshot,
     OperatorSessionPurpose,
     RealHardwareAccessGrant,
@@ -58,6 +60,7 @@ from tests.stage8_hardware_helpers import (
     recalibration_context,
     write_bomb_bus,
 )
+from tests.stage8_hardware_helpers import real_context as production_context
 
 
 async def issue_token(service: DeviceDiagnosticsService) -> str:
@@ -172,6 +175,45 @@ def test_connect_sequence_is_read_only_exact_id_and_diagnostics_is_explicit() ->
         assert all(event[0] != "stop_or_hold" for event in bus.events)
         disconnected = await service.disconnect(token)
         assert disconnected.connected is False
+        assert bus.connected is False
+        assert (await service.sessions.status()).active is False
+
+    asyncio.run(scenario())
+
+
+def test_product_bus_is_session_scoped_and_invalid_token_still_cleans_up() -> None:
+    async def scenario() -> None:
+        context = production_context()
+        bus = fake_bus(context)
+        service, _, factory = device_service(context, bus=bus)
+        issued = await service.issue_operator_session(
+            purpose=OperatorSessionPurpose.REAL_MOTION,
+            confirmation_text=REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT,
+            physical_estop_confirmed=True,
+            workspace_clear_confirmed=True,
+        )
+        token = issued.session_token.get_secret_value()
+        bound_bus, evidence, connected = await service.connect_for_product_session(token)
+
+        assert connected.connected is True
+        assert bound_bus is bus
+        grant = factory.grants[0]
+        assert grant.session.session_id == evidence.session_id
+        assert AUTHORIZATION_PURPOSE_SCOPE[grant.purpose] in evidence.scopes
+
+        cleanup_events: list[str] = []
+
+        async def cleanup_product() -> None:
+            cleanup_events.append("revoke-binding")
+
+        service.bind_product_cleanup(cleanup_product)
+        with pytest.raises(OperatorSessionTokenError, match="invalid"):
+            await service.disconnect("invalid-token")
+
+        event_kinds = [event[0] for event in bus.events]
+        assert cleanup_events == ["revoke-binding"]
+        assert event_kinds.index("stop_or_hold") < event_kinds.index("close")
+        assert service.connected is False
         assert bus.connected is False
         assert (await service.sessions.status()).active is False
 

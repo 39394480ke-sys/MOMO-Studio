@@ -250,6 +250,7 @@ interface BackendOptions {
   activeGoto?: boolean;
   activeSaveConflict?: 'missing' | 'recovery' | 'unknown';
   canonicalizeDraftName?: boolean;
+  compatibilityError?: boolean;
   compileError?: boolean;
   conflictOnAutosave?: boolean;
   conflictOnFormalSave?: boolean;
@@ -554,6 +555,38 @@ function mockStudioBackend(options: BackendOptions = {}) {
           code: 'ENTITY_INVALID',
           message: '草稿转换失败',
           details: { issues: ['DRAFT_REQUIRES_TWO_KEYFRAMES'] },
+        }, 422);
+      }
+      if (options.compatibilityError) {
+        return response({
+          code: 'POSE_INCOMPATIBLE',
+          message: 'Draft snapshot is incompatible with its declared robot contract',
+          details: {
+            error_code: 'STUDIO_DRAFT_CONTRACT_INCOMPATIBLE',
+            draft_variant: 'V2',
+            active_variant: 'V2',
+            checks: ['joint_units', 'profile_fingerprint', 'tcp_pose'],
+            keyframes: [{
+              keyframe_id: FRAME_B,
+              keyframe_index: 1,
+              keyframe_name: 'Frame B',
+              source_pose_id: null,
+              checks: ['joint_units', 'profile_fingerprint', 'tcp_pose'],
+              expected_joint_ids: [...v2Profile.enabled_joints],
+              actual_joint_ids: [...v2Profile.enabled_joints],
+              missing_joint_ids: [],
+              extra_joint_ids: [],
+              expected_units: snapshot(0).joint_state.units,
+              actual_units: { ...snapshot(0).joint_state.units, j10: 'deg' },
+              expected_profile_fingerprint: stage3Ids.profileFingerprint,
+              actual_profile_fingerprint: 'a'.repeat(64),
+              expected_kinematics_fingerprint: stage3Ids.kinematicsFingerprint,
+              actual_kinematics_fingerprint: stage3Ids.kinematicsFingerprint,
+              tcp_mismatch: true,
+              state_sequence_issue: false,
+              provenance_issue: false,
+            }],
+          },
         }, 422);
       }
       return response({
@@ -955,6 +988,34 @@ describe('Stage 6 Studio workspace', () => {
     expect(backend.requests.some((request) => request.path.includes('/goto'))).toBe(false);
   });
 
+  it('shows structured Chinese compatibility recovery without weakening the draft contract', async () => {
+    const user = userEvent.setup();
+    mockStudioBackend({ compatibilityError: true });
+    renderStudio();
+
+    await user.click(await screen.findByRole('button', { name: '播放仿真预览' }));
+
+    expect(await screen.findByRole('heading', {
+      name: '该动作与当前机械臂配置不兼容',
+    })).toBeVisible();
+    expect(screen.getByText(/部分关键帧无法通过当前 MOMO V2 的姿态合同校验/)).toBeVisible();
+    expect(screen.getByRole('button', { name: /关键帧 2 · Frame B/ })).toBeVisible();
+    expect(screen.getByText(/关节单位不匹配/)).toBeVisible();
+    expect(screen.queryByText(/Draft snapshot is incompatible/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '创建兼容副本' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: /关键帧 2 · Frame B/ }));
+    expect(screen.getByLabelText('关键帧名称')).toHaveValue('Frame B');
+
+    await user.click(screen.getByRole('button', { name: /从资产库替换/ }));
+    expect(await screen.findByRole('heading', { name: '替换问题关键帧' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Saved Pose/ }));
+    await waitFor(() => expect(screen.queryByRole('heading', {
+      name: '该动作与当前机械臂配置不兼容',
+    })).not.toBeInTheDocument());
+    expect(screen.getByLabelText('关键帧名称')).toHaveValue('Frame B');
+  });
+
   it('starts blank, captures current state, adds a Pose, and autosaves two playable frames', async () => {
     const user = userEvent.setup();
     const backend = mockStudioBackend({ draft: draft(0) });
@@ -964,7 +1025,7 @@ describe('Stage 6 Studio workspace', () => {
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: '添加关键帧' }));
     await user.click(await screen.findByRole('button', { name: /捕获当前姿态/ }));
-    expect(await screen.findByRole('button', { name: /关键帧 1：Capture 1/ })).toBeVisible();
+    expect(await screen.findByRole('button', { name: /关键帧 1：关键帧 1/ })).toBeVisible();
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: '添加关键帧' }));

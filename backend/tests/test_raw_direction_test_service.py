@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from momo.adapters.hardware.fake_raw_direction_bus import FakeRawDirectionBus
+from momo.adapters.hardware.ftservo_raw_direction_bus import RawDirectionCommandRevoked
 from momo.application.services.operator_session_service import OperatorSessionTokenError
 from momo.application.services.raw_direction_test_service import (
     RawDirectionConflictError,
@@ -229,6 +230,44 @@ def test_raw_direction_deadman_stops_fake_bus_without_another_client_request() -
         assert status.state is RawDirectionTestState.EXPIRED
         assert status.failure_reason == "DEADMAN_EXPIRED"
         assert ("stop", 3) in bus.events
+
+    asyncio.run(scenario())
+
+
+def test_priority_stop_remains_terminal_when_it_revokes_an_in_flight_step() -> None:
+    async def scenario() -> None:
+        service, bus, _ = _fixture()
+        write_entered = asyncio.Event()
+        release_write = asyncio.Event()
+
+        async def revoked_write(
+            command: PreparedRawDirectionCommand,
+        ) -> ServoWriteResult:
+            del command
+            write_entered.set()
+            await release_write.wait()
+            raise RawDirectionCommandRevoked("synthetic Stop fence")
+
+        bus.write_prepared_raw_direction_command = revoked_write  # type: ignore[method-assign]
+        await service.start_session(_TOKEN)
+        await service.arm(_TOKEN, "j11")
+        step_task = asyncio.create_task(
+            service.step(_TOKEN, joint_id="j11", direction=RawDirection.RAW_PLUS)
+        )
+        await write_entered.wait()
+
+        stopped = await service.priority_stop()
+        assert stopped.state is RawDirectionTestState.COMPLETED
+        assert stopped.failure_reason == "OPERATOR_STOP"
+        release_write.set()
+        with pytest.raises(RawDirectionExecutionError) as captured:
+            await step_task
+        assert isinstance(captured.value.details, dict)
+        assert captured.value.details["reason"] == "OPERATOR_STOP"
+
+        status = await service.status()
+        assert status.state is RawDirectionTestState.COMPLETED
+        assert status.failure_reason == "OPERATOR_STOP"
 
     asyncio.run(scenario())
 

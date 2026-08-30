@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import v1UrdfSource from '../../assets/robot-v1/urdf/v1/soarmoce_urdf.urdf?raw';
 import v2UrdfSource from '../../assets/robot-v2/urdf/v2/soarmoce_urdf.urdf?raw';
-import { ROBOT_V1_ASSETS, ROBOT_V2_ASSETS } from './viewerAssets';
+import assetLoaderSource from './viewerAssets.ts?raw';
+import { loadRobotViewerAssets } from './viewerAssets';
 
 function referencedMeshes(urdf: string): string[] {
   return Array.from(
@@ -20,7 +21,9 @@ describe('robot viewer asset manifests', () => {
     expect(v1UrdfSource).toMatch(/<joint name="J15" type="revolute">/);
   });
 
-  it('maps every referenced V1 mesh and keeps V1/V2 manifests distinct', () => {
+  it('maps every referenced mesh and keeps V1/V2 manifests in lazy variant chunks', async () => {
+    const ROBOT_V1_ASSETS = await loadRobotViewerAssets('V1');
+    const ROBOT_V2_ASSETS = await loadRobotViewerAssets('V2');
     const v1References = new Set(referencedMeshes(v1UrdfSource));
     const v2References = new Set(referencedMeshes(v2UrdfSource));
     expect(v1References).toEqual(new Set(Object.keys(ROBOT_V1_ASSETS.meshUrlsByFilename)));
@@ -47,5 +50,8 @@ describe('robot viewer asset manifests', () => {
     });
     expect(ROBOT_V1_ASSETS.jointNamesByProfileJointId).not.toHaveProperty('j10');
     expect(ROBOT_V2_ASSETS.jointNamesByProfileJointId).toHaveProperty('j10', 'J10');
+    expect(assetLoaderSource).toContain("import('./viewerAssetsV1')");
+    expect(assetLoaderSource).toContain("import('./viewerAssetsV2')");
+    expect(assetLoaderSource).not.toMatch(/robot-v[12]\/meshes/);
   });
 });

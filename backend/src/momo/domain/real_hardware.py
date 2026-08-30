@@ -41,6 +41,7 @@ from momo.domain.enums import (
     HardwareAccessPolicy,
     RobotVariant,
 )
+from momo.domain.immutable import freeze_mapping
 from momo.domain.kinematics.model import KinematicsModel
 from momo.domain.raw_direction import RawDirectionSafetyEnvelope
 from momo.domain.robot import RobotProfile
@@ -384,6 +385,13 @@ class HardwareConfirmationEvidence(BaseModel):
     profile_fingerprint: Fingerprint | None = None
     calibration_fingerprint: Fingerprint | None = None
     kinematics_fingerprint: Fingerprint | None = None
+    kinematics_verification_evidence_id: UUID | None = None
+    capability_evidence_ids: dict[FieldAcceptanceCapability, UUID] = Field(
+        default_factory=dict,
+        validate_default=True,
+    )
+    # Deprecated compatibility alias. It is always the JOINT_MOTION binding and
+    # must never be interpreted as Cartesian, Playback, or Vision authority.
     field_acceptance_evidence_id: UUID | None = None
     pre_motion_evidence_id: UUID | None = None
     masked_serial_port: str | None = None
@@ -396,6 +404,16 @@ class HardwareConfirmationEvidence(BaseModel):
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
     ] = REQUIRED_REAL_HARDWARE_CONFIRMATION_TEXT
+
+    @field_validator("capability_evidence_ids")
+    @classmethod
+    def freeze_capability_evidence_ids(
+        cls,
+        value: dict[FieldAcceptanceCapability, UUID],
+    ) -> dict[FieldAcceptanceCapability, UUID]:
+        if FieldAcceptanceCapability.PRE_MOTION_CHECKS in value:
+            raise ValueError("pre-motion evidence has a separate commissioning binding")
+        return freeze_mapping(value)
 
     @model_validator(mode="after")
     def validate_confirmation_text(self) -> Self:
@@ -410,6 +428,15 @@ class HardwareConfirmationEvidence(BaseModel):
             }
         ):
             raise ValueError("workspace-clear requirement must match the session purpose")
+        joint_evidence_id = self.capability_evidence_ids.get(FieldAcceptanceCapability.JOINT_MOTION)
+        if self.field_acceptance_evidence_id != joint_evidence_id:
+            raise ValueError(
+                "field_acceptance_evidence_id is only the JOINT_MOTION compatibility alias"
+            )
+        if self.session_purpose is not OperatorSessionPurpose.REAL_MOTION and (
+            self.capability_evidence_ids or self.kinematics_verification_evidence_id is not None
+        ):
+            raise ValueError("non-production confirmation cannot bind production evidence")
         return self
 
 
@@ -466,6 +493,13 @@ class OperatorSessionEvidence(BaseModel):
     profile_fingerprint: Fingerprint
     calibration_fingerprint: Fingerprint | None = None
     kinematics_fingerprint: Fingerprint | None = None
+    kinematics_verification_evidence_id: UUID | None = None
+    capability_evidence_ids: dict[FieldAcceptanceCapability, UUID] = Field(
+        default_factory=dict,
+        validate_default=True,
+    )
+    # Deprecated compatibility alias. It is always the JOINT_MOTION binding and
+    # cannot authorize any other production capability.
     field_acceptance_evidence_id: UUID | None = None
     pre_motion_evidence_id: UUID | None = None
     commissioning_envelope: CommissioningSafetyEnvelope | None = None
@@ -480,6 +514,16 @@ class OperatorSessionEvidence(BaseModel):
     control_mode: Literal[ControlMode.REAL] = ControlMode.REAL
     hardware_access_policy: HardwareAccessPolicy
 
+    @field_validator("capability_evidence_ids")
+    @classmethod
+    def freeze_capability_evidence_ids(
+        cls,
+        value: dict[FieldAcceptanceCapability, UUID],
+    ) -> dict[FieldAcceptanceCapability, UUID]:
+        if FieldAcceptanceCapability.PRE_MOTION_CHECKS in value:
+            raise ValueError("pre-motion evidence has a separate commissioning binding")
+        return freeze_mapping(value)
+
     @model_validator(mode="after")
     def validate_session(self) -> Self:
         _require_aware(self.issued_at, "issued_at")
@@ -492,6 +536,11 @@ class OperatorSessionEvidence(BaseModel):
             raise ValueError("operator session requires unique allowed servo IDs")
         if not self.scopes:
             raise ValueError("operator session requires at least one scope")
+        joint_evidence_id = self.capability_evidence_ids.get(FieldAcceptanceCapability.JOINT_MOTION)
+        if self.field_acceptance_evidence_id != joint_evidence_id:
+            raise ValueError(
+                "field_acceptance_evidence_id is only the JOINT_MOTION compatibility alias"
+            )
         if self.purpose is OperatorSessionPurpose.COMMISSIONING_READ_ONLY:
             if self.hardware_access_policy is not HardwareAccessPolicy.READ_ONLY:
                 raise ValueError("commissioning sessions require READ_ONLY hardware policy")
@@ -499,8 +548,8 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("commissioning sessions have an exact read-only scope set")
             if self.calibration_fingerprint is not None or self.kinematics_fingerprint is not None:
                 raise ValueError("commissioning sessions cannot bind motion evidence")
-            if self.field_acceptance_evidence_id is not None:
-                raise ValueError("commissioning sessions cannot bind field acceptance")
+            if self.capability_evidence_ids or self.kinematics_verification_evidence_id is not None:
+                raise ValueError("commissioning sessions cannot bind production evidence")
             if (
                 self.pre_motion_evidence_id is not None
                 or self.commissioning_envelope is not None
@@ -520,8 +569,8 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("commissioning motion-test sessions require Calibration")
             if self.kinematics_fingerprint is not None:
                 raise ValueError("single-joint commissioning does not bind Kinematics authority")
-            if self.field_acceptance_evidence_id is not None:
-                raise ValueError("commissioning motion tests cannot bind production acceptance")
+            if self.capability_evidence_ids or self.kinematics_verification_evidence_id is not None:
+                raise ValueError("commissioning motion tests cannot bind production evidence")
             if self.commissioning_envelope is None:
                 raise ValueError("commissioning motion tests require a fixed safety envelope")
             if not self.workspace_clear_confirmed:
@@ -535,8 +584,8 @@ class OperatorSessionEvidence(BaseModel):
                 raise ValueError("raw-direction sessions have one exact scope")
             if self.calibration_fingerprint is not None or self.kinematics_fingerprint is not None:
                 raise ValueError("raw-direction sessions cannot claim calibrated motion evidence")
-            if self.field_acceptance_evidence_id is not None:
-                raise ValueError("raw-direction sessions cannot bind production acceptance")
+            if self.capability_evidence_ids or self.kinematics_verification_evidence_id is not None:
+                raise ValueError("raw-direction sessions cannot bind production evidence")
             if self.pre_motion_evidence_id is not None:
                 raise ValueError(
                     "raw-direction sessions cannot claim calibrated pre-motion evidence"
@@ -566,21 +615,40 @@ class OperatorSessionEvidence(BaseModel):
                 or self.raw_direction_envelope is not None
             ):
                 raise ValueError("production motion cannot inherit commissioning-test authority")
+            acceptance_requirements = {
+                OperatorSessionScope.REAL_JOINT_MOTION: FieldAcceptanceCapability.JOINT_MOTION,
+                OperatorSessionScope.REAL_CARTESIAN_MOTION: FieldAcceptanceCapability.CARTESIAN,
+                OperatorSessionScope.REAL_PLAYBACK: FieldAcceptanceCapability.PLAYBACK,
+                OperatorSessionScope.REAL_VISION_FOLLOW: FieldAcceptanceCapability.VISION_FOLLOW,
+            }
+            required_capabilities = {
+                capability
+                for scope, capability in acceptance_requirements.items()
+                if scope in self.scopes
+            }
+            if set(self.capability_evidence_ids) != required_capabilities:
+                raise ValueError(
+                    "motion-session scopes require exact capability-specific evidence bindings"
+                )
             geometry_scopes = {
                 OperatorSessionScope.REAL_CARTESIAN_MOTION,
-                OperatorSessionScope.REAL_PLAYBACK,
                 OperatorSessionScope.REAL_VISION_FOLLOW,
             }
-            accepted_automation_scopes = {
-                OperatorSessionScope.REAL_VISION_FOLLOW,
-            }
-            if (
-                self.scopes & accepted_automation_scopes
-                and self.field_acceptance_evidence_id is None
+            if self.scopes & geometry_scopes:
+                if (
+                    self.kinematics_fingerprint is None
+                    or self.kinematics_verification_evidence_id is None
+                ):
+                    raise ValueError(
+                        "geometry motion scopes require model and verification evidence"
+                    )
+            elif (
+                self.kinematics_fingerprint is not None
+                or self.kinematics_verification_evidence_id is not None
             ):
-                raise ValueError("automated motion scopes require capability acceptance evidence")
-            if self.scopes & geometry_scopes and self.kinematics_fingerprint is None:
-                raise ValueError("geometry motion scopes require a kinematics fingerprint")
+                raise ValueError(
+                    "joint-only production scopes cannot retain unused kinematics authority"
+                )
         return self
 
 
@@ -890,6 +958,9 @@ class RealHardwareAccessGrant(BaseModel):
             or self.confirmation.variant is not self.session.variant
             or self.confirmation.profile_fingerprint != self.session.profile_fingerprint
             or self.confirmation.calibration_fingerprint != self.session.calibration_fingerprint
+            or self.confirmation.kinematics_fingerprint != self.session.kinematics_fingerprint
+            or self.confirmation.kinematics_verification_evidence_id
+            != self.session.kinematics_verification_evidence_id
             or self.confirmation.field_acceptance_evidence_id
             != self.session.field_acceptance_evidence_id
             or self.confirmation.pre_motion_evidence_id != self.session.pre_motion_evidence_id
@@ -898,6 +969,11 @@ class RealHardwareAccessGrant(BaseModel):
             or self.device_fingerprint != self.session.device_fingerprint
         ):
             raise ValueError("authorization confirmation must match operator session evidence")
+        if any(
+            self.confirmation.capability_evidence_ids.get(capability) != evidence_id
+            for capability, evidence_id in self.session.capability_evidence_ids.items()
+        ):
+            raise ValueError("authorization confirmation must bind every session capability")
         required = {
             RealHardwareAuthorizationPurpose.DIAGNOSTICS: (
                 self.capabilities.commissioning_diagnostics_ready

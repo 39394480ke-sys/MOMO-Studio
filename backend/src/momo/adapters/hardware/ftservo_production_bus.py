@@ -23,6 +23,7 @@ from momo.domain.real_hardware import (
     ServoWriteResult,
     explicit_device_fingerprint,
 )
+from momo.ports.servo_bus import ServoTorqueTransitionResult
 
 SUPPORTED_PROTOCOL = "STS3215"
 BAUD_RATE = 1_000_000
@@ -92,30 +93,6 @@ class _Sdk(Protocol):
 _T = TypeVar("_T")
 
 
-async def _completion_observed_thread_call(call: Callable[[], _T], *, name: str) -> _T:
-    """Do not release ownership while a non-cancellable SDK transaction is running."""
-
-    task = asyncio.create_task(asyncio.to_thread(call), name=name)
-    cancellation: asyncio.CancelledError | None = None
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError as error:
-            if cancellation is None:
-                cancellation = error
-        except Exception:
-            pass
-    try:
-        result = task.result()
-    except BaseException as error:
-        if cancellation is not None and error is not cancellation:
-            raise cancellation from error
-        raise
-    if cancellation is not None:
-        raise cancellation
-    return result
-
-
 def _encode_signed_position(value: int) -> int:
     magnitude = abs(value)
     if magnitude > 0x7FFF:
@@ -162,6 +139,7 @@ class FtServoProductionBusFactory:
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
             RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
         }:
             raise PermissionError("The grant does not authorize product motion")
         evidence = authorization.session
@@ -187,9 +165,22 @@ class FtServoProductionBus:
         self._device: str | None = None
         self._connected = False
         self._torque_enabled: set[int] = set()
-        self._stream_configured: set[int] = set()
+        self._torque_uncertain: set[int] = set()
+        self._last_torque_result: ServoTorqueTransitionResult | None = None
         self._guard = asyncio.Lock()
-        self._stop_requested = threading.Event()
+        self._state_guard = threading.Lock()
+        self._write_generation = 0
+        self._writes_revoked = False
+        self._torque_transition = False
+        self._closing = False
+        self._closed = False
+        self._active_sdk_task: asyncio.Task[object] | None = None
+
+    @property
+    def last_torque_result(self) -> ServoTorqueTransitionResult | None:
+        """Latest per-Servo torque evidence, including uncertain cleanup."""
+
+        return self._last_torque_result
 
     async def open(self, device: str, protocol: str) -> None:
         if protocol != SUPPORTED_PROTOCOL or not device.startswith("/dev/"):
@@ -202,30 +193,46 @@ class FtServoProductionBus:
         )
         if explicit_device_fingerprint(candidate) != self._authorization.device_fingerprint:
             raise PermissionError("device identity does not match the REAL motion grant")
-        async with self._guard:
-            if self._connected:
-                return
-            self._device = device
-            try:
-                await _completion_observed_thread_call(self._open_sync, name="ftservo-real-open")
-                self._connected = True
-            except BaseException:
-                self._device = None
-                raise
+        with self._state_guard:
+            if self._closed or self._closing:
+                raise RuntimeError("a closed REAL ServoBus cannot be reopened")
+        if self._connected:
+            return
+        self._device = device
+        try:
+            await self._serialized_sdk_call(self._open_sync, name="ftservo-real-open")
+            self._connected = True
+        except BaseException:
+            self._device = None
+            raise
 
     async def close(self) -> None:
-        self._stop_requested.set()
-        async with self._guard:
-            await _completion_observed_thread_call(self._close_sync, name="ftservo-real-close")
+        with self._state_guard:
+            if self._closed:
+                return
+            self._write_generation += 1
+            self._writes_revoked = True
+            self._closing = True
+        try:
+            result = await self._serialized_sdk_call(
+                self._close_sync,
+                name="ftservo-real-close",
+            )
+            self._last_torque_result = result
+            if not result.complete:
+                raise RuntimeError("torque cleanup was incomplete; safety state is uncertain")
+        finally:
             self._connected = False
+            with self._state_guard:
+                self._closed = True
+                self._closing = False
 
     async def ping_explicit_ids(self, servo_ids: tuple[int, ...]) -> Mapping[int, ServoPingResult]:
         self._require_read_ids(servo_ids)
-        async with self._guard:
-            values = await _completion_observed_thread_call(
-                lambda: self._ping_sync(servo_ids),
-                name="ftservo-real-ping",
-            )
+        values = await self._serialized_sdk_call(
+            lambda: self._ping_sync(servo_ids),
+            name="ftservo-real-ping",
+        )
         return {
             servo_id: ServoPingResult(
                 servo_id=servo_id,
@@ -241,30 +248,61 @@ class FtServoProductionBus:
 
     async def read_present_positions(self, servo_ids: tuple[int, ...]) -> Mapping[int, int]:
         self._require_read_ids(servo_ids)
-        async with self._guard:
-            return await _completion_observed_thread_call(
-                lambda: {servo_id: self._read_position(servo_id) for servo_id in servo_ids},
-                name="ftservo-real-read-positions",
-            )
+        return await self._serialized_sdk_call(
+            lambda: {servo_id: self._read_position(servo_id) for servo_id in servo_ids},
+            name="ftservo-real-read-positions",
+        )
 
     async def read_operating_modes(self, servo_ids: tuple[int, ...]) -> Mapping[int, str]:
         self._require_read_ids(servo_ids)
-        async with self._guard:
-            return await _completion_observed_thread_call(
-                lambda: {servo_id: self._read_mode(servo_id) for servo_id in servo_ids},
-                name="ftservo-real-read-modes",
-            )
+        return await self._serialized_sdk_call(
+            lambda: {servo_id: self._read_mode(servo_id) for servo_id in servo_ids},
+            name="ftservo-real-read-modes",
+        )
 
     async def read_torque_states(self, servo_ids: tuple[int, ...]) -> Mapping[int, bool]:
         self._require_read_ids(servo_ids)
-        async with self._guard:
-            return await _completion_observed_thread_call(
-                lambda: {
-                    servo_id: self._read1(servo_id, TORQUE_ENABLE_ADDRESS, "torque") == 1
-                    for servo_id in servo_ids
-                },
-                name="ftservo-real-read-torque",
-            )
+        return await self._serialized_sdk_call(
+            lambda: {
+                servo_id: self._read1(servo_id, TORQUE_ENABLE_ADDRESS, "torque") == 1
+                for servo_id in servo_ids
+            },
+            name="ftservo-real-read-torque",
+        )
+
+    async def enable_torque_for_execution(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> ServoTorqueTransitionResult:
+        """Arm exactly one reviewed execution; never called during open/startup."""
+
+        self._require_write_ids(servo_ids)
+        generation = self._capture_write_generation(require_torque=False)
+        result = await self._serialized_sdk_call(
+            lambda: self._enable_torque_sync(servo_ids, generation),
+            name="ftservo-real-enable-torque",
+        )
+        self._last_torque_result = result
+        return result
+
+    async def disable_torque_for_execution(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> ServoTorqueTransitionResult:
+        """Fence queued goals, then best-effort disable every authorized Servo."""
+
+        self._require_write_ids(servo_ids)
+        with self._state_guard:
+            self._write_generation += 1
+            self._torque_transition = True
+        result = await self._serialized_sdk_call(
+            lambda: self._disable_torque_sync(servo_ids),
+            name="ftservo-real-disable-torque",
+        )
+        self._last_torque_result = result
+        with self._state_guard:
+            self._torque_transition = False
+        return result
 
     async def write_goal_positions(self, goal_positions: Mapping[int, int]) -> ServoWriteResult:
         requested = tuple(goal_positions)
@@ -274,14 +312,24 @@ class FtServoProductionBus:
             for value in goal_positions.values()
         ):
             raise TypeError("REAL goal positions must be integer raw values")
-        self._stop_requested.clear()
+        try:
+            generation = self._capture_write_generation(require_torque=True)
+        except RuntimeError as error:
+            return ServoWriteResult(
+                requested_ids=requested,
+                written_ids=(),
+                failed_ids=requested,
+                connected=self._connected,
+                complete=False,
+                safety_state_known=False,
+                detail=str(error),
+            )
         written: tuple[int, ...] = ()
         try:
-            async with self._guard:
-                written = await _completion_observed_thread_call(
-                    lambda: self._write_goals_sync(goal_positions),
-                    name="ftservo-real-write-goals",
-                )
+            written = await self._serialized_sdk_call(
+                lambda: self._write_goals_sync(goal_positions, generation),
+                name="ftservo-real-write-goals",
+            )
         except Exception:
             failed = tuple(servo_id for servo_id in requested if servo_id not in written)
             return ServoWriteResult(
@@ -305,31 +353,32 @@ class FtServoProductionBus:
 
     async def stop_or_hold(self, servo_ids: tuple[int, ...]) -> RealStopOutcome:
         self._require_write_ids(servo_ids)
-        self._stop_requested.set()
-        async with self._guard:
-            if not self._connected:
-                return RealStopOutcome(
-                    result=RealStopResult.NOT_CONNECTED,
-                    requested_ids=servo_ids,
-                    affected_ids=(),
-                    connected=False,
-                    safety_state_known=False,
-                    detail="REAL ServoBus is not connected",
-                )
-            try:
-                affected = await _completion_observed_thread_call(
-                    lambda: self._hold_sync(servo_ids),
-                    name="ftservo-real-hold",
-                )
-            except Exception:
-                return RealStopOutcome(
-                    result=RealStopResult.SAFETY_STATE_UNCERTAIN,
-                    requested_ids=servo_ids,
-                    affected_ids=(),
-                    connected=True,
-                    safety_state_known=False,
-                    detail="Software Hold failed; use the physical E-stop",
-                )
+        with self._state_guard:
+            self._write_generation += 1
+            self._writes_revoked = True
+        if not self._connected:
+            return RealStopOutcome(
+                result=RealStopResult.NOT_CONNECTED,
+                requested_ids=servo_ids,
+                affected_ids=(),
+                connected=False,
+                safety_state_known=False,
+                detail="REAL ServoBus is not connected",
+            )
+        try:
+            affected = await self._serialized_sdk_call(
+                lambda: self._hold_sync(servo_ids),
+                name="ftservo-real-hold",
+            )
+        except Exception:
+            return RealStopOutcome(
+                result=RealStopResult.SAFETY_STATE_UNCERTAIN,
+                requested_ids=servo_ids,
+                affected_ids=(),
+                connected=True,
+                safety_state_known=False,
+                detail="Software Hold failed; use the physical E-stop",
+            )
         return RealStopOutcome(
             result=RealStopResult.HOLD_REQUESTED,
             requested_ids=servo_ids,
@@ -358,22 +407,30 @@ class FtServoProductionBus:
         self._port = port
         self._packet = packet
 
-    def _close_sync(self) -> None:
+    def _close_sync(self) -> ServoTorqueTransitionResult:
         port = self._port
+        requested = self._allowed_ids
+        result = ServoTorqueTransitionResult(
+            requested_ids=requested,
+            succeeded_ids=requested,
+            failed_ids=(),
+            torque_enabled=False,
+            connected=self._connected,
+            complete=self._connected,
+            safety_state_known=self._connected,
+            detail="No open packet required torque cleanup",
+        )
         try:
             packet = self._packet
             if packet is not None:
-                for servo_id in tuple(self._torque_enabled):
-                    result, error = packet.write1ByteTxRx(servo_id, TORQUE_ENABLE_ADDRESS, 0)
-                    self._require_success(result, error, operation=f"disable torque {servo_id}")
+                result = self._disable_torque_sync(requested)
         finally:
-            self._torque_enabled.clear()
-            self._stream_configured.clear()
             self._packet = None
             self._port = None
             self._device = None
             if port is not None:
                 port.closePort()
+        return result
 
     def _ping_sync(self, servo_ids: tuple[int, ...]) -> dict[int, int]:
         packet = self._require_packet()
@@ -387,32 +444,17 @@ class FtServoProductionBus:
     def _write_goals_sync(
         self,
         goals: Mapping[int, int],
+        generation: int,
     ) -> tuple[int, ...]:
         packet = self._require_packet()
-        for servo_id in goals:
-            if self._stop_requested.is_set():
-                raise RuntimeError("REAL goal write interrupted by priority Stop")
-            if servo_id not in self._stream_configured:
-                current = self._read_position(servo_id)
-                result, error = packet.WritePosEx(
-                    servo_id,
-                    _encode_signed_position(current),
-                    LEGACY_STREAM_SPEED,
-                    LEGACY_STREAM_ACCELERATION,
-                )
-                self._require_success(result, error, operation=f"configure stream {servo_id}")
-                self._stream_configured.add(servo_id)
-            if servo_id not in self._torque_enabled:
-                result, error = packet.write1ByteTxRx(servo_id, TORQUE_ENABLE_ADDRESS, 1)
-                self._require_success(result, error, operation=f"enable torque {servo_id}")
-                self._torque_enabled.add(servo_id)
+        self._require_generation(generation, require_torque=True)
         if len(goals) > 1:
-            self._sync_write_positions(goals)
+            self._sync_write_positions(goals, generation=generation)
+            self._require_generation(generation, require_torque=True)
             return tuple(goals)
         written: list[int] = []
         for servo_id in goals:
-            if self._stop_requested.is_set():
-                raise RuntimeError("REAL goal write interrupted by priority Stop")
+            self._require_generation(generation, require_torque=True)
             result, error = packet.WritePosEx(
                 servo_id,
                 _encode_signed_position(goals[servo_id]),
@@ -421,7 +463,101 @@ class FtServoProductionBus:
             )
             self._require_success(result, error, operation=f"write goal {servo_id}")
             written.append(servo_id)
+            self._require_generation(generation, require_torque=True)
         return tuple(written)
+
+    def _enable_torque_sync(
+        self,
+        servo_ids: tuple[int, ...],
+        generation: int,
+    ) -> ServoTorqueTransitionResult:
+        packet = self._require_packet()
+        succeeded: list[int] = []
+        failed: list[int] = []
+        for index, servo_id in enumerate(servo_ids):
+            try:
+                self._require_generation(generation, require_torque=False)
+                if servo_id not in self._torque_enabled:
+                    result, error = packet.write1ByteTxRx(
+                        servo_id,
+                        TORQUE_ENABLE_ADDRESS,
+                        1,
+                    )
+                    self._require_success(result, error, operation=f"enable torque {servo_id}")
+                    with self._state_guard:
+                        self._torque_enabled.add(servo_id)
+                succeeded.append(servo_id)
+                self._require_generation(generation, require_torque=False)
+            except Exception:
+                failed.extend(
+                    candidate for candidate in servo_ids[index:] if candidate not in succeeded
+                )
+                rollback = self._disable_torque_sync(servo_ids)
+                if not rollback.complete:
+                    with self._state_guard:
+                        self._torque_uncertain.update(rollback.failed_ids)
+                return ServoTorqueTransitionResult(
+                    requested_ids=servo_ids,
+                    succeeded_ids=tuple(succeeded),
+                    failed_ids=tuple(failed),
+                    torque_enabled=False,
+                    connected=self._connected,
+                    complete=False,
+                    safety_state_known=False,
+                    detail=(
+                        "Torque enable failed; every Servo received best-effort rollback, "
+                        f"rollback_failed={rollback.failed_ids}"
+                    ),
+                )
+        return ServoTorqueTransitionResult(
+            requested_ids=servo_ids,
+            succeeded_ids=servo_ids,
+            failed_ids=(),
+            torque_enabled=True,
+            connected=True,
+            complete=True,
+            safety_state_known=True,
+            detail="Torque explicitly enabled for the reviewed execution only",
+        )
+
+    def _disable_torque_sync(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> ServoTorqueTransitionResult:
+        packet = self._require_packet()
+        succeeded: list[int] = []
+        failed: list[int] = []
+        for servo_id in servo_ids:
+            try:
+                result, error = packet.write1ByteTxRx(
+                    servo_id,
+                    TORQUE_ENABLE_ADDRESS,
+                    0,
+                )
+                self._require_success(result, error, operation=f"disable torque {servo_id}")
+                succeeded.append(servo_id)
+                with self._state_guard:
+                    self._torque_enabled.discard(servo_id)
+                    self._torque_uncertain.discard(servo_id)
+            except Exception:
+                failed.append(servo_id)
+                with self._state_guard:
+                    self._torque_uncertain.add(servo_id)
+        complete = not failed
+        return ServoTorqueTransitionResult(
+            requested_ids=servo_ids,
+            succeeded_ids=tuple(succeeded),
+            failed_ids=tuple(failed),
+            torque_enabled=False,
+            connected=self._connected,
+            complete=complete,
+            safety_state_known=complete,
+            detail=(
+                "Torque disabled for every authorized Servo"
+                if complete
+                else "Torque disable was attempted for every Servo; safety state is uncertain"
+            ),
+        )
 
     def _hold_sync(self, servo_ids: tuple[int, ...]) -> tuple[int, ...]:
         positions = {servo_id: self._read_position(servo_id) for servo_id in servo_ids}
@@ -443,6 +579,8 @@ class FtServoProductionBus:
     def _sync_write_positions(
         self,
         positions: Mapping[int, int],
+        *,
+        generation: int | None = None,
     ) -> None:
         """Broadcast one coherent STS3215 position frame for all enabled joints.
 
@@ -464,11 +602,73 @@ class FtServoProductionBus:
                 )
                 if added is not True:
                     raise RuntimeError(f"could not stage synchronized goal for Servo {servo_id}")
+            if generation is not None:
+                self._require_generation(generation, require_torque=True)
             result = writer.txPacket()
             if result != COMM_SUCCESS:
                 raise RuntimeError(f"synchronized goal write failed with result {result}")
+            if generation is not None:
+                self._require_generation(generation, require_torque=True)
         finally:
             writer.clearParam()
+
+    async def _serialized_sdk_call(
+        self,
+        call: Callable[[], _T],
+        *,
+        name: str,
+    ) -> _T:
+        """Serialize SDK ownership while allowing caller deadlines to be truthful.
+
+        A cancelled waiter returns immediately, but the lock remains owned until
+        the non-cancellable SDK thread actually terminates.  Thus a bounded caller
+        can report uncertainty without allowing Stop/Close or a queued write to
+        overlap the still-running transaction.
+        """
+
+        await self._guard.acquire()
+        task: asyncio.Task[_T] = asyncio.create_task(asyncio.to_thread(call), name=name)
+        self._active_sdk_task = cast(asyncio.Task[object], task)
+        release_here = True
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            release_here = False
+            task.add_done_callback(self._release_cancelled_sdk_ownership)
+            raise
+        finally:
+            if release_here:
+                self._active_sdk_task = None
+                self._guard.release()
+
+    def _release_cancelled_sdk_ownership(self, task: asyncio.Task[object]) -> None:
+        with suppress(BaseException):
+            task.exception()
+        if self._active_sdk_task is task:
+            self._active_sdk_task = None
+            self._guard.release()
+
+    def _capture_write_generation(self, *, require_torque: bool) -> int:
+        with self._state_guard:
+            generation = self._write_generation
+            self._require_generation_unlocked(generation, require_torque=require_torque)
+            return generation
+
+    def _require_generation(self, generation: int, *, require_torque: bool) -> None:
+        with self._state_guard:
+            self._require_generation_unlocked(generation, require_torque=require_torque)
+
+    def _require_generation_unlocked(self, generation: int, *, require_torque: bool) -> None:
+        if generation != self._write_generation:
+            raise RuntimeError("REAL write generation was fenced by Stop or cleanup")
+        if self._writes_revoked or self._closing or self._closed or self._torque_transition:
+            raise RuntimeError("REAL writes are revoked by Stop or lifecycle cleanup")
+        if not self._connected:
+            raise RuntimeError("REAL ServoBus is not connected")
+        if require_torque and (
+            set(self._allowed_ids) != self._torque_enabled or self._torque_uncertain
+        ):
+            raise RuntimeError("Torque is not explicitly armed for this execution")
 
     def _read_position(self, servo_id: int) -> int:
         value, result, error = self._require_packet().ReadPos(servo_id)

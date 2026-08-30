@@ -84,6 +84,12 @@ import {
   libraryIdempotencyKey,
   parseTags,
 } from '../features/library/libraryFormat';
+import {
+  motionLegacyCompatibility,
+  poseLegacyCompatibility,
+  type LegacyCompatibilityStatus,
+  type LibraryCompatibilityContract,
+} from '../features/library/legacyCompatibility';
 import { playbackLocksLibrary } from '../features/library/playbackState';
 import { Robot3DViewer } from '../features/robot-viewer';
 
@@ -204,6 +210,26 @@ function errorMessage(error: unknown): string {
 
 function isRevisionConflict(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 409 && error.code === 'REVISION_CONFLICT';
+}
+
+function LegacyCompatibilityNotice({
+  status,
+}: {
+  status: LegacyCompatibilityStatus | null;
+}) {
+  if (!status) return null;
+  return (
+    <div
+      className={`library-legacy-notice library-legacy-notice--${status.state}`}
+      role="status"
+    >
+      <TriangleAlert aria-hidden="true" />
+      <div>
+        <strong>{status.summary}</strong>
+        <span>{status.detail}</span>
+      </div>
+    </div>
+  );
 }
 
 export function LibraryPage() {
@@ -419,6 +445,29 @@ export function LibraryPage() {
   const profile = runtime.profile?.profile ?? null;
   const viewerJointDefinitions = profile?.joint_definitions ?? [];
   const viewerEnabledJointIds = profile?.enabled_joints ?? [];
+  const compatibilityContract = useMemo<LibraryCompatibilityContract | null>(() => {
+    if (!runtime.profile) return null;
+    return {
+      variant: runtime.profile.profile.variant,
+      enabledJointIds: runtime.profile.profile.enabled_joints,
+      jointUnits: Object.fromEntries(
+        runtime.profile.profile.joint_definitions.map((joint) => [
+          joint.joint_id,
+          joint.domain_unit,
+        ]),
+      ),
+      profileFingerprint: runtime.profile.fingerprint,
+      kinematicsFingerprint: runtime.profile.kinematics_fingerprint,
+    };
+  }, [runtime.profile]);
+  const selectedPoseCompatibility = selectedPoseSummary
+    ? poseLegacyCompatibility(selectedPoseSummary, compatibilityContract)
+    : null;
+  const selectedMotionCompatibility = detail?.status === 'ready'
+    && detail.kind === 'motion'
+    && selectedMotionSummary
+    ? motionLegacyCompatibility(selectedMotionSummary, detail.entity, compatibilityContract)
+    : null;
 
   function reload() {
     setActionError(null);
@@ -1059,6 +1108,7 @@ export function LibraryPage() {
                     <span>Pose</span><span>{detail.entity.snapshot.robot_variant}</span>
                     {detail.entity.tags.map((tag) => <span key={tag}>{tag}</span>)}
                   </div>
+                  <LegacyCompatibilityNotice status={selectedPoseCompatibility} />
                   {profile?.variant === detail.entity.snapshot.robot_variant ? (
                     <Robot3DViewer
                       ariaLabel={`${detail.entity.name} 机位三维仿真预览`}
@@ -1112,6 +1162,7 @@ export function LibraryPage() {
                     <span>Motion</span><span>{detail.entity.robot_variant}</span>
                     {detail.entity.tags.map((tag) => <span key={tag}>{tag}</span>)}
                   </div>
+                  <LegacyCompatibilityNotice status={selectedMotionCompatibility} />
                   <MotionSimulationPlayer
                     enabledJointIds={viewerEnabledJointIds}
                     jointDefinitions={viewerJointDefinitions}
@@ -1208,6 +1259,7 @@ export function LibraryPage() {
                   ? posePage.items.map((pose) => (
                       <PoseCard
                         busy={anyActionBusy || !online}
+                        compatibilityContract={compatibilityContract}
                         deletePending={confirmation?.kind === 'delete-pose' && confirmation.id === pose.id}
                         key={pose.id}
                         onDeleteCancel={() => setConfirmation(null)}
@@ -1224,6 +1276,7 @@ export function LibraryPage() {
                   : motionPage.items.map((motion) => (
                       <MotionCard
                         busy={anyActionBusy || !online}
+                        compatibilityContract={compatibilityContract}
                         deletePending={confirmation?.kind === 'delete-motion' && confirmation.id === motion.id}
                         key={motion.id}
                         motion={motion}

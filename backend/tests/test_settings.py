@@ -25,6 +25,48 @@ def test_defaults_are_always_dry_run_when_config_is_absent(
     assert settings.active_robot_variant is RobotVariant.V2
     assert settings.hardware_access_policy is HardwareAccessPolicy.DISABLED
     assert settings.camera_access_policy is CameraAccessPolicy.SYNTHETIC_ONLY
+    assert settings.operator_session_ttl_s == 300
+    assert settings.browser_security_session_ttl_s == 1800
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("operator_session_ttl_s", 29),
+        ("operator_session_ttl_s", 901),
+        ("browser_security_session_ttl_s", 29),
+        ("browser_security_session_ttl_s", 43_201),
+    ],
+)
+def test_hardware_and_browser_session_ttls_have_independent_safe_bounds(
+    field: str,
+    value: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({field: value})
+
+    valid = Settings(
+        operator_session_ttl_s=900,
+        browser_security_session_ttl_s=43_200,
+    )
+    assert valid.operator_session_ttl_s == 900
+    assert valid.browser_security_session_ttl_s == 43_200
+
+    properties = Settings.model_json_schema()["properties"]
+    assert properties["operator_session_ttl_s"] == {
+        "default": 300,
+        "maximum": 900,
+        "minimum": 30,
+        "title": "Operator Session Ttl S",
+        "type": "integer",
+    }
+    assert properties["browser_security_session_ttl_s"] == {
+        "default": 1800,
+        "maximum": 43_200,
+        "minimum": 30,
+        "title": "Browser Security Session Ttl S",
+        "type": "integer",
+    }
 
 
 def test_environment_overrides_yaml_without_using_current_working_directory(

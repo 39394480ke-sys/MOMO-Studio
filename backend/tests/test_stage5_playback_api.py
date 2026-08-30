@@ -498,7 +498,8 @@ def test_shared_admission_ordinary_final_check_wins_without_dual_owner(
         play_loaded_motion = asyncio.Event()
         overlaps: list[bool] = []
 
-        async def blocked_submit(prepared: Any) -> Any:
+        async def blocked_submit(prepared: Any, *, continuous_write_guard: Any = None) -> Any:
+            del continuous_write_guard
             ordinary_at_submit.set()
             await release_ordinary.wait()
             status = await original_submit(prepared)
@@ -564,7 +565,8 @@ def test_shared_admission_blocks_preflight_claim_during_ordinary_submit(
         preflight_loaded_motion = asyncio.Event()
         overlaps: list[bool] = []
 
-        async def blocked_submit(prepared: Any) -> Any:
+        async def blocked_submit(prepared: Any, *, continuous_write_guard: Any = None) -> Any:
+            del continuous_write_guard
             ordinary_at_submit.set()
             await release_ordinary.wait()
             status = await original_submit(prepared)
@@ -871,7 +873,8 @@ def test_lifecycle_stop_rolls_back_ordinary_claim_after_submit_await(
         release_submit = asyncio.Event()
         original_submit = executor.submit
 
-        async def blocked_submit(prepared: Any) -> Any:
+        async def blocked_submit(prepared: Any, *, continuous_write_guard: Any = None) -> Any:
+            del continuous_write_guard
             submit_entered.set()
             await release_submit.wait()
             return await original_submit(prepared)

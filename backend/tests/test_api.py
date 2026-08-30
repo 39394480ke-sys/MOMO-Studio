@@ -10,6 +10,7 @@ from fastapi.routing import APIRoute
 from starlette.routing import Mount, WebSocketRoute
 
 from momo.api.app import create_app
+from momo.api.security import authorize_control_keepalive_request, authorize_control_request
 from momo.domain.enums import ControlMode, RobotVariant
 from momo.settings import Settings
 
@@ -221,7 +222,7 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
     route_tree = list(iter_route_tree(app.routes))
     websocket_routes = [route for route in route_tree if isinstance(route, WebSocketRoute)]
     assert len(websocket_routes) == 1
-    assert websocket_routes[0].path == "/ws/robot"
+    assert str(app.url_path_for(websocket_routes[0].name)) == "/api/v1/ws/robot"
     assert not any(isinstance(route, Mount) for route in route_tree)
     custom_http_routes = [route for route in route_tree if isinstance(route, APIRoute)]
     paths = {route.path.lower() for route in custom_http_routes}
@@ -230,3 +231,23 @@ def test_stage_eight_exposes_reviewed_api_and_read_only_websocket() -> None:
         "/vision/camera/close",
         "/vision/camera/open",
     }
+
+
+def test_vision_follow_start_uses_control_budget_and_heartbeat_uses_keepalive_budget() -> None:
+    app = make_app()
+    routes = {
+        route.path: route for route in iter_route_tree(app.routes) if isinstance(route, APIRoute)
+    }
+
+    start_calls = {
+        dependency.call for dependency in routes["/vision/follow/start"].dependant.dependencies
+    }
+    heartbeat_calls = {
+        dependency.call
+        for dependency in routes["/vision/follow/{lease_id}/heartbeat"].dependant.dependencies
+    }
+
+    assert authorize_control_request in start_calls
+    assert authorize_control_keepalive_request not in start_calls
+    assert authorize_control_keepalive_request in heartbeat_calls
+    assert authorize_control_request not in heartbeat_calls

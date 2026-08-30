@@ -43,6 +43,10 @@ import {
   type StudioEditorAction,
   type StudioEditorState,
 } from './studioEditorState';
+import {
+  studioCompatibilityIssue,
+  type StudioCompatibilityIssue,
+} from './studioCompatibility';
 
 const AUTOSAVE_DELAY_MS = 650;
 
@@ -286,7 +290,8 @@ export function useStudioDraftSession({
   const [formalBaseline, setFormalBaseline] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [action, setAction] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorMessage] = useState<string | null>(null);
+  const [compatibilityIssue, setCompatibilityIssue] = useState<StudioCompatibilityIssue | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   const [conflict, setConflict] = useState<StudioConflict | null>(null);
   const [draftPreflight, setDraftPreflight] = useState<TrajectoryPreflightReport | null>(null);
@@ -320,10 +325,21 @@ export function useStudioDraftSession({
   );
   conflictRef.current = conflict;
 
+  const setError = useCallback((value: string | null) => {
+    setCompatibilityIssue(null);
+    setErrorMessage(value);
+  }, []);
+  const reportError = useCallback((caught: unknown) => {
+    const compatibility = studioCompatibilityIssue(caught);
+    setCompatibilityIssue(compatibility);
+    setErrorMessage(compatibility === null ? message(caught) : null);
+  }, []);
+
   const clearCompiledState = useCallback(() => {
     setDraftValidation(null);
     setDraftPreflight(null);
     setPreview(null);
+    setCompatibilityIssue(null);
   }, []);
 
   const loadDraft = useCallback((loadedDraft: MotionDraft, sourceMotion: MotionEntity | null) => {
@@ -350,7 +366,7 @@ export function useStudioDraftSession({
     setFormalSaveRecoveryState(null);
     setConflict(null);
     setConflictAcknowledged(false);
-  }, [clearCompiledState, dispatch, setPlayheadS, setTimelineScrollS, setTimelineZoom]);
+  }, [clearCompiledState, dispatch, setError, setPlayheadS, setTimelineScrollS, setTimelineZoom]);
 
   useEffect(() => {
     mounted.current = true;
@@ -484,7 +500,7 @@ export function useStudioDraftSession({
             setFormalSaveRecoveryState(recovery);
             setError(null);
           } else {
-            setError(message(caught));
+            reportError(caught);
           }
         }
       } finally {
@@ -492,7 +508,7 @@ export function useStudioDraftSession({
       }
     })();
     return () => controller.abort();
-  }, [entry.draftId, entry.motionId, entry.poseId, entryKey, loadDraft, runtime.backend, runtime.robot?.variant]);
+  }, [entry.draftId, entry.motionId, entry.poseId, entryKey, loadDraft, reportError, runtime.backend, runtime.robot?.variant, setError]);
 
   const releaseFormalSaveRecovery = useCallback(async () => {
     const recovery = formalSaveRecoveryState;
@@ -532,11 +548,11 @@ export function useStudioDraftSession({
       setFormalSaveRecoveryState(null);
       setRecoveryMessage('已解除草稿恢复标记，目标运动没有发生变化。');
     } catch (caught) {
-      setError(message(caught));
+      reportError(caught);
     } finally {
       setAction((currentAction) => currentAction === 'abandon-save-intent' ? null : currentAction);
     }
-  }, [entryKey, formalSaveRecoveryState, loadDraft]);
+  }, [entryKey, formalSaveRecoveryState, loadDraft, reportError, setError]);
 
   const recordSaveConflict = useCallback((
     caught: unknown,
@@ -689,11 +705,11 @@ export function useStudioDraftSession({
       if (!recordSaveConflict(caught, {
         draft: expectedDraftRevision,
         motion: null,
-      }, false)) setError(message(caught));
+      }, false)) reportError(caught);
     } finally {
       setAction((currentAction) => currentAction === actionName ? null : currentAction);
     }
-  }, [persistWorkspace, recordSaveConflict]);
+  }, [persistWorkspace, recordSaveConflict, reportError, setError]);
 
   const compile = useCallback(async () => {
     const actionName = 'compile';
@@ -720,12 +736,12 @@ export function useStudioDraftSession({
       if (!recordSaveConflict(caught, {
         draft: expectedDraftRevision,
         motion: null,
-      }, false)) setError(message(caught));
+      }, false)) reportError(caught);
       return null;
     } finally {
       setAction((currentAction) => currentAction === actionName ? null : currentAction);
     }
-  }, [persistWorkspace, recordSaveConflict]);
+  }, [persistWorkspace, recordSaveConflict, reportError, setError]);
 
   const save = useCallback(async () => {
     const actionName = 'save';
@@ -741,7 +757,7 @@ export function useStudioDraftSession({
         if (!recordSaveConflict(caught, {
           draft: draftRef.current?.revision ?? null,
           motion: null,
-        }, false)) setError(message(caught));
+        }, false)) reportError(caught);
         return;
       }
       const generation = workspaceGenerationRef.current;
@@ -778,12 +794,12 @@ export function useStudioDraftSession({
         draft: submittedDraft?.revision ?? draftRef.current?.revision ?? null,
         motion: submittedDraft?.source_motion_revision ?? draftRef.current?.source_motion_revision ?? null,
       }, true)) {
-        setError(message(caught));
+        reportError(caught);
       }
     } finally {
       setAction((currentAction) => currentAction === actionName ? null : currentAction);
     }
-  }, [loadDraft, persistWorkspace, recordSaveConflict]);
+  }, [loadDraft, persistWorkspace, recordSaveConflict, reportError, setError]);
 
   const saveAs = useCallback(async (name: string) => {
     const actionName = 'save-as';
@@ -833,12 +849,12 @@ export function useStudioDraftSession({
         draft: submittedDraft?.revision ?? draftRef.current?.revision ?? null,
         motion: null,
       }, false);
-      setError(message(caught));
+      reportError(caught);
       return false;
     } finally {
       setAction((currentAction) => currentAction === actionName ? null : currentAction);
     }
-  }, [loadDraft, persistWorkspace, recordSaveConflict, savedMotion]);
+  }, [loadDraft, persistWorkspace, recordSaveConflict, reportError, savedMotion, setError]);
 
   const reloadConflict = useCallback(async () => {
     const activeConflict = conflict;
@@ -867,11 +883,11 @@ export function useStudioDraftSession({
       }
       setConflict(null);
     } catch (caught) {
-      setError(message(caught));
+      reportError(caught);
     } finally {
       setAction((currentAction) => currentAction === 'reload' ? null : currentAction);
     }
-  }, [conflict, loadDraft]);
+  }, [conflict, loadDraft, reportError, setError]);
 
   const createBlankDraft = useCallback(async () => {
     setAction('new');
@@ -887,11 +903,11 @@ export function useStudioDraftSession({
       loadDraft(created, null);
       setRecoveryMessage('已创建空白自动保存草稿，之前的草稿仍可恢复。');
     } catch (caught) {
-      setError(message(caught));
+      reportError(caught);
     } finally {
       setAction((currentAction) => currentAction === 'new' ? null : currentAction);
     }
-  }, [loadDraft, persistWorkspace, runtime.robot?.variant]);
+  }, [loadDraft, persistWorkspace, reportError, runtime.robot?.variant, setError]);
 
   const formalDirty = formalBaseline === null
     ? formalDocumentSignature(editor.document) !== formalDocumentSignature(createEmptyStudioDocument({
@@ -910,6 +926,7 @@ export function useStudioDraftSession({
     clearError: () => setError(null),
     clearRecoveryMessage: () => setRecoveryMessage(null),
     compile,
+    compatibilityIssue,
     conflict,
     conflictAcknowledged,
     createBlankDraft,

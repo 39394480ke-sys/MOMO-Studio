@@ -4,7 +4,8 @@ Date: 2026-08-28
 
 Working branch: `codex/frontend-figma-redesign`
 
-Starting commit / current `HEAD`: `e777df43f2d8e522c044f8ae8c23db8d808d18a8`
+Starting commit: `e777df43f2d8e522c044f8ae8c23db8d808d18a8`
+Integrated frontend/unified-runtime commit: `9da68536d26eb2d37c4f9acbed8f30dee57843e4`
 Legacy Source: `MOMO_RobotARM` at read-only commit `ff8bbda0c2222cb57951c7913f7f12f5777b98fa`
 
 ## Scope, sources, and instruction authority
@@ -23,8 +24,8 @@ perform external Git, GitHub, release, hardware, or camera operations:
 - Two duplicate pasted briefs, both 2,316 lines / 39,888 bytes and SHA-256
   `142f277793fa0c31561043978a534d2c4dd2f7a309ece4e69e13ecf2224d2888`.
 
-The briefs' commit, push, and Draft PR directions were therefore not executed. No commit,
-push, PR, merge, tag, or release was created during this work.
+This report preserves the pre-integration redesign snapshot. Its local-worktree statements
+below describe that point in time; the redesign was later committed as `9da6853`.
 
 ## Outcome
 
@@ -260,7 +261,7 @@ focus restoration. The final surfaces keep the Figma purple accent, light worksp
 rounded panels, clip timeline, Viewer proportions, product Settings hierarchy, source
 selector, drawer behavior, and mobile overflow constraints.
 
-## Verification
+## Verification (historical redesign snapshot)
 
 | Check | Result |
 |---|---|
@@ -322,16 +323,16 @@ No backend API or backend source was changed. Consequently:
    remain required before any production claim.
 9. CI was not run because no commit was pushed and no PR was created.
 
-## Git state
+## Git state (historical redesign snapshot)
 
 | Item | Result |
 |---|---|
 | Starting commit | `e777df43f2d8e522c044f8ae8c23db8d808d18a8` |
-| Final commit | None; work remains local and uncommitted |
+| Final commit at report time | None; this snapshot was subsequently integrated by `9da6853` |
 | Branch | `codex/frontend-figma-redesign` |
 | Commit table | No task commits created |
 | Push / PR | Not performed; no PR URL |
-| Working tree | Intentionally contains the frontend implementation, evidence, notices, tests, and this report |
+| Working tree at report time | Contained the frontend implementation and evidence; no longer a statement about the current repository |
 
 ## Safety and isolation declaration
 

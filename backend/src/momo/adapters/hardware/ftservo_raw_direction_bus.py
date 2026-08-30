@@ -64,6 +64,10 @@ class RawDirectionSettleTimeout(TimeoutError):
         self.required_progress_counts = required_progress_counts
 
 
+class RawDirectionCommandRevoked(RuntimeError):
+    """A Stop, session reset, or close fenced an in-flight comparison step."""
+
+
 class _Port(Protocol):
     def setBaudRate(self, baudrate: int) -> bool: ...
 
@@ -142,6 +146,8 @@ class FtServoRawDirectionBus:
         self._session_id: UUID | None = None
         self._torque_enabled: set[int] = set()
         self._guard = asyncio.Lock()
+        self._generation = 0
+        self._writes_revoked = True
 
     async def reset_for_session(self, session_id: UUID) -> None:
         if not isinstance(session_id, UUID):
@@ -149,7 +155,9 @@ class FtServoRawDirectionBus:
         async with self._guard:
             if self._packet is None:
                 await asyncio.to_thread(self._open_and_verify)
+            self._generation += 1
             self._session_id = session_id
+            self._writes_revoked = False
 
     async def read_present_position(self, servo_id: int) -> CommissioningPositionReadback:
         self._require_allowed(servo_id)
@@ -170,8 +178,10 @@ class FtServoRawDirectionBus:
         self._require_allowed(command.servo_id)
         if command.session_id != self._session_id:
             raise PermissionError("Raw direction command belongs to another session")
-        async with self._guard:
-            await asyncio.to_thread(self._execute_step, command)
+        generation = self._generation
+        if self._writes_revoked:
+            raise RawDirectionCommandRevoked("Raw direction writes are fenced until session reset")
+        await self._execute_step(command, generation=generation)
         return ServoWriteResult(
             requested_ids=(command.servo_id,),
             written_ids=(command.servo_id,),
@@ -184,6 +194,11 @@ class FtServoRawDirectionBus:
 
     async def stop_or_hold(self, servo_id: int) -> RealStopOutcome:
         self._require_id_allowed(servo_id)
+        # Revoke before waiting for an SDK call.  The in-flight call is allowed
+        # to return, but its command generation cannot issue another write or
+        # report success after this point.
+        self._generation += 1
+        self._writes_revoked = True
         async with self._guard:
             if self._packet is None:
                 return RealStopOutcome(
@@ -208,6 +223,8 @@ class FtServoRawDirectionBus:
         )
 
     async def close(self) -> None:
+        self._generation += 1
+        self._writes_revoked = True
         async with self._guard:
             await asyncio.to_thread(self._close_sync)
 
@@ -234,23 +251,20 @@ class FtServoRawDirectionBus:
         self._port = port
         self._packet = packet
 
-    def _execute_step(self, command: PreparedRawDirectionCommand) -> None:
-        current = self._read_position(command.servo_id)
+    async def _execute_step(
+        self,
+        command: PreparedRawDirectionCommand,
+        *,
+        generation: int,
+    ) -> None:
+        current = await self._read_position_for_generation(command.servo_id, generation)
         if current != command.start_raw:
             raise RuntimeError("Servo moved after the backend prepared the Raw comparison step")
         # Set Goal to the observed position before enabling torque, preventing a
         # stale Goal register from pulling the mechanism when torque is engaged.
-        self._write_position(command.servo_id, current)
-        if command.servo_id not in self._torque_enabled:
-            packet = self._require_packet()
-            result, error = packet.write1ByteTxRx(
-                command.servo_id,
-                TORQUE_ENABLE_ADDRESS,
-                1,
-            )
-            self._require_success(result, error, operation="enable torque")
-            self._torque_enabled.add(command.servo_id)
-        self._write_position(command.servo_id, command.target_raw)
+        await self._write_position_for_generation(command.servo_id, current, generation)
+        await self._enable_torque_for_generation(command.servo_id, generation)
+        await self._write_position_for_generation(command.servo_id, command.target_raw, generation)
         deadline = time.monotonic() + self._settle_timeout_s
         effective_tolerance = min(
             self._target_tolerance_counts,
@@ -268,8 +282,9 @@ class FtServoRawDirectionBus:
         )
         required_progress = max(1, math.ceil(command.step_counts * progress_ratio))
         while True:
-            observed = self._read_position(command.servo_id)
+            observed = await self._read_position_for_generation(command.servo_id, generation)
             if abs(observed - command.target_raw) <= effective_tolerance:
+                await self._confirm_generation(generation)
                 return
             if time.monotonic() >= deadline:
                 signed_progress = (observed - command.start_raw) * command.direction.sign
@@ -277,6 +292,7 @@ class FtServoRawDirectionBus:
                 # accuracy.  A loaded mechanism may stop just outside the
                 # exact target band while still providing an unambiguous sign.
                 if signed_progress >= required_progress:
+                    await self._confirm_generation(generation)
                     return
                 raise RawDirectionSettleTimeout(
                     target_raw=command.target_raw,
@@ -285,7 +301,47 @@ class FtServoRawDirectionBus:
                     progress_counts=signed_progress,
                     required_progress_counts=required_progress,
                 )
-            time.sleep(0.02)
+            await asyncio.sleep(0.02)
+
+    async def _read_position_for_generation(self, servo_id: int, generation: int) -> int:
+        async with self._guard:
+            self._require_generation(generation)
+            return await asyncio.to_thread(self._read_position, servo_id)
+
+    async def _write_position_for_generation(
+        self,
+        servo_id: int,
+        raw: int,
+        generation: int,
+    ) -> None:
+        async with self._guard:
+            self._require_generation(generation)
+            await asyncio.to_thread(self._write_position, servo_id, raw)
+
+    async def _enable_torque_for_generation(self, servo_id: int, generation: int) -> None:
+        async with self._guard:
+            self._require_generation(generation)
+            if servo_id in self._torque_enabled:
+                return
+            packet = self._require_packet()
+            result, error = await asyncio.to_thread(
+                packet.write1ByteTxRx,
+                servo_id,
+                TORQUE_ENABLE_ADDRESS,
+                1,
+            )
+            self._require_success(result, error, operation="enable torque")
+            self._torque_enabled.add(servo_id)
+
+    async def _confirm_generation(self, generation: int) -> None:
+        async with self._guard:
+            self._require_generation(generation)
+
+    def _require_generation(self, generation: int) -> None:
+        if self._writes_revoked or generation != self._generation:
+            raise RawDirectionCommandRevoked(
+                "Raw direction command was fenced by Stop, session reset, or close"
+            )
 
     def _request_hold(self, servo_id: int) -> None:
         current = self._read_position(servo_id)
@@ -350,4 +406,8 @@ class FtServoRawDirectionBus:
             raise RuntimeError(f"{operation} failed: result={result}, error={error}")
 
 
-__all__ = ["FtServoRawDirectionBus", "RawDirectionSettleTimeout"]
+__all__ = [
+    "FtServoRawDirectionBus",
+    "RawDirectionCommandRevoked",
+    "RawDirectionSettleTimeout",
+]

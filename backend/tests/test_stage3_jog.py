@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import cast
 from uuid import UUID
 
@@ -51,7 +52,14 @@ class FakeMotionService:
         self.by_key: dict[str, UUID] = {}
         self.cancel_calls: list[UUID] = []
 
-    async def submit(self, intent: MotionCommand) -> MotionAccepted:
+    async def submit(
+        self,
+        intent: MotionCommand,
+        *,
+        continuous_write_guard: Callable[[], bool] | None = None,
+    ) -> MotionAccepted:
+        assert continuous_write_guard is not None
+        assert continuous_write_guard()
         command_id = self.by_key.setdefault(intent.idempotency_key, intent.command_id)
         status = self.statuses.get(command_id)
         if status is None:

@@ -8,7 +8,13 @@ from uuid import UUID
 from momo.domain.calibration import CalibrationDocument
 from momo.domain.enums import RobotVariant
 from momo.domain.hardware_mapping import goal_raw_to_logical
-from momo.domain.real_hardware import RealStopOutcome
+from momo.domain.real_hardware import (
+    AUTHORIZATION_PURPOSE_SCOPE,
+    OperatorSessionEvidence,
+    OperatorSessionScope,
+    RealHardwareAuthorizationPurpose,
+    RealStopOutcome,
+)
 from momo.domain.robot import JointState, RobotId, RobotProfile
 from momo.ports.servo_bus import ServoBus
 
@@ -19,6 +25,7 @@ class AuthorizedServoBusBinding:
     def __init__(self) -> None:
         self._bus: ServoBus | None = None
         self._session_id: UUID | None = None
+        self._authorized_scopes: frozenset[OperatorSessionScope] = frozenset()
 
     @property
     def session_id(self) -> UUID | None:
@@ -28,15 +35,31 @@ class AuthorizedServoBusBinding:
     def connected(self) -> bool:
         return self._bus is not None
 
-    def bind(self, bus: ServoBus, *, session_id: UUID) -> None:
+    def bind(self, bus: ServoBus, *, session: OperatorSessionEvidence) -> None:
         if self._bus is not None:
             raise RuntimeError("an authorized ServoBus is already bound")
         self._bus = bus
-        self._session_id = session_id
+        self._session_id = session.session_id
+        self._authorized_scopes = session.scopes
 
     def unbind(self) -> None:
         self._bus = None
         self._session_id = None
+        self._authorized_scopes = frozenset()
+
+    def require_execution_scope(
+        self,
+        *,
+        session_id: UUID,
+        purpose: RealHardwareAuthorizationPurpose,
+    ) -> None:
+        """Fail closed unless this binding belongs to the exact capable session."""
+
+        if self._bus is None or self._session_id != session_id:
+            raise PermissionError("REAL ServoBus binding does not match the execution session")
+        required_scope = AUTHORIZATION_PURPOSE_SCOPE.get(purpose)
+        if required_scope is None or required_scope not in self._authorized_scopes:
+            raise PermissionError("REAL ServoBus binding lacks the execution purpose scope")
 
     def require_bus(self) -> ServoBus:
         bus = self._bus

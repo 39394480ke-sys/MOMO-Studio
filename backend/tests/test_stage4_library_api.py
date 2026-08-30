@@ -6,14 +6,20 @@ import asyncio
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
+from momo.api.dependencies import authorize_real_joint_motion_request
+from momo.application.library_commands import GotoPoseCommand
 from momo.application.services.kinematics_service import KinematicsService
+from momo.application.services.library_service import LibraryApplicationService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.enums import RobotVariant
+from momo.domain.motion_preflight import MotionAccepted
 from momo.domain.pose import Pose, PoseSnapshot
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from tests.factories import make_snapshot
 from tests.stage4_helpers import api_request, make_stage4_app
 
@@ -297,6 +303,100 @@ def test_goto_rejects_fingerprint_and_variant_mismatch_then_uses_gateway(
         )
         assert variant_rejected.status_code == 422
         assert "robot_variant" in variant_rejected.json()["details"]["checks"]
+
+    asyncio.run(scenario())
+
+
+def test_goto_threads_the_same_real_execution_authorization_to_the_executor_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        app = make_stage4_app(tmp_path)
+        await api_request(app, "POST", "/api/v1/robot/connect")
+        captured = await capture(app, "Authorization binding")
+        seeded = await api_request(
+            app,
+            "POST",
+            f"/api/v1/poses/{captured['id']}/goto",
+            json_data={
+                "expected_revision": 1,
+                "duration_s": 0.1,
+                "idempotency_key": "authorization-seed",
+            },
+        )
+        assert seeded.status_code == 202, seeded.text
+        await api_request(app, "POST", "/api/v1/motion/stop")
+        accepted = MotionAccepted.model_validate(seeded.json())
+        authorization_marker = cast(RealExecutionAuthorization, object())
+        routed: dict[str, object] = {}
+
+        async def override_authorization() -> RealExecutionAuthorization:
+            return authorization_marker
+
+        async def recording_goto(
+            pose_id: UUID,
+            request: GotoPoseCommand,
+            *,
+            authorization: RealExecutionAuthorization | None = None,
+            execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        ) -> MotionAccepted:
+            routed.update(
+                pose_id=pose_id,
+                request=request,
+                authorization=authorization,
+                execution_purpose=execution_purpose,
+            )
+            return accepted
+
+        service = cast(LibraryApplicationService, app.state.library_service)
+        with monkeypatch.context() as context:
+            context.setattr(service, "goto_pose", recording_goto)
+            app.dependency_overrides[authorize_real_joint_motion_request] = override_authorization
+            response = await api_request(
+                app,
+                "POST",
+                f"/api/v1/poses/{captured['id']}/goto",
+                json_data={
+                    "expected_revision": 1,
+                    "duration_s": 0.1,
+                    "idempotency_key": "authorization-route",
+                },
+            )
+        app.dependency_overrides.clear()
+        assert response.status_code == 202, response.text
+        assert routed["authorization"] is authorization_marker
+        assert routed["execution_purpose"] is RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION
+
+        submitted: dict[str, object] = {}
+
+        async def recording_submit(
+            command: object,
+            *,
+            authorization: RealExecutionAuthorization | None = None,
+            execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        ) -> MotionAccepted:
+            submitted.update(
+                command=command,
+                authorization=authorization,
+                execution_purpose=execution_purpose,
+            )
+            return accepted
+
+        with monkeypatch.context() as context:
+            context.setattr(service.motion, "submit", recording_submit)
+            await service.goto_pose(
+                UUID(captured["id"]),
+                GotoPoseCommand(
+                    expected_revision=1,
+                    duration_s=0.1,
+                    idempotency_key="authorization-service",
+                ),
+                authorization=authorization_marker,
+                execution_purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            )
+        assert submitted["authorization"] is authorization_marker
+        assert submitted["execution_purpose"] is RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION
 
     asyncio.run(scenario())
 

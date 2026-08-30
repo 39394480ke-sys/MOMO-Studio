@@ -315,11 +315,23 @@ class RawDirectionTestService:
                 return self._status(runtime)
         except Exception as error:
             hold_error: Exception | None = None
-            try:
-                await self._bus.stop_or_hold(servo_id)
-            except Exception as caught_hold_error:
-                hold_error = caught_hold_error
-            finally:
+            async with self._guard:
+                runtime = self._require_runtime(session.session_id)
+                interruption_reason = runtime.failure_reason
+                externally_stopped = runtime.state in {
+                    RawDirectionTestState.STOPPING,
+                    RawDirectionTestState.EXPIRED,
+                } or interruption_reason in {
+                    "OPERATOR_STOP",
+                    "DEADMAN_EXPIRED",
+                    "SESSION_EXPIRED",
+                }
+            if not externally_stopped:
+                try:
+                    await self._bus.stop_or_hold(servo_id)
+                except Exception as caught_hold_error:
+                    hold_error = caught_hold_error
+            if not externally_stopped:
                 async with self._guard:
                     runtime = self._require_runtime(session.session_id)
                     runtime.state = RawDirectionTestState.FAILED
@@ -336,7 +348,7 @@ class RawDirectionTestService:
             details: dict[str, object] = {
                 "reason": "STEP_SETTLE_TIMEOUT"
                 if isinstance(error, TimeoutError)
-                else "ADAPTER_EXECUTION_FAILED",
+                else interruption_reason or "ADAPTER_EXECUTION_FAILED",
                 "joint_id": joint_id,
                 "zero_raw": zero_raw,
                 "hold_requested": hold_error is None,

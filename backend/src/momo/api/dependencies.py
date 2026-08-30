@@ -124,9 +124,6 @@ async def _authorize_real_motion_request(
         raise OperatorSessionTokenError(
             "A valid operator session token is required for Real motion"
         )
-    if purpose is RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW:
-        await device.authorize_operator_purpose(token, purpose=purpose)
-        return None
     return await device.authorize_real_execution(token, purpose=purpose)
 
 

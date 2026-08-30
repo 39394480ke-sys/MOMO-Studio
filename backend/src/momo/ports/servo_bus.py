@@ -43,6 +43,41 @@ class CommissioningPositionReadback:
             raise ValueError("captured_at must include a timezone offset")
 
 
+@dataclass(frozen=True, slots=True)
+class ServoTorqueTransitionResult:
+    """Per-Servo truth for one internal production torque transition.
+
+    This result deliberately lives on a separate, executor-only protocol.  API
+    and application callers that merely hold ``ServoBus`` cannot enable torque.
+    """
+
+    requested_ids: tuple[int, ...]
+    succeeded_ids: tuple[int, ...]
+    failed_ids: tuple[int, ...]
+    torque_enabled: bool
+    connected: bool
+    complete: bool
+    safety_state_known: bool
+    detail: str
+
+    def __post_init__(self) -> None:
+        requested = set(self.requested_ids)
+        succeeded = set(self.succeeded_ids)
+        failed = set(self.failed_ids)
+        if not requested or len(requested) != len(self.requested_ids):
+            raise ValueError("torque transition requires unique requested Servo IDs")
+        if any(len(values) != len(set(values)) for values in (self.succeeded_ids, self.failed_ids)):
+            raise ValueError("torque transition result IDs must be unique")
+        if succeeded & failed or succeeded | failed != requested:
+            raise ValueError("torque result must exactly partition requested Servo IDs")
+        if self.complete is not (self.connected and not failed and succeeded == requested):
+            raise ValueError("complete must exactly describe the torque transition")
+        if self.complete and not self.safety_state_known:
+            raise ValueError("a complete torque transition must have a known state")
+        if not self.detail.strip():
+            raise ValueError("torque transition requires a truthful detail")
+
+
 @runtime_checkable
 class CommissioningMotionServoBus(Protocol):
     """Capability-minimal boundary for an authorized one-joint test.
@@ -388,6 +423,26 @@ class ServoBus(ReadOnlyServoBus, Protocol):
 
 
 @runtime_checkable
+class TorqueLifecycleServoBus(Protocol):
+    """Internal lifecycle capability consumed only by ``RealMotionExecutor``.
+
+    Keeping this separate from ``ServoBus`` prevents product/API services from
+    acquiring a general-purpose torque switch while making production arming and
+    cleanup explicit at the reviewed execution boundary.
+    """
+
+    async def enable_torque_for_execution(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> ServoTorqueTransitionResult: ...
+
+    async def disable_torque_for_execution(
+        self,
+        servo_ids: tuple[int, ...],
+    ) -> ServoTorqueTransitionResult: ...
+
+
+@runtime_checkable
 class ServoBusFactory(Protocol):
     """A factory may resolve an optional SDK only after receiving a full grant."""
 
@@ -407,4 +462,6 @@ __all__ = [
     "ReadOnlyServoBusFacade",
     "ServoBus",
     "ServoBusFactory",
+    "ServoTorqueTransitionResult",
+    "TorqueLifecycleServoBus",
 ]

@@ -10,10 +10,16 @@ import type {
 
 const MAX_STUDIO_FRAMES = 1000;
 
-export interface PoseInsertion {
-  anchorFrameId: string | null;
-  position: StudioInsertPosition;
-}
+export type PoseInsertion =
+  | {
+      kind: 'insert';
+      anchorFrameId: string | null;
+      position: StudioInsertPosition;
+    }
+  | {
+      kind: 'replace';
+      frameId: string;
+    };
 
 interface UseStudioPoseInsertionOptions {
   document: StudioDraftDocument;
@@ -89,7 +95,15 @@ export function useStudioPoseInsertion({
   ) => {
     poseCommitAbortRef.current?.abort();
     poseCommitAbortRef.current = null;
-    setPoseInsertion({ position, anchorFrameId });
+    setPoseInsertion({ kind: 'insert', position, anchorFrameId });
+    setPoseSearch('');
+    setPoseError(null);
+  }, []);
+
+  const startPoseReplacement = useCallback((frameId: string) => {
+    poseCommitAbortRef.current?.abort();
+    poseCommitAbortRef.current = null;
+    setPoseInsertion({ kind: 'replace', frameId });
     setPoseSearch('');
     setPoseError(null);
   }, []);
@@ -121,10 +135,10 @@ export function useStudioPoseInsertion({
 
   const addPose = useCallback(async (pose: PoseSummary) => {
     const insertion = poseInsertion;
-    if (!insertion) return;
-    if (documentRef.current.frames.length >= MAX_STUDIO_FRAMES) {
+    if (!insertion) return false;
+    if (insertion.kind === 'insert' && documentRef.current.frames.length >= MAX_STUDIO_FRAMES) {
       setPoseError(`一个编排草稿最多支持 ${MAX_STUDIO_FRAMES} 个关键帧。`);
-      return;
+      return false;
     }
     poseCommitAbortRef.current?.abort();
     const controller = new AbortController();
@@ -139,21 +153,38 @@ export function useStudioPoseInsertion({
         controller.signal.aborted ||
         generation !== getWorkspaceGeneration() ||
         poseInsertionRef.current !== insertion
-      ) return;
-      const incompatibility = snapshotCompatibilityReason(full.snapshot, documentRef.current);
-      if (incompatibility) throw new Error(incompatibility);
-      edit({
-        type: 'frame/add-pose',
-        position: insertion.position,
-        anchorFrameId: insertion.anchorFrameId,
-        frameId: id(),
-        pose: { id: full.id, name: full.name, snapshot: full.snapshot },
-      });
+      ) return false;
+      if (insertion.kind === 'replace') {
+        const incompatibility = snapshotCompatibilityReason(
+          full.snapshot,
+          documentRef.current,
+          insertion.frameId,
+        );
+        if (incompatibility) throw new Error(incompatibility);
+        edit({
+          type: 'frame/replace-snapshot',
+          frameId: insertion.frameId,
+          snapshot: full.snapshot,
+          sourcePoseId: full.id,
+        });
+      } else {
+        const incompatibility = snapshotCompatibilityReason(full.snapshot, documentRef.current);
+        if (incompatibility) throw new Error(incompatibility);
+        edit({
+          type: 'frame/add-pose',
+          position: insertion.position,
+          anchorFrameId: insertion.anchorFrameId,
+          frameId: id(),
+          pose: { id: full.id, name: full.name, snapshot: full.snapshot },
+        });
+      }
       setPoseInsertion(null);
+      return true;
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
         setPoseError(message(caught));
       }
+      return false;
     } finally {
       if (poseCommitAbortRef.current === controller) {
         poseCommitAbortRef.current = null;
@@ -183,6 +214,7 @@ export function useStudioPoseInsertion({
     reset,
     setPoseSearch,
     startPoseInsertion,
+    startPoseReplacement,
   };
 }
 

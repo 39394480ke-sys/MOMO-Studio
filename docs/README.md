@@ -114,7 +114,7 @@ The Legacy source is read-only evidence pinned at commit
 | [ADR 0010](adr/0010-unified-motion-safety-gateway.md)–[0013](adr/0013-motion-draft-and-timeline-editor.md) | Motion safety, repositories, trajectory digest, and Studio drafts |
 | [ADR 0014](adr/0014-vision-access-policy-and-follow-lease.md)–[0017](adr/0017-release-candidate-and-field-acceptance.md) | Vision, Real authorization, LAN security, and RC policy |
 | [ADR 0018](adr/0018-commissioning-vs-motion-authorization.md)–[0019](adr/0019-staged-field-acceptance.md) | Commissioning separation and staged acceptance |
-| [ADR 0020](adr/0020-operator-controlled-read-only-live-camera.md)–[0022](adr/0022-unified-product-motion-runtime.md) | Live camera, bounded direct control, and one product motion runtime |
+| [ADR 0020](adr/0020-operator-controlled-read-only-live-camera.md)–[0023](adr/0023-capability-bound-real-execution.md) | Live camera, bounded direct control, one product motion runtime, and capability-bound exact execution |
 
 ## Stage reports
 
@@ -132,3 +132,4 @@ Stage reports preserve implementation history and point-in-time evidence:
 - [Final pre-merge hardening](stage-reports/final-pre-merge-hardening.md)
 - [Autonomous V1 completion](stage-reports/autonomous-v1-completion.md)
 - [Legacy V2 Library Import](stage-reports/legacy-v2-library-import.md)
+- [9da6853 system audit fixes](stage-reports/9da6853-system-audit-fixes.md)

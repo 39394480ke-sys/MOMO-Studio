@@ -11,12 +11,20 @@ from momo.domain.enums import MotionCommandState
 from momo.domain.errors import MotionCommandNotFoundError, MotionConflictError
 from momo.domain.motion_command import MotionCommand
 from momo.domain.motion_preflight import MotionAccepted, MotionCommandStatus
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 
 
 class VisionMotionGateway(Protocol):
     """Only the reviewed motion application surface Follow may call."""
 
-    async def submit(self, command: MotionCommand) -> MotionAccepted: ...
+    async def submit(
+        self,
+        command: MotionCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> MotionAccepted: ...
 
     def get_status(self, command_id: UUID) -> MotionCommandStatus: ...
 
@@ -73,14 +81,30 @@ class VisionCommandCoordinator:
             return VisionCommandSnapshot(None, False, status)
         return VisionCommandSnapshot(active_command_id, False, status)
 
-    async def dispatch(self, epoch: int, command: MotionCommand) -> UUID | None:
+    async def dispatch(
+        self,
+        epoch: int,
+        command: MotionCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
+        execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+    ) -> UUID | None:
         async with self._guard:
             if epoch != self._epoch:
                 return None
             if self._active_command_id is not None or (self._dispatch_task is not None):
                 raise MotionConflictError("Vision command ownership is busy")
+            submission = (
+                self.motion.submit(command)
+                if authorization is None and execution_purpose is None
+                else self.motion.submit(
+                    command,
+                    authorization=authorization,
+                    execution_purpose=execution_purpose,
+                )
+            )
             task = asyncio.create_task(
-                self.motion.submit(command),
+                submission,
                 name=f"vision-follow-command-{command.command_id}",
             )
             self._pending_command_id = command.command_id

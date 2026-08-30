@@ -1,8 +1,12 @@
-import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Copy, MoreHorizontal, Pencil, Trash2, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { getMotion } from '../../api/client';
 import type { MotionEntity, MotionSummary } from '../../api/types';
+import {
+  motionLegacyCompatibility,
+  type LibraryCompatibilityContract,
+} from './legacyCompatibility';
 import { ResourceSimulationThumbnail } from './ResourceSimulationThumbnail';
 
 const previewCache = new Map<string, MotionEntity>();
@@ -19,6 +23,7 @@ interface MotionCardProps {
   onRename: (motion: MotionSummary) => void;
   onSelect: (motion: MotionSummary) => void;
   onTagSelect: (tag: string) => void;
+  compatibilityContract: LibraryCompatibilityContract | null;
 }
 
 export function MotionCard({
@@ -33,6 +38,7 @@ export function MotionCard({
   onRename,
   onSelect,
   onTagSelect,
+  compatibilityContract,
 }: MotionCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const cacheKey = `${motion.id}:${motion.revision}`;
@@ -41,6 +47,7 @@ export function MotionCard({
   const cardRef = useRef<HTMLElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const titleId = `motion-title-${motion.id}`;
+  const compatibility = motionLegacyCompatibility(motion, preview, compatibilityContract);
 
   useEffect(() => {
     if (previewCache.has(cacheKey)) return undefined;
@@ -119,6 +126,15 @@ export function MotionCard({
             <p>运动 · {motion.robot_variant}</p>
           </div>
           <small>{motion.motion_types.length > 0 ? motion.motion_types.join(' · ') : 'HOLD'}</small>
+          {compatibility ? (
+            <span
+              className={`library-legacy-status library-legacy-status--${compatibility.state}`}
+              title={compatibility.detail}
+            >
+              <TriangleAlert aria-hidden="true" />
+              {compatibility.summary}
+            </span>
+          ) : null}
         </div>
       </button>
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from collections.abc import Callable
 from contextlib import suppress
 from uuid import UUID
 
@@ -70,7 +71,9 @@ class DryRunMotionExecutor:
         *,
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> MotionCommandStatus:
+        del continuous_write_guard
         if authorization is not None or execution_purpose is not None:
             raise ValueError("DRY_RUN execution cannot accept a Real authorization")
         return await self._start(prepared.command_id, prepared, continuous=False)
@@ -81,7 +84,9 @@ class DryRunMotionExecutor:
         *,
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> MotionCommandStatus:
+        del continuous_write_guard
         if authorization is not None or execution_purpose is not None:
             raise ValueError("DRY_RUN execution cannot accept a Real authorization")
         return await self._start(prepared.command_id, prepared, continuous=True)

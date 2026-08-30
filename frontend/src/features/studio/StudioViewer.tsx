@@ -9,6 +9,7 @@ import type {
 import { Robot3DViewer } from '../robot-viewer';
 
 interface StudioViewerProps {
+  playbackActive: boolean;
   runtimeMode: 'DRY RUN' | 'REAL';
   selectedFrame: MotionKeyframe | null;
   viewerEnabledJointIds: readonly string[];
@@ -20,6 +21,7 @@ interface StudioViewerProps {
 }
 
 export function StudioViewer({
+  playbackActive,
   runtimeMode,
   selectedFrame,
   viewerEnabledJointIds,
@@ -59,6 +61,7 @@ export function StudioViewer({
         jointDefinitions={viewerJointDefinitions}
         jointPositions={viewerJointPositions}
         jointUnits={viewerJointUnits}
+        playbackActive={playbackActive}
         variant={viewerVariant}
       />
     </section>

@@ -3,7 +3,6 @@
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import UUID
 
 from fastapi import Depends, FastAPI
 from pydantic import SecretStr
@@ -41,6 +40,7 @@ from momo.bootstrap import (
     build_simulation_product_services,
     build_simulation_robot_service,
 )
+from momo.domain.real_hardware import OperatorSessionEvidence
 from momo.ports.runtime_mode_control import RuntimeModeControl
 from momo.ports.servo_bus import ServoBus
 from momo.real_bootstrap import build_real_product_composition
@@ -73,12 +73,12 @@ def create_app(
     services.trajectory.bind_execution_readiness_provider(
         release.device.product_execution_readiness
     )
-    bind_real_bus: Callable[[ServoBus, UUID], None] | None = None
+    bind_real_bus: Callable[[ServoBus, OperatorSessionEvidence], None] | None = None
     if real_composition is not None:
         real_binding = real_composition.binding
 
-        def bind_real_bus(bus: ServoBus, session_id: UUID) -> None:
-            real_binding.bind(bus, session_id=session_id)
+        def bind_real_bus(bus: ServoBus, session: OperatorSessionEvidence) -> None:
+            real_binding.bind(bus, session=session)
 
     lifecycle = ProductLifecycleService(
         robot=resolved_robot_service,
@@ -108,13 +108,16 @@ def create_app(
                         await services.vision.shutdown()
                     finally:
                         try:
-                            await services.motion.shutdown()
+                            await lifecycle.trusted_cleanup()
                         finally:
                             try:
-                                await release.device.shutdown()
+                                await services.motion.shutdown()
                             finally:
-                                if real_composition is not None:
-                                    real_composition.binding.unbind()
+                                try:
+                                    await release.device.shutdown()
+                                finally:
+                                    if real_composition is not None:
+                                        real_composition.binding.unbind()
 
     app = FastAPI(
         title=f"{runtime_settings.product_name} API",
