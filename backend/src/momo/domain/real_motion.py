@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from momo.domain.calibration import Fingerprint
+from momo.domain.commissioning import FieldAcceptanceCapability
 from momo.domain.enums import ControlMode, HardwareAccessPolicy, RobotVariant
 from momo.domain.immutable import freeze_mapping
 from momo.domain.real_hardware import (
@@ -26,6 +27,7 @@ from momo.domain.real_hardware import (
     RealStopOutcome,
 )
 from momo.domain.robot import JointState
+from momo.domain.trajectory import TrajectoryPreflightReport
 
 RobotIdValue = Annotated[
     str,
@@ -81,6 +83,7 @@ class RealMotionFaultCode(StrEnum):
     STATE_SEQUENCE_CHANGED = "STATE_SEQUENCE_CHANGED"
     FIRST_SAMPLE_DISCONTINUITY = "FIRST_SAMPLE_DISCONTINUITY"
     CURRENT_STATE_CHANGED = "CURRENT_STATE_CHANGED"
+    DEADMAN_LEASE_EXPIRED = "DEADMAN_LEASE_EXPIRED"
 
 
 class RealMotionAuditKind(StrEnum):
@@ -101,6 +104,12 @@ class RealExecutionAuthorization(BaseModel):
     variant: RobotVariant
     profile_fingerprint: Fingerprint
     calibration_fingerprint: Fingerprint
+    kinematics_fingerprint: Fingerprint | None = None
+    kinematics_verification_evidence_id: UUID | None = None
+    capability_evidence_ids: dict[FieldAcceptanceCapability, UUID] = Field(
+        default_factory=dict,
+        validate_default=True,
+    )
     allowed_servo_ids: tuple[ServoId, ...]
     issued_at: datetime
     expires_at: datetime
@@ -126,6 +135,16 @@ class RealExecutionAuthorization(BaseModel):
             raise ValueError("allowed_servo_ids must be unique")
         return value
 
+    @field_validator("capability_evidence_ids")
+    @classmethod
+    def freeze_capability_evidence_ids(
+        cls,
+        value: dict[FieldAcceptanceCapability, UUID],
+    ) -> dict[FieldAcceptanceCapability, UUID]:
+        if FieldAcceptanceCapability.PRE_MOTION_CHECKS in value:
+            raise ValueError("execution authorization cannot bind commissioning evidence")
+        return freeze_mapping(value)
+
     @model_validator(mode="after")
     def validate_window(self) -> Self:
         if self.expires_at <= self.issued_at:
@@ -138,9 +157,38 @@ class RealExecutionAuthorization(BaseModel):
                 self.capabilities.real_cartesian_motion_ready
             ),
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK: (self.capabilities.real_playback_ready),
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW: (
+                self.capabilities.real_vision_follow_ready
+            ),
         }.get(self.purpose)
         if required_capability is not True:
             raise ValueError("execution purpose requires its matching ready capability")
+        required_evidence = {
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+            },
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+                FieldAcceptanceCapability.CARTESIAN,
+            },
+            RealHardwareAuthorizationPurpose.REAL_PLAYBACK: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+                FieldAcceptanceCapability.PLAYBACK,
+            },
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW: {
+                FieldAcceptanceCapability.JOINT_MOTION,
+                FieldAcceptanceCapability.VISION_FOLLOW,
+            },
+        }.get(self.purpose)
+        if required_evidence is None or not required_evidence <= set(self.capability_evidence_ids):
+            raise ValueError("execution purpose requires capability-specific evidence bindings")
+        if self.purpose in {
+            RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+        } and (
+            self.kinematics_fingerprint is None or self.kinematics_verification_evidence_id is None
+        ):
+            raise ValueError("geometry execution requires current Kinematics evidence")
         return self
 
     def active(self, now: datetime) -> bool:
@@ -158,6 +206,7 @@ class RealMotionAuditEvent(BaseModel):
     execution_id: UUID
     authorization_session_id: UUID
     trajectory_digest: Fingerprint
+    preflight: TrajectoryPreflightReport
     execution_purpose: RealHardwareAuthorizationPurpose
     kind: RealMotionAuditKind
     occurred_at: datetime
@@ -201,6 +250,7 @@ class RealMotionStatus(BaseModel):
     profile_fingerprint: Fingerprint
     calibration_fingerprint: Fingerprint
     trajectory_digest: Fingerprint
+    preflight: TrajectoryPreflightReport
     execution_purpose: RealHardwareAuthorizationPurpose
     state: RealMotionState
     progress: Annotated[float, Field(strict=True, ge=0.0, le=1.0, allow_inf_nan=False)]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import UTC, datetime, timedelta
 from types import ModuleType
 from uuid import uuid4
@@ -13,6 +14,7 @@ from momo.adapters.hardware.ftservo_raw_direction_bus import (
     BAUD_RATE,
     STS3215_MODEL_NUMBER,
     FtServoRawDirectionBus,
+    RawDirectionCommandRevoked,
     RawDirectionSettleTimeout,
 )
 from momo.domain.raw_direction import (
@@ -357,6 +359,74 @@ def test_adapter_rejects_small_step_progress_within_noise_margin() -> None:
             await bus.write_prepared_raw_direction_command(command)
         assert captured.value.progress_counts == 3
         assert captured.value.required_progress_counts == 4
+        await bus.close()
+
+    asyncio.run(scenario())
+
+
+def test_stop_fences_a_step_blocked_in_the_sdk_before_requesting_hold() -> None:
+    async def scenario() -> None:
+        events: list[tuple[str, object]] = []
+        packet = FakePacket(events)
+        poll_entered = threading.Event()
+        release_poll = threading.Event()
+        read_count = 0
+
+        original_read = packet.ReadPos
+
+        def blocking_settle_read(servo_id: int) -> tuple[int, int, int]:
+            nonlocal read_count
+            read_count += 1
+            # Read 1 prepares the command. Read 2 is the first settle poll,
+            # after the target write has already returned.
+            if read_count == 2:
+                poll_entered.set()
+                assert release_poll.wait(timeout=2)
+            return original_read(servo_id)
+
+        packet.ReadPos = blocking_settle_read  # type: ignore[method-assign]
+        bus = FtServoRawDirectionBus(
+            device="/dev/explicit",
+            protocol="STS3215",
+            allowed_servo_ids=(10,),
+            importer=lambda _: fake_sdk(events, packet),
+        )
+        session_id = uuid4()
+        await bus.reset_for_session(session_id)
+        now = datetime.now(UTC)
+        command = PreparedRawDirectionCommand(
+            session_id=session_id,
+            robot_unit_id="MOMO-V2-UNIT-TEST",
+            joint_id="j10",
+            servo_id=10,
+            direction=RawDirection.RAW_PLUS,
+            step_counts=32,
+            zero_raw=1000,
+            start_raw=1000,
+            target_raw=1032,
+            prepared_at=now,
+            readback_fresh_until=now + timedelta(seconds=1),
+            envelope=RawDirectionSafetyEnvelope(),
+        )
+
+        step_task = asyncio.create_task(bus.write_prepared_raw_direction_command(command))
+        assert await asyncio.to_thread(poll_entered.wait, 2)
+        stop_task = asyncio.create_task(bus.stop_or_hold(10))
+        await asyncio.sleep(0)
+        assert not stop_task.done()
+
+        release_poll.set()
+        stop = await asyncio.wait_for(stop_task, timeout=2)
+        assert stop.result is RealStopResult.HOLD_REQUESTED
+        with pytest.raises(RawDirectionCommandRevoked):
+            await step_task
+
+        event_count_after_stop = len(events)
+        await asyncio.sleep(0.02)
+        assert len(events) == event_count_after_stop
+        # Stop revokes all writes until an explicit session reset.
+        with pytest.raises(RawDirectionCommandRevoked):
+            await bus.write_prepared_raw_direction_command(command)
         await bus.close()
 
     asyncio.run(scenario())

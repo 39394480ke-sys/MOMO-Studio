@@ -1,5 +1,6 @@
 """Prepared-motion executor boundary."""
 
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -29,6 +30,7 @@ class MotionExecutor(Protocol):
         *,
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> MotionCommandStatus: ...
 
     async def submit_continuous_jog(
@@ -37,6 +39,7 @@ class MotionExecutor(Protocol):
         *,
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> MotionCommandStatus: ...
 
     async def cancel_active(self) -> MotionCommandStatus | None: ...

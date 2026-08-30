@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict, deque
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from typing import Protocol, TypeVar
 from uuid import UUID, uuid4
 
 from momo.domain.calibration import CalibrationDocument
+from momo.domain.commissioning import FieldAcceptanceCapability
 from momo.domain.errors import HardwareMappingError
 from momo.domain.hardware_mapping import goal_raw_to_logical, logical_to_goal_raw
 from momo.domain.real_hardware import (
@@ -32,7 +33,11 @@ from momo.domain.real_motion import (
 from momo.domain.robot import JointState, RobotProfile
 from momo.domain.trajectory import PreparedTrajectory, TrajectorySegmentKind
 from momo.ports.clock import Clock
-from momo.ports.servo_bus import ServoBus
+from momo.ports.servo_bus import (
+    ServoBus,
+    ServoTorqueTransitionResult,
+    TorqueLifecycleServoBus,
+)
 
 Result = TypeVar("Result")
 
@@ -169,6 +174,7 @@ class RealMotionExecutor:
         expected_digest: str,
         authorization: RealExecutionAuthorization,
         execution_purpose: RealHardwareAuthorizationPurpose,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> RealMotionStatus:
         """Accept only the exact immutable prepared plan and its caller-held digest."""
 
@@ -176,6 +182,7 @@ class RealMotionExecutor:
         raw_samples = self._validate_and_map_prepared(
             prepared,
             expected_digest,
+            authorization,
             execution_purpose,
         )
         async with self._guard:
@@ -199,6 +206,7 @@ class RealMotionExecutor:
                 profile_fingerprint=self._profile_fingerprint,
                 calibration_fingerprint=self._calibration_fingerprint,
                 trajectory_digest=prepared.plan.digest.sha256,
+                preflight=prepared.preflight,
                 execution_purpose=execution_purpose,
                 state=RealMotionState.ACCEPTED,
                 progress=0.0,
@@ -230,6 +238,7 @@ class RealMotionExecutor:
                     authorization,
                     execution_purpose,
                     cancel_event,
+                    continuous_write_guard,
                 ),
                 name=f"real-motion-{execution_id}",
             )
@@ -302,6 +311,7 @@ class RealMotionExecutor:
         authorization: RealExecutionAuthorization,
         execution_purpose: RealHardwareAuthorizationPurpose,
         cancel_event: asyncio.Event,
+        continuous_write_guard: Callable[[], bool] | None,
     ) -> None:
         try:
             self._set_running(execution_id)
@@ -322,6 +332,7 @@ class RealMotionExecutor:
                 )
                 if cancel_event.is_set():
                     raise asyncio.CancelledError
+                self._require_continuous_write_guard(continuous_write_guard)
                 if not authorization.active(self.clock.now()):
                     raise _ExecutionFault(
                         RealMotionFaultCode.AUTHORIZATION_EXPIRED,
@@ -342,6 +353,9 @@ class RealMotionExecutor:
                     expected_positions=expected_positions,
                     first_write=first_write,
                 )
+                if first_write:
+                    await self._enable_torque_for_execution(execution_id)
+                self._require_continuous_write_guard(continuous_write_guard)
                 goals = raw_samples[index]
                 recent_goals.append((sample.time_s, goals))
                 while (
@@ -360,6 +374,7 @@ class RealMotionExecutor:
                     goals,
                     authorization,
                     tuple(item[1] for item in recent_goals),
+                    continuous_write_guard,
                 )
                 first_write = False
                 index += 1
@@ -371,6 +386,7 @@ class RealMotionExecutor:
                     raw_samples[-1],
                     authorization,
                 )
+            await self._disable_torque_after_execution(execution_id)
             self._set_completed(execution_id)
             await self._emit(
                 self._statuses[execution_id],
@@ -405,13 +421,16 @@ class RealMotionExecutor:
         goals: dict[int, int],
         authorization: RealExecutionAuthorization,
         acceptable_goals: tuple[dict[int, int], ...],
+        continuous_write_guard: Callable[[], bool] | None,
     ) -> tuple[int, dict[str, float], bool]:
+        self._require_continuous_write_guard(continuous_write_guard)
         if not authorization.active(self.clock.now()):
             raise _ExecutionFault(
                 RealMotionFaultCode.AUTHORIZATION_EXPIRED,
                 "Operator authorization expired before a ServoBus write",
             )
         self._set_goal_attempt(execution_id, sample_index, goals)
+        self._require_continuous_write_guard(continuous_write_guard)
         try:
             result = await self._bounded_bus_call(
                 self.servo_bus.write_goal_positions(goals),
@@ -445,11 +464,9 @@ class RealMotionExecutor:
             servo_id: actual_raw[servo_id]
             for servo_id in self._servo_ids
             if not (
-                min(item[servo_id] for item in acceptable_goals)
-                - self.divergence_tolerance_raw
+                min(item[servo_id] for item in acceptable_goals) - self.divergence_tolerance_raw
                 <= actual_raw[servo_id]
-                <= max(item[servo_id] for item in acceptable_goals)
-                + self.divergence_tolerance_raw
+                <= max(item[servo_id] for item in acceptable_goals) + self.divergence_tolerance_raw
             )
         }
         if outside_following_window:
@@ -593,8 +610,7 @@ class RealMotionExecutor:
                 authorization,
             )
             if all(
-                abs(actual_raw[servo_id] - goals[servo_id])
-                <= self.divergence_tolerance_raw
+                abs(actual_raw[servo_id] - goals[servo_id]) <= self.divergence_tolerance_raw
                 for servo_id in self._servo_ids
             ):
                 return next_state_sequence, logical_positions
@@ -715,6 +731,16 @@ class RealMotionExecutor:
                 "ServoBus goal write was partial",
             )
 
+    @staticmethod
+    def _require_continuous_write_guard(
+        continuous_write_guard: Callable[[], bool] | None,
+    ) -> None:
+        if continuous_write_guard is not None and not continuous_write_guard():
+            raise _ExecutionFault(
+                RealMotionFaultCode.DEADMAN_LEASE_EXPIRED,
+                "Continuous motion deadman lease expired before a ServoBus write",
+            )
+
     async def _sleep_until(
         self,
         deadline: float,
@@ -738,6 +764,16 @@ class RealMotionExecutor:
 
     async def _cancel_and_stop(self, execution_id: UUID) -> None:
         outcome = await self._stop_for_execution(execution_id)
+        torque_known = await self._disable_torque_after_stop(execution_id)
+        if not torque_known:
+            outcome = RealStopOutcome(
+                result=RealStopResult.SAFETY_STATE_UNCERTAIN,
+                requested_ids=self._servo_ids,
+                affected_ids=(),
+                connected=True,
+                safety_state_known=False,
+                detail="Stop/Hold completed but torque cleanup is uncertain",
+            )
         if outcome.result is RealStopResult.STOPPED_AND_VERIFIED:
             self._set_cancelled(execution_id, outcome)
             terminal = self._statuses[execution_id]
@@ -772,6 +808,16 @@ class RealMotionExecutor:
         detail: str,
     ) -> None:
         outcome = await self._stop_for_execution(execution_id)
+        torque_known = await self._disable_torque_after_stop(execution_id)
+        if not torque_known:
+            outcome = RealStopOutcome(
+                result=RealStopResult.SAFETY_STATE_UNCERTAIN,
+                requested_ids=self._servo_ids,
+                affected_ids=(),
+                connected=True,
+                safety_state_known=False,
+                detail="Fault Stop/Hold completed but torque cleanup is uncertain",
+            )
         self._set_faulted(execution_id, code, detail, outcome)
         await self._emit(
             self._statuses[execution_id],
@@ -840,10 +886,89 @@ class RealMotionExecutor:
                 f"ServoBus {operation} exceeded its bounded deadline",
             ) from error
 
+    async def _enable_torque_for_execution(self, execution_id: UUID) -> None:
+        if not isinstance(self.servo_bus, TorqueLifecycleServoBus):
+            return
+        self._mark_hardware_attempt(execution_id)
+        try:
+            result = await self._bounded_bus_call(
+                self.servo_bus.enable_torque_for_execution(self._servo_ids),
+                operation="torque enable",
+            )
+        except _ExecutionFault:
+            raise
+        except Exception as error:
+            raise _ExecutionFault(
+                RealMotionFaultCode.SAFETY_STATE_UNCERTAIN,
+                f"Explicit torque enable failed: {type(error).__name__}",
+            ) from error
+        self._validate_torque_result(result, expected_enabled=True)
+
+    async def _disable_torque_after_execution(self, execution_id: UUID) -> None:
+        if not isinstance(self.servo_bus, TorqueLifecycleServoBus):
+            return
+        self._mark_hardware_attempt(execution_id)
+        try:
+            result = await self._bounded_bus_call(
+                self.servo_bus.disable_torque_for_execution(self._servo_ids),
+                operation="torque disable",
+            )
+        except _ExecutionFault:
+            raise
+        except Exception as error:
+            raise _ExecutionFault(
+                RealMotionFaultCode.SAFETY_STATE_UNCERTAIN,
+                f"Explicit torque cleanup failed: {type(error).__name__}",
+            ) from error
+        self._validate_torque_result(result, expected_enabled=False)
+
+    async def _disable_torque_after_stop(self, execution_id: UUID) -> bool:
+        if not isinstance(self.servo_bus, TorqueLifecycleServoBus):
+            return True
+        self._mark_hardware_attempt(execution_id)
+        try:
+            result = await self._bounded_bus_call(
+                self.servo_bus.disable_torque_for_execution(self._servo_ids),
+                operation="post-Stop torque disable",
+            )
+        except Exception:
+            return False
+        return self._torque_result_is_complete(result, expected_enabled=False)
+
+    def _validate_torque_result(
+        self,
+        result: ServoTorqueTransitionResult,
+        *,
+        expected_enabled: bool,
+    ) -> None:
+        if not self._torque_result_is_complete(result, expected_enabled=expected_enabled):
+            raise _ExecutionFault(
+                RealMotionFaultCode.SAFETY_STATE_UNCERTAIN,
+                "Per-Servo torque transition was incomplete or uncertain",
+            )
+
+    def _torque_result_is_complete(
+        self,
+        result: ServoTorqueTransitionResult,
+        *,
+        expected_enabled: bool,
+    ) -> bool:
+        return (
+            isinstance(result, ServoTorqueTransitionResult)
+            and result.requested_ids == self._servo_ids
+            and result.succeeded_ids == self._servo_ids
+            and not result.failed_ids
+            and result.torque_enabled is expected_enabled
+            and result.connected
+            and result.complete
+            and result.safety_state_known
+        )
+
     def _validate_and_map_prepared(
         self,
         prepared: PreparedTrajectory,
         expected_digest: str,
+        authorization: RealExecutionAuthorization,
         execution_purpose: RealHardwareAuthorizationPurpose,
     ) -> tuple[dict[int, int], ...]:
         plan = prepared.plan
@@ -888,6 +1013,17 @@ class RealMotionExecutor:
                     TrajectorySegmentKind.CARTESIAN_LINEAR,
                     TrajectorySegmentKind.HOLD,
                 }
+                for kind in segment_kinds
+            )
+            if TrajectorySegmentKind.CARTESIAN_LINEAR in segment_kinds:
+                compatible = compatible and (
+                    FieldAcceptanceCapability.CARTESIAN in authorization.capability_evidence_ids
+                    and authorization.kinematics_verification_evidence_id is not None
+                    and authorization.kinematics_fingerprint == self.kinematics_fingerprint
+                )
+        elif execution_purpose is RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW:
+            compatible = TrajectorySegmentKind.JOINT in segment_kinds and all(
+                kind in {TrajectorySegmentKind.JOINT, TrajectorySegmentKind.HOLD}
                 for kind in segment_kinds
             )
         else:
@@ -948,7 +1084,18 @@ class RealMotionExecutor:
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK: (
                 authorization.capabilities.real_playback_ready
             ),
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW: (
+                authorization.capabilities.real_vision_follow_ready
+            ),
         }.get(execution_purpose, False)
+        geometry_authorization_matches = (
+            execution_purpose
+            not in {
+                RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+                RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+            }
+            or authorization.kinematics_fingerprint == self.kinematics_fingerprint
+        )
         if not authorization.active(self.clock.now()):
             raise RealMotionError(
                 RealMotionFaultCode.AUTHORIZATION_EXPIRED.value,
@@ -962,6 +1109,7 @@ class RealMotionExecutor:
             or authorization.allowed_servo_ids != self._servo_ids
             or authorization.purpose is not execution_purpose
             or not purpose_ready
+            or not geometry_authorization_matches
         ):
             raise RealMotionError(
                 RealMotionFaultCode.AUTHORIZATION_MISMATCH.value,
@@ -1120,6 +1268,7 @@ class RealMotionExecutor:
             execution_id=status.execution_id,
             authorization_session_id=status.authorization_session_id,
             trajectory_digest=status.trajectory_digest,
+            preflight=status.preflight,
             execution_purpose=status.execution_purpose,
             kind=kind,
             occurred_at=self.clock.now(),

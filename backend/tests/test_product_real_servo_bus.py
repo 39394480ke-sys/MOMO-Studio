@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import ModuleType
 from typing import cast
 
@@ -89,7 +90,7 @@ class _FakeSyncWriter:
         self.packet = packet
 
     def txPacket(self) -> int:
-        self.packet.calls.append(("sync-tx", tuple(self.packet.staged)))
+        self.packet.calls.append(("sync-tx", tuple(self.packet.staged.items())))
         self.packet.positions.update(self.packet.staged)
         return 0
 
@@ -169,6 +170,65 @@ class _FakeSdk:
         return self.packet
 
 
+class _BlockingSyncWriter(_FakeSyncWriter):
+    def __init__(self, packet: _FakePacket) -> None:
+        super().__init__(packet)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.block_once = True
+
+    def txPacket(self) -> int:
+        if self.block_once:
+            self.block_once = False
+            self.entered.set()
+            self.release.wait()
+        return super().txPacket()
+
+
+class _BlockingFakeSdk(_FakeSdk):
+    def __init__(self, calls: list[tuple[object, ...]]) -> None:
+        super().__init__(calls)
+        self.packet.groupSyncWrite = _BlockingSyncWriter(self.packet)
+
+
+class _TorqueFailurePacket(_FakePacket):
+    def __init__(
+        self,
+        calls: list[tuple[object, ...]],
+        *,
+        enable_failure: int,
+        disable_failures: frozenset[int],
+    ) -> None:
+        super().__init__(calls)
+        self.enable_failure = enable_failure
+        self.disable_failures = disable_failures
+
+    def write1ByteTxRx(self, servo_id: int, address: int, value: int) -> tuple[int, int]:
+        self.calls.append(("write1", servo_id, address, value))
+        if address == TORQUE_ENABLE_ADDRESS:
+            if value == 1 and servo_id == self.enable_failure:
+                return 1, 0
+            if value == 0 and servo_id in self.disable_failures:
+                return 1, 0
+        return 0, 0
+
+
+class _TorqueFailureSdk(_FakeSdk):
+    def __init__(
+        self,
+        calls: list[tuple[object, ...]],
+        *,
+        enable_failure: int,
+        disable_failures: frozenset[int],
+    ) -> None:
+        super().__init__(calls)
+        self.packet = _TorqueFailurePacket(
+            calls,
+            enable_failure=enable_failure,
+            disable_failures=disable_failures,
+        )
+
+
 def test_production_bus_is_inert_until_authorized_open_and_uses_exact_ids() -> None:
     async def scenario() -> None:
         grant = await _production_grant()
@@ -192,15 +252,18 @@ def test_production_bus_is_inert_until_authorized_open_and_uses_exact_ids() -> N
         assert imported == ["scservo_sdk"]
         servo_ids = grant.session.allowed_servo_ids
         goals = {servo_id: index * 100 for index, servo_id in enumerate(servo_ids)}
+        unarmed = await bus.write_goal_positions(goals)
+        assert unarmed.complete is False
+        assert unarmed.safety_state_known is False
+        assert not [call for call in calls if call[:1] in {("sync-stage",), ("sync-tx",)}]
+
+        armed = await bus.enable_torque_for_execution(servo_ids)
+        assert armed.complete is True
+        assert armed.succeeded_ids == servo_ids
         result = await bus.write_goal_positions(goals)
         assert result.complete is True
         assert result.written_ids == servo_ids
-        assert [call[1] for call in calls if call[0] == "configure"] == list(servo_ids)
-        assert all(
-            call[3:] == (LEGACY_STREAM_SPEED, LEGACY_STREAM_ACCELERATION)
-            for call in calls
-            if call[0] == "configure"
-        )
+        assert not [call for call in calls if call[0] == "configure"]
         staged = [call for call in calls if call[:1] == ("sync-stage",)]
         assert [call[1] for call in staged] == list(servo_ids)
         assert all(call[3:] == (LEGACY_STREAM_SPEED, LEGACY_STREAM_ACCELERATION) for call in staged)
@@ -221,5 +284,141 @@ def test_production_bus_is_inert_until_authorized_open_and_uses_exact_ids() -> N
             if call[0] == "write1" and call[2] == TORQUE_ENABLE_ADDRESS and call[3] == 0
         ]
         assert {call[1] for call in torque_off} == set(servo_ids)
+
+    asyncio.run(scenario())
+
+
+def test_priority_stop_fences_blocked_and_queued_goal_writes() -> None:
+    async def scenario() -> None:
+        grant = await _production_grant()
+        calls: list[tuple[object, ...]] = []
+        sdk = _BlockingFakeSdk(calls)
+        factory = FtServoProductionBusFactory(
+            importer=lambda _name: cast(ModuleType, sdk),
+            package_available=lambda name: name == "scservo_sdk",
+        )
+        bus = factory.create(grant)
+        servo_ids = grant.session.allowed_servo_ids
+        await bus.open(SYNTHETIC_DEVICE, "STS3215")
+        assert (await bus.enable_torque_for_execution(servo_ids)).complete
+
+        first = asyncio.create_task(
+            bus.write_goal_positions({servo_id: 100 for servo_id in servo_ids})
+        )
+        writer = cast(_BlockingSyncWriter, sdk.packet.groupSyncWrite)
+        assert await asyncio.wait_for(asyncio.to_thread(writer.entered.wait), timeout=1.0)
+
+        stop = asyncio.create_task(bus.stop_or_hold(servo_ids))
+        await asyncio.sleep(0)
+        assert not stop.done()
+        queued = await bus.write_goal_positions({servo_id: 200 for servo_id in servo_ids})
+        assert queued.complete is False
+        assert queued.safety_state_known is False
+        assert not stop.done()
+
+        writer.release.set()
+        stale = await asyncio.wait_for(first, timeout=1.0)
+        stopped = await asyncio.wait_for(stop, timeout=1.0)
+        assert stale.complete is False
+        assert stale.safety_state_known is False
+        assert stopped.result is RealStopResult.HOLD_REQUESTED
+
+        post_stop = await bus.write_goal_positions({servo_id: 300 for servo_id in servo_ids})
+        assert post_stop.complete is False
+        tx_payloads = [call[1] for call in calls if call[:1] == ("sync-tx",)]
+        assert len(tx_payloads) == 2
+        assert dict(cast(tuple[tuple[int, int], ...], tx_payloads[0])) == {
+            servo_id: 100 for servo_id in servo_ids
+        }
+        assert dict(cast(tuple[tuple[int, int], ...], tx_payloads[1])) == {
+            servo_id: 100 for servo_id in servo_ids
+        }
+        await bus.close()
+
+    asyncio.run(scenario())
+
+
+def test_blocking_sdk_timeout_is_uncertain_and_close_waits_for_thread_ownership() -> None:
+    async def scenario() -> None:
+        grant = await _production_grant()
+        calls: list[tuple[object, ...]] = []
+        sdk = _BlockingFakeSdk(calls)
+        factory = FtServoProductionBusFactory(
+            importer=lambda _name: cast(ModuleType, sdk),
+            package_available=lambda name: name == "scservo_sdk",
+        )
+        bus = factory.create(grant)
+        servo_ids = grant.session.allowed_servo_ids
+        await bus.open(SYNTHETIC_DEVICE, "STS3215")
+        assert (await bus.enable_torque_for_execution(servo_ids)).complete
+
+        writer = cast(_BlockingSyncWriter, sdk.packet.groupSyncWrite)
+        write = asyncio.create_task(
+            bus.write_goal_positions({servo_id: 123 for servo_id in servo_ids})
+        )
+        assert await asyncio.wait_for(asyncio.to_thread(writer.entered.wait), timeout=1.0)
+        close = asyncio.create_task(bus.close())
+        await asyncio.sleep(0)
+        assert not close.done()
+
+        late = await bus.write_goal_positions({servo_id: 456 for servo_id in servo_ids})
+        assert late.complete is False
+        assert late.safety_state_known is False
+        writer.release.set()
+        stale = await asyncio.wait_for(write, timeout=1.0)
+        assert stale.complete is False
+        await asyncio.wait_for(close, timeout=1.0)
+
+        tx_count_after_close = len([call for call in calls if call[:1] == ("sync-tx",)])
+        await asyncio.sleep(0)
+        assert len([call for call in calls if call[:1] == ("sync-tx",)]) == tx_count_after_close
+        assert calls[-1] == ("close", SYNTHETIC_DEVICE)
+
+    asyncio.run(scenario())
+
+
+def test_partial_torque_enable_rolls_back_and_cleanup_attempts_every_servo() -> None:
+    async def scenario() -> None:
+        grant = await _production_grant()
+        servo_ids = grant.session.allowed_servo_ids
+        calls: list[tuple[object, ...]] = []
+        sdk = _TorqueFailureSdk(
+            calls,
+            enable_failure=servo_ids[2],
+            disable_failures=frozenset({servo_ids[1], servo_ids[-1]}),
+        )
+        factory = FtServoProductionBusFactory(
+            importer=lambda _name: cast(ModuleType, sdk),
+            package_available=lambda name: name == "scservo_sdk",
+        )
+        bus = factory.create(grant)
+        await bus.open(SYNTHETIC_DEVICE, "STS3215")
+
+        result = await bus.enable_torque_for_execution(servo_ids)
+        assert result.complete is False
+        assert result.safety_state_known is False
+        assert result.succeeded_ids == servo_ids[:2]
+        assert result.failed_ids == servo_ids[2:]
+        rollback_ids = [
+            cast(int, call[1])
+            for call in calls
+            if call[0] == "write1" and call[2:] == (TORQUE_ENABLE_ADDRESS, 0)
+        ]
+        assert rollback_ids == list(servo_ids)
+
+        write = await bus.write_goal_positions({servo_id: 100 for servo_id in servo_ids})
+        assert write.complete is False
+        assert write.safety_state_known is False
+
+        with pytest.raises(RuntimeError, match="safety state is uncertain"):
+            await bus.close()
+        all_disable_attempts = [
+            cast(int, call[1])
+            for call in calls
+            if call[0] == "write1" and call[2:] == (TORQUE_ENABLE_ADDRESS, 0)
+        ]
+        assert all_disable_attempts == [*servo_ids, *servo_ids]
+        assert bus.last_torque_result is not None
+        assert bus.last_torque_result.failed_ids == (servo_ids[1], servo_ids[-1])
 
     asyncio.run(scenario())

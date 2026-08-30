@@ -22,6 +22,23 @@ from momo.ports.clock import Clock
 
 
 @dataclass(slots=True)
+class _JogWriteGate:
+    clock: Clock
+    expires_at: float
+    revoked: bool = False
+
+    def active(self) -> bool:
+        return not self.revoked and self.clock.monotonic() < self.expires_at
+
+    def renew(self, expires_at: float) -> None:
+        if not self.revoked:
+            self.expires_at = expires_at
+
+    def revoke(self) -> None:
+        self.revoked = True
+
+
+@dataclass(slots=True)
 class _JogSession:
     session_id: UUID
     command_id: UUID
@@ -30,6 +47,7 @@ class _JogSession:
     last_state: MotionCommandState
     stopped: bool = False
     watchdog: asyncio.Task[None] | None = None
+    write_gate: _JogWriteGate | None = None
 
 
 class JogLeaseService:
@@ -51,6 +69,7 @@ class JogLeaseService:
         self._by_command: dict[UUID, UUID] = {}
         self._by_idempotency_key: dict[str, UUID] = {}
         self._pending_reservations = 0
+        self._pending_write_gates: dict[UUID, _JogWriteGate] = {}
         self._guard = asyncio.Lock()
 
     async def start(
@@ -86,20 +105,32 @@ class JogLeaseService:
                 reserved = True
         accepted_command_id: UUID | None = None
         lease_secured = False
+        write_gate = _JogWriteGate(
+            clock=self.clock,
+            expires_at=self.clock.monotonic() + self.lease_ttl_ms / 1000.0,
+        )
+        self._pending_write_gates[command.command_id] = write_gate
         try:
             if authorization is None and execution_purpose is None:
-                accepted = await self.motion_service.submit(command)
+                accepted = await self.motion_service.submit(
+                    command,
+                    continuous_write_guard=write_gate.active,
+                )
             else:
                 accepted = await self.motion_service.submit(
                     command,
                     authorization=authorization,
                     execution_purpose=execution_purpose,
+                    continuous_write_guard=write_gate.active,
                 )
             accepted_command_id = accepted.command_id
             response = await self._register(command, accepted.command_id)
             lease_secured = True
             return response
         finally:
+            if not lease_secured:
+                write_gate.revoke()
+                self._pending_write_gates.pop(command.command_id, None)
             cleanup_command_id = (
                 accepted_command_id
                 if accepted_command_id is not None
@@ -123,8 +154,12 @@ class JogLeaseService:
         """Install the lease after submit; kept separate for cancellation testing."""
 
         async with self._guard:
+            write_gate = self._pending_write_gates.pop(command.command_id, None)
+            if write_gate is None:
+                raise MotionConflictError("Continuous jog write lease was not reserved")
             existing_id = self._by_command.get(command_id)
             if existing_id is not None:
+                write_gate.revoke()
                 return self._response(self._sessions[existing_id])
             accepted_status = self.motion_service.get_status(command_id)
             if accepted_status.state in _TERMINAL_STATES:
@@ -143,7 +178,9 @@ class JogLeaseService:
                 idempotency_key=command.idempotency_key,
                 expires_at=self.clock.monotonic() + self.lease_ttl_ms / 1000.0,
                 last_state=accepted_status.state,
+                write_gate=write_gate,
             )
+            write_gate.renew(session.expires_at)
             self._sessions[session.session_id] = session
             self._by_command[session.command_id] = session.session_id
             self._by_idempotency_key[session.idempotency_key] = session.session_id
@@ -185,9 +222,13 @@ class JogLeaseService:
                 or self.clock.monotonic() >= session.expires_at
             ):
                 session.stopped = True
+                if session.write_gate is not None:
+                    session.write_gate.revoke()
                 expired_command = session.command_id
             else:
                 session.expires_at = self.clock.monotonic() + self.lease_ttl_ms / 1000.0
+                if session.write_gate is not None:
+                    session.write_gate.renew(session.expires_at)
                 return self._response(session)
         cancelled = await self.motion_service.cancel_command(expired_command)
         if cancelled is not None:
@@ -205,6 +246,8 @@ class JogLeaseService:
             already_stopped = session.stopped
             retained_state = session.last_state
             session.stopped = True
+            if session.write_gate is not None:
+                session.write_gate.revoke()
             watchdog = session.watchdog
             if watchdog is not None and watchdog is not asyncio.current_task():
                 watchdog.cancel()
@@ -256,6 +299,8 @@ class JogLeaseService:
                     remaining = session.expires_at - self.clock.monotonic()
                     if remaining <= 0:
                         session.stopped = True
+                        if session.write_gate is not None:
+                            session.write_gate.revoke()
                         command_id = session.command_id
                         break
                 await self.clock.sleep(remaining)
@@ -294,6 +339,8 @@ class JogLeaseService:
             if session.last_state not in _TERMINAL_STATES:
                 continue
             session.stopped = True
+            if session.write_gate is not None:
+                session.write_gate.revoke()
             if session.watchdog is not None:
                 session.watchdog.cancel()
         for session_id, session in list(self._sessions.items()):
@@ -308,6 +355,8 @@ class JogLeaseService:
     def _evict_session(self, session_id: UUID, session: _JogSession) -> None:
         if session.watchdog is not None:
             session.watchdog.cancel()
+        if session.write_gate is not None:
+            session.write_gate.revoke()
         self._sessions.pop(session_id, None)
         self._by_command.pop(session.command_id, None)
         self._by_idempotency_key.pop(session.idempotency_key, None)

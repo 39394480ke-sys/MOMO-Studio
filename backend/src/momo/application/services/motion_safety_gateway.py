@@ -9,6 +9,9 @@ from math import acos, ceil, isclose, sin, sqrt
 from typing import NoReturn
 
 from momo.application.services.calibration_service import CalibrationService
+from momo.application.services.command_trajectory_compiler import (
+    compile_gateway_command_trajectory,
+)
 from momo.application.services.kinematics_service import KinematicsService
 from momo.application.services.robot_service import RobotApplicationService
 from momo.domain.calibration import CalibrationDocument
@@ -40,10 +43,14 @@ from momo.domain.motion_preflight import (
     PreparedMotionSample,
 )
 from momo.domain.playback import PlaybackExecutionSnapshot, PlaybackOperatorIntent
-from momo.domain.pose import QuaternionXYZW, TcpPose, Vector3
+from momo.domain.pose import QuaternionXYZW, TcpPose, Vector3, utc_now
 from momo.domain.robot import JointState, RobotProfile
 from momo.domain.safety import validate_logical_value
-from momo.domain.trajectory import PreparedTrajectory
+from momo.domain.trajectory import (
+    PreparedTrajectory,
+    TrajectorySample,
+    TrajectorySegmentKind,
+)
 from momo.ports.motion_executor import MotionExecutor
 
 PreparedCommand = PreparedMotion | PreparedContinuousJog
@@ -172,11 +179,16 @@ class MotionSafetyGateway:
         kinematics_service: KinematicsService,
         calibration_service: CalibrationService,
         executor: MotionExecutor,
+        *,
+        update_hz: float = CARTESIAN_PREPARE_RATE_HZ,
     ) -> None:
+        if not 20.0 <= update_hz <= 100.0:
+            raise ValueError("motion safety sample rate must be between 20 and 100 Hz")
         self.robot_service = robot_service
         self.kinematics_service = kinematics_service
         self.calibration_service = calibration_service
         self.executor = executor
+        self.update_hz = float(update_hz)
         self._external_motion_active: Callable[[], bool] = lambda: False
         self.motion_admission = MotionAdmissionCoordinator(self.motion_slot_is_free)
 
@@ -347,7 +359,7 @@ class MotionSafetyGateway:
                 checks,
             )
             preflight = self._accepted(command, checks, profile, model.fingerprint)
-            return PreparedContinuousJog(
+            prepared_jog = PreparedContinuousJog(
                 command_id=command.command_id,
                 start_state=current,
                 joint_id=payload.joint_id,
@@ -358,6 +370,14 @@ class MotionSafetyGateway:
                 minimum=min(start_value, endpoint),
                 maximum=max(start_value, endpoint),
                 preflight=preflight,
+            )
+            return await self._finalize_exact_command_trajectory(
+                command,
+                profile,
+                status.state_sequence,
+                prepared_jog,
+                TrajectorySegmentKind.JOINT,
+                checks,
             )
 
         trajectory_samples: list[PreparedMotionSample] | None = None
@@ -382,13 +402,260 @@ class MotionSafetyGateway:
                 checks,
             )
         preflight = self._accepted(command, checks, profile, model.fingerprint)
-        return PreparedMotion(
+        prepared_motion = PreparedMotion(
             command_id=command.command_id,
             start_state=current,
             target_state=target,
             duration_s=duration_s / command.speed_scale,
             trajectory_samples=trajectory_samples,
             preflight=preflight,
+        )
+        return await self._finalize_exact_command_trajectory(
+            command,
+            profile,
+            status.state_sequence,
+            prepared_motion,
+            (
+                TrajectorySegmentKind.CARTESIAN_LINEAR
+                if trajectory_samples is not None
+                else TrajectorySegmentKind.JOINT
+            ),
+            checks,
+        )
+
+    async def _finalize_exact_command_trajectory(
+        self,
+        command: MotionCommand,
+        profile: RobotProfile,
+        state_sequence: int,
+        prepared: PreparedMotion | PreparedContinuousJog,
+        segment_kind: TrajectorySegmentKind,
+        checks: list[PreflightCheck],
+    ) -> PreparedMotion | PreparedContinuousJog:
+        """Compile, validate, digest, then freeze the one executable sample set."""
+
+        provisional = compile_gateway_command_trajectory(
+            prepared,
+            profile,
+            state_sequence,
+            segment_kind,
+            compiled_at=utc_now(),
+            update_hz=self.update_hz,
+        )
+        await self._validate_exact_command_samples(
+            command,
+            profile,
+            state_sequence,
+            provisional.plan.samples,
+            checks,
+        )
+        final_preflight = self._accepted(
+            command,
+            checks,
+            profile,
+            prepared.preflight.kinematics_fingerprint,
+        )
+        payload = prepared.model_dump(mode="python")
+        payload["preflight"] = final_preflight
+        payload["executable_trajectory"] = None
+        rebound: PreparedMotion | PreparedContinuousJog
+        if isinstance(prepared, PreparedMotion):
+            rebound = PreparedMotion.model_validate(payload)
+        else:
+            rebound = PreparedContinuousJog.model_validate(payload)
+        executable = compile_gateway_command_trajectory(
+            rebound,
+            profile,
+            state_sequence,
+            segment_kind,
+            compiled_at=provisional.plan.compiled_at,
+            update_hz=self.update_hz,
+        )
+        payload["executable_trajectory"] = executable
+        if isinstance(prepared, PreparedMotion):
+            return PreparedMotion.model_validate(payload)
+        return PreparedContinuousJog.model_validate(payload)
+
+    async def _validate_exact_command_samples(
+        self,
+        command: MotionCommand,
+        profile: RobotProfile,
+        state_sequence: int,
+        samples: list[TrajectorySample],
+        checks: list[PreflightCheck],
+    ) -> None:
+        """Validate every value the REAL executor can write, including interiors."""
+
+        calibration = self._compatible_raw_calibration(command, profile, checks)
+        definitions = profile.definitions_by_id
+        velocities: list[dict[str, float]] = []
+        previous: TrajectorySample | None = None
+        for sample in samples:
+            state = JointState(positions=dict(sample.positions), units=dict(sample.units))
+            try:
+                state.validate_against(profile)
+                if calibration is not None:
+                    for joint_id, value in state.positions.items():
+                        calibration_joint = calibration.joints_by_id.get(joint_id)
+                        if calibration_joint is None:
+                            raise HardwareMappingError(f"missing calibration joint {joint_id}")
+                        validate_logical_value(
+                            joint_id,
+                            value,
+                            profile,
+                            calibration_joint,
+                        )
+            except (HardwareMappingError, ValueError) as error:
+                self._reject(
+                    command,
+                    checks,
+                    profile,
+                    self.kinematics_service.model_for(profile).fingerprint,
+                    f"exact sample {sample.sample_index} violates joint/raw limits: {error}",
+                    "exact_sample_limits",
+                )
+            try:
+                fk = await self.kinematics_service.forward(
+                    profile,
+                    state,
+                    state_sequence=state_sequence,
+                    robot_id=command.robot_id,
+                )
+            except ValueError:
+                self._reject(
+                    command,
+                    checks,
+                    profile,
+                    self.kinematics_service.model_for(profile).fingerprint,
+                    f"FK invalid for exact executable sample {sample.sample_index}",
+                    "exact_sample_fk",
+                )
+            position = fk.tcp_pose.position_mm
+            if not (
+                -750.0 <= position.x <= 750.0
+                and -750.0 <= position.y <= 750.0
+                and -500.0 <= position.z <= 750.0
+            ):
+                self._reject(
+                    command,
+                    checks,
+                    profile,
+                    self.kinematics_service.model_for(profile).fingerprint,
+                    f"workspace exceeded at exact executable sample {sample.sample_index}",
+                    "exact_sample_workspace",
+                )
+            if sample.tcp_pose is not None:
+                requested = sample.tcp_pose
+                delta = requested.position_mm
+                position_error = sqrt(
+                    (position.x - delta.x) ** 2
+                    + (position.y - delta.y) ** 2
+                    + (position.z - delta.z) ** 2
+                )
+                actual_q = fk.tcp_pose.orientation_quaternion_xyzw
+                requested_q = requested.orientation_quaternion_xyzw
+                orientation_dot = abs(
+                    actual_q.x * requested_q.x
+                    + actual_q.y * requested_q.y
+                    + actual_q.z * requested_q.z
+                    + actual_q.w * requested_q.w
+                )
+                orientation_error = 2.0 * acos(min(1.0, max(-1.0, orientation_dot)))
+                if position_error > 1.0 or orientation_error > 0.035:
+                    self._reject(
+                        command,
+                        checks,
+                        profile,
+                        self.kinematics_service.model_for(profile).fingerprint,
+                        (
+                            "FK/IK mismatch at exact Cartesian sample "
+                            f"{sample.sample_index}: position_error_mm={position_error:.3f}, "
+                            f"orientation_error_rad={orientation_error:.4f}"
+                        ),
+                        "exact_cartesian_fk_ik",
+                    )
+            if previous is not None:
+                delta_s = sample.time_s - previous.time_s
+                velocity: dict[str, float] = {}
+                for joint_id in profile.enabled_joints:
+                    value = abs(sample.positions[joint_id] - previous.positions[joint_id]) / delta_s
+                    limit = (
+                        100.0 if definitions[joint_id].joint_type is JointType.PRISMATIC else 90.0
+                    )
+                    if value > limit + 1e-9:
+                        self._reject(
+                            command,
+                            checks,
+                            profile,
+                            self.kinematics_service.model_for(profile).fingerprint,
+                            (
+                                f"{joint_id} exact sample speed {value:.3f} exceeds "
+                                f"{limit:.3f} at sample {sample.sample_index}"
+                            ),
+                            "exact_sample_speed",
+                        )
+                    velocity[joint_id] = (
+                        sample.positions[joint_id] - previous.positions[joint_id]
+                    ) / delta_s
+                velocities.append(velocity)
+            previous = sample
+
+        for velocity_index in range(1, len(velocities)):
+            left = samples[velocity_index - 1]
+            middle = samples[velocity_index]
+            right = samples[velocity_index + 1]
+            acceleration_dt = 0.5 * ((middle.time_s - left.time_s) + (right.time_s - middle.time_s))
+            for joint_id in profile.enabled_joints:
+                acceleration = (
+                    abs(
+                        velocities[velocity_index][joint_id]
+                        - velocities[velocity_index - 1][joint_id]
+                    )
+                    / acceleration_dt
+                )
+                limit = 800.0 if definitions[joint_id].joint_type is JointType.PRISMATIC else 720.0
+                if acceleration > limit + 1e-9:
+                    self._reject(
+                        command,
+                        checks,
+                        profile,
+                        self.kinematics_service.model_for(profile).fingerprint,
+                        (
+                            f"{joint_id} exact sample acceleration {acceleration:.3f} "
+                            f"exceeds {limit:.3f} at sample {right.sample_index}"
+                        ),
+                        "exact_sample_acceleration",
+                    )
+        self._record_passed_once(
+            checks,
+            "exact_sample_limits",
+            f"all {len(samples)} executable samples satisfy logical/raw limits",
+        )
+        self._record_passed_once(
+            checks,
+            "exact_sample_fk",
+            f"all {len(samples)} executable samples have finite FK",
+        )
+        self._record_passed_once(
+            checks,
+            "exact_sample_workspace",
+            f"all {len(samples)} executable samples satisfy workspace bounds",
+        )
+        if any(sample.tcp_pose is not None for sample in samples):
+            self._record_passed_once(
+                checks,
+                "exact_cartesian_fk_ik",
+                "all exact Cartesian samples preserve reviewed TCP/IK/FK agreement",
+            )
+        self._record_passed_once(
+            checks,
+            "exact_sample_speed",
+            "finite differences across exact samples satisfy speed limits",
+        )
+        self._record_passed_once(
+            checks,
+            "exact_sample_acceleration",
+            "finite differences across exact samples satisfy acceleration limits",
         )
 
     async def validate_prepared_trajectory(
@@ -706,8 +973,14 @@ class MotionSafetyGateway:
 
         effective_duration = duration_s / command.speed_scale
         lease_controlled = isinstance(payload, CartesianJogPayload) and payload.lease_controlled
-        sample_count = max(2, ceil(effective_duration * CARTESIAN_PREPARE_RATE_HZ) + 1)
-        prepared_samples = [PreparedMotionSample(time_s=0.0, joint_state=current)]
+        sample_count = max(2, ceil(effective_duration * self.update_hz) + 1)
+        prepared_samples = [
+            PreparedMotionSample(
+                time_s=0.0,
+                joint_state=current,
+                tcp_pose=start_fk.tcp_pose,
+            )
+        ]
         calibration = self._compatible_raw_calibration(command, profile, checks)
 
         def can_truncate() -> bool:
@@ -717,11 +990,7 @@ class MotionSafetyGateway:
         definitions = profile.definitions_by_id
         for index in range(1, sample_count):
             await asyncio.sleep(0)
-            time_s = (
-                effective_duration
-                if index == sample_count - 1
-                else index / CARTESIAN_PREPARE_RATE_HZ
-            )
+            time_s = effective_duration if index == sample_count - 1 else index / self.update_hz
             fraction = min(1.0, time_s / effective_duration)
             requested_pose = _interpolate_tcp_pose(start_fk.tcp_pose, target_pose, fraction)
             position = requested_pose.position_mm
@@ -810,7 +1079,13 @@ class MotionSafetyGateway:
                         "cartesian_continuity",
                     )
             else:
-                prepared_samples.append(PreparedMotionSample(time_s=time_s, joint_state=state))
+                prepared_samples.append(
+                    PreparedMotionSample(
+                        time_s=time_s,
+                        joint_state=state,
+                        tcp_pose=requested_pose,
+                    )
+                )
                 previous = state
                 continue
             break

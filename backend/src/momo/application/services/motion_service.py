@@ -63,6 +63,7 @@ class MotionApplicationService:
         *,
         authorization: RealExecutionAuthorization | None = None,
         execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+        continuous_write_guard: Callable[[], bool] | None = None,
     ) -> MotionAccepted:
         submission_epoch = self.gateway.motion_admission.capture_lifecycle_epoch()
         digest = self._command_digest(command)
@@ -108,15 +109,20 @@ class MotionApplicationService:
                             prepared,
                             authorization=authorization,
                             execution_purpose=execution_purpose,
+                            continuous_write_guard=continuous_write_guard,
                         )
                 else:
                     if authorization is None and execution_purpose is None:
-                        status = await self.executor.submit(prepared)
+                        status = await self.executor.submit(
+                            prepared,
+                            continuous_write_guard=continuous_write_guard,
+                        )
                     else:
                         status = await self.executor.submit(
                             prepared,
                             authorization=authorization,
                             execution_purpose=execution_purpose,
+                            continuous_write_guard=continuous_write_guard,
                         )
                 try:
                     # Executor submission is an await boundary. Lifecycle Stop
@@ -137,6 +143,7 @@ class MotionApplicationService:
                 command_id=status.command_id,
                 status=status.state,
                 preflight=status.preflight,
+                trajectory_preflight=status.trajectory_preflight,
             )
 
     def _idempotent_result(self, key: str, digest: str) -> MotionAccepted | None:
@@ -154,6 +161,7 @@ class MotionApplicationService:
             command_id=status.command_id,
             status=status.state,
             preflight=status.preflight,
+            trajectory_preflight=status.trajectory_preflight,
         )
 
     def _ensure_dispatch_allowed(self, submission_epoch: int) -> None:

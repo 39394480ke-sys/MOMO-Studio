@@ -445,6 +445,15 @@ def test_continuous_jog_uses_bounded_raw_derived_envelope_and_path_preflight(
         assert prepared.minimum == 0.0
         assert prepared.speed_units_s == 10.0
         assert 0.0 < prepared.acceleration_units_s2 <= 720.0
+        assert prepared.executable_trajectory is not None
+        assert prepared.executable_trajectory.preflight.digest == (
+            prepared.executable_trajectory.plan.digest
+        )
+        assert prepared.executable_trajectory.preflight.real_motion_ready is False
+        assert all(
+            prepared.minimum <= sample.positions[prepared.joint_id] <= prepared.maximum
+            for sample in prepared.executable_trajectory.plan.samples
+        )
         passed = {check.name for check in prepared.preflight.checks if check.passed}
         assert {
             "raw_derived_limits",
@@ -568,8 +577,78 @@ def test_cartesian_jog_is_prepared_as_reviewed_tcp_samples(tmp_path: Path) -> No
         assert prepared.trajectory_samples[0].time_s == 0.0
         assert prepared.trajectory_samples[-1].time_s == pytest.approx(1.0)
         assert prepared.target_state == prepared.trajectory_samples[-1].joint_state
+        assert prepared.executable_trajectory is not None
+        assert prepared.executable_trajectory.plan.samples[1].tcp_pose is not None
+        assert prepared.executable_trajectory.preflight.digest == (
+            prepared.executable_trajectory.plan.digest
+        )
+        assert prepared.executable_trajectory.preflight.real_motion_ready is False
         passed = {check.name for check in prepared.preflight.checks if check.passed}
         assert {"ik_residual", "cartesian_continuity", "workspace"} <= passed
+
+    asyncio.run(scenario())
+
+
+def test_exact_executable_samples_are_checked_after_provisional_joint_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        app = app_for(tmp_path)
+        robot: RobotApplicationService = app.state.robot_service
+        kinematics: KinematicsService = app.state.kinematics_service
+        gateway: MotionSafetyGateway = app.state.motion_service.gateway
+        await robot.connect()
+        intent = await move_command(app, changes={"j11": 10.0}, duration_s=1.0)
+        original_forward = kinematics.forward
+
+        async def exact_only_outside(
+            profile: RobotProfile,
+            state: JointState,
+            *,
+            state_sequence: int,
+            robot_id: str = "primary",
+        ) -> ForwardKinematicsResult:
+            result = await original_forward(
+                profile,
+                state,
+                state_sequence=state_sequence,
+                robot_id=robot_id,
+            )
+            value = state.positions["j11"]
+            if 0.0 < value < 1.0:
+                pose = result.tcp_pose.model_copy(
+                    update={"position_mm": Vector3(x=1000.0, y=0.0, z=0.0)}
+                )
+                return result.model_copy(update={"tcp_pose": pose})
+            return result
+
+        monkeypatch.setattr(kinematics, "forward", exact_only_outside)
+        with pytest.raises(MotionPreflightError) as rejected:
+            await gateway.prepare(intent)
+        assert "exact_sample_workspace" in failed_checks(rejected.value)
+        assert "exact executable sample" in str(rejected.value)
+
+    asyncio.run(scenario())
+
+
+def test_mutating_any_gateway_sample_invalidates_the_executable_digest(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = app_for(tmp_path)
+        robot: RobotApplicationService = app.state.robot_service
+        gateway: MotionSafetyGateway = app.state.motion_service.gateway
+        await robot.connect()
+        prepared = await gateway.prepare(await move_command(app))
+        assert isinstance(prepared, PreparedMotion)
+        executable = prepared.executable_trajectory
+        assert executable is not None
+        payload = executable.model_dump(mode="python")
+        plan = cast(dict[str, Any], payload["plan"])
+        samples = cast(list[dict[str, Any]], plan["samples"])
+        positions = cast(dict[str, float], samples[1]["positions"])
+        positions["j11"] += 0.5
+        with pytest.raises(ValidationError, match="digest"):
+            type(executable).model_validate(payload)
 
     asyncio.run(scenario())
 

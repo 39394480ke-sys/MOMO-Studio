@@ -3,10 +3,11 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from momo.adapters.motion.real_command_executor import _prepared_command_trajectory
+from momo.application.services.command_trajectory_compiler import (
+    compile_gateway_command_trajectory,
+)
 from momo.domain.enums import Easing
 from momo.domain.motion_preflight import PreparedMotion, PreparedMotionSample
-from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
 from momo.domain.robot import JointState
 from momo.domain.trajectory import TrajectorySegmentKind
 from tests.stage3_helpers import make_preflight
@@ -42,11 +43,11 @@ def test_real_cartesian_command_consumes_exact_gateway_samples() -> None:
         preflight=make_preflight(command_id),
     )
 
-    trajectory = _prepared_command_trajectory(
+    trajectory = compile_gateway_command_trajectory(
         prepared,
         profile,
         state_sequence=7,
-        purpose=RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+        segment_kind=TrajectorySegmentKind.CARTESIAN_LINEAR,
         compiled_at=datetime(2026, 8, 29, tzinfo=UTC),
         update_hz=25.0,
     )
@@ -55,3 +56,6 @@ def test_real_cartesian_command_consumes_exact_gateway_samples() -> None:
     assert trajectory.plan.samples[1].positions["j11"] == 17.0
     assert trajectory.plan.segments[0].kind is TrajectorySegmentKind.CARTESIAN_LINEAR
     assert trajectory.plan.segments[0].easing is Easing.LINEAR
+    assert trajectory.preflight.digest == trajectory.plan.digest
+    assert trajectory.preflight.real_motion_ready is False
+    assert trajectory.preflight.field_acceptance_ready is False

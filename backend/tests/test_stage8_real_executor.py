@@ -12,6 +12,7 @@ import pytest
 
 from momo.adapters.motion.real_motion_executor import RealMotionExecutor
 from momo.domain.calibration import CalibrationDocument
+from momo.domain.commissioning import FieldAcceptanceCapability
 from momo.domain.enums import ControlMode, Easing, HardwareAccessPolicy
 from momo.domain.real_hardware import (
     RealHardwareAuthorizationPurpose,
@@ -308,13 +309,35 @@ def execution_authorization(
             purpose is RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION
         ),
         real_playback_ready=(purpose is RealHardwareAuthorizationPurpose.REAL_PLAYBACK),
+        real_vision_follow_ready=(purpose is RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW),
     )
+    capability_evidence_ids = {
+        FieldAcceptanceCapability.JOINT_MOTION: uuid4(),
+    }
+    purpose_capability = {
+        RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION: (
+            FieldAcceptanceCapability.CARTESIAN
+        ),
+        RealHardwareAuthorizationPurpose.REAL_PLAYBACK: FieldAcceptanceCapability.PLAYBACK,
+        RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW: (
+            FieldAcceptanceCapability.VISION_FOLLOW
+        ),
+    }.get(purpose)
+    if purpose_capability is not None:
+        capability_evidence_ids[purpose_capability] = uuid4()
+    kinematics_scoped = purpose in {
+        RealHardwareAuthorizationPurpose.REAL_CARTESIAN_MOTION,
+        RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+    }
     return RealExecutionAuthorization(
         session_id=uuid4(),
         robot_id="primary",
         variant=profile.variant,
         profile_fingerprint=profile.fingerprint,
         calibration_fingerprint=calibration_fingerprint(calibration),
+        kinematics_fingerprint="c" * 64 if kinematics_scoped else None,
+        kinematics_verification_evidence_id=uuid4() if kinematics_scoped else None,
+        capability_evidence_ids=capability_evidence_ids,
         allowed_servo_ids=explicit_servo_ids(profile),
         issued_at=clock.now(),
         expires_at=clock.now() + timedelta(seconds=expires_in_s),
@@ -809,6 +832,10 @@ def test_profile_logical_limits_are_checked_before_raw_mapping_or_bus_access() -
             RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
             TrajectorySegmentKind.JOINT,
         ),
+        (
+            RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+            TrajectorySegmentKind.JOINT,
+        ),
     ],
 )
 def test_explicit_execution_purpose_and_matching_segment_capability_are_required(
@@ -829,7 +856,11 @@ def test_explicit_execution_purpose_and_matching_segment_capability_are_required
         codes: list[str] = []
         rejected_purpose = (
             RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION
-            if purpose is RealHardwareAuthorizationPurpose.REAL_PLAYBACK
+            if purpose
+            in {
+                RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+                RealHardwareAuthorizationPurpose.REAL_VISION_FOLLOW,
+            }
             else purpose
         )
         with pytest.raises(RealMotionError) as mismatch:
@@ -862,6 +893,56 @@ def test_explicit_execution_purpose_and_matching_segment_capability_are_required
     assert codes == [RealMotionFaultCode.AUTHORIZATION_MISMATCH.value]
     assert terminal.state is RealMotionState.COMPLETED
     assert terminal.execution_purpose is purpose
+
+
+def test_cartesian_playback_requires_cartesian_and_kinematics_evidence_at_executor() -> None:
+    async def scenario() -> tuple[str, RealMotionStatus]:
+        executor, _, _, context_provider, clock, profile, calibration, kinematics = (
+            executor_fixture()
+        )
+        cartesian = prepared_trajectory(
+            profile,
+            clock,
+            kinematics,
+            segment_kind=TrajectorySegmentKind.CARTESIAN_LINEAR,
+        )
+        playback_only = execution_authorization(
+            profile,
+            calibration,
+            clock,
+            purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        )
+        with pytest.raises(RealMotionError) as rejected:
+            await executor.submit(
+                cartesian,
+                expected_digest=cartesian.plan.digest.sha256,
+                authorization=playback_only,
+                execution_purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+            )
+        payload = playback_only.model_dump(mode="python")
+        evidence = dict(playback_only.capability_evidence_ids)
+        evidence[FieldAcceptanceCapability.CARTESIAN] = uuid4()
+        payload.update(
+            capability_evidence_ids=evidence,
+            kinematics_fingerprint=kinematics,
+            kinematics_verification_evidence_id=uuid4(),
+        )
+        authorized = RealExecutionAuthorization.model_validate(payload)
+        context_provider.bind(cartesian)
+        accepted = await executor.submit(
+            cartesian,
+            expected_digest=cartesian.plan.digest.sha256,
+            authorization=authorized,
+            execution_purpose=RealHardwareAuthorizationPurpose.REAL_PLAYBACK,
+        )
+        await clock.settle()
+        await clock.advance(1.0)
+        return rejected.value.code, await executor.wait(accepted.execution_id)
+
+    code, terminal = asyncio.run(scenario())
+
+    assert code == RealMotionFaultCode.AUTHORIZATION_MISMATCH.value
+    assert terminal.state is RealMotionState.COMPLETED
 
 
 @pytest.mark.parametrize(
@@ -947,6 +1028,38 @@ def test_context_drift_after_readback_stops_before_the_next_write() -> None:
 
     assert terminal.fault_code is RealMotionFaultCode.ROBOT_DISCONNECTED
     assert [name for name, _ in bus.events].count("write_goal_positions") == 1
+    assert [name for name, _ in bus.events].count("stop_or_hold") == 1
+
+
+def test_continuous_deadman_is_rechecked_immediately_before_every_bus_write() -> None:
+    async def scenario() -> tuple[RealMotionStatus, MotionFakeBus, int]:
+        executor, bus, _, context_provider, clock, profile, calibration, kinematics = (
+            executor_fixture()
+        )
+        prepared = prepared_trajectory(profile, clock, kinematics)
+        context_provider.bind(prepared)
+        calls = 0
+
+        def expired_guard() -> bool:
+            nonlocal calls
+            calls += 1
+            return False
+
+        accepted = await executor.submit(
+            prepared,
+            expected_digest=prepared.plan.digest.sha256,
+            authorization=execution_authorization(profile, calibration, clock),
+            execution_purpose=RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION,
+            continuous_write_guard=expired_guard,
+        )
+        await clock.settle()
+        return await executor.wait(accepted.execution_id), bus, calls
+
+    terminal, bus, calls = asyncio.run(scenario())
+
+    assert calls >= 1
+    assert terminal.fault_code is RealMotionFaultCode.DEADMAN_LEASE_EXPIRED
+    assert [name for name, _ in bus.events].count("write_goal_positions") == 0
     assert [name for name, _ in bus.events].count("stop_or_hold") == 1
 
 
