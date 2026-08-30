@@ -5,7 +5,7 @@
 - Starting commit: `9da68536d26eb2d37c4f9acbed8f30dee57843e4`
 - Delivery branch: `codex/9da6853-system-audit-fixes`
 - Final commit: recorded in the Draft PR and final handoff after this report's own commit
-- Draft PR: recorded after push in this report's repository-state section
+- Draft PR: [#2](https://github.com/39394480ke-sys/MOMO-Studio/pull/2)
 - Base branch: `codex/frontend-figma-redesign`; `main` is not modified
 
 This report is the current evidence ledger for the system-level repair. It separates
@@ -200,7 +200,7 @@ REAL-to-DRY_RUN fallback surface is introduced.
 | `make test`, `make lint`, `make format-check`, `make build`, `make schemas` | PASS on the final documented worktree |
 | `git diff --check` | PASS |
 | Browser QA at 1440x960, 1280x800, 390x844 | PASS for isolated DRY RUN product flow and responsive overflow; console warning/error `[]` |
-| Pull-request CI | Recorded after push below |
+| Pull-request CI | PASS — Backend/static/isolation, Frontend/lint/types/build/audit, and secret scan |
 
 ## Browser acceptance
 
@@ -227,8 +227,8 @@ by deterministic backend/component integration tests rather than fabricated brow
 | final documentation commit | reconcile reports and final evidence |
 
 - Final `git status --short`: clean after the final documentation commit.
-- Push/Draft PR URL: recorded after creation.
-- CI link/result: recorded after the pushed head is observed.
+- Push/Draft PR URL: [Draft PR #2](https://github.com/39394480ke-sys/MOMO-Studio/pull/2), base `codex/frontend-figma-redesign`.
+- CI link/result: PASS on [GitHub Actions run 33297675264](https://github.com/39394480ke-sys/MOMO-Studio/actions/runs/33297675264) (PR event); the duplicate push-event run also passed.
 - `main`: not checked out, merged, rebased, or modified by this task.
 
 Known limitations:

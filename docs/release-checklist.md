@@ -186,5 +186,6 @@ This is the current pre-merge evidence; older counts above remain historical sna
 - [x] Isolated DRY RUN browser flow passes at 1440×960, 1280×800, and 390×844 with no
   horizontal overflow and clean acceptance-tab warning/error console.
 - [x] Exact Three.js 0.171.0 MIT and `urdf-loader` 0.13.1 Apache-2.0 texts are tracked.
-- [ ] Draft PR CI is green for the final pushed head.
+- [x] Draft PR #2 CI is green for Backend/static/isolation, Frontend/lint/types/build/audit,
+  and secret scan; base remains `codex/frontend-figma-redesign` and `main` is untouched.
 - [ ] Repository distribution license decision is resolved.
