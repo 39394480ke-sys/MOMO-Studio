@@ -82,6 +82,7 @@ function DialogFrame({ children, labelledBy, onClose, variant = 'modal' }: Dialo
 interface PosePickerProps {
   busy: boolean;
   error: string | null;
+  mode?: 'insert' | 'replace';
   placement: 'before' | 'after';
   poses: PoseSummary[];
   search: string;
@@ -94,6 +95,7 @@ interface PosePickerProps {
 export function StudioPosePicker({
   busy,
   error,
+  mode = 'insert',
   placement,
   poses,
   search,
@@ -106,8 +108,14 @@ export function StudioPosePicker({
     <DialogFrame labelledBy="studio-pose-picker-heading" onClose={busy ? () => undefined : onClose} variant="drawer">
       <header className="studio-dialog__header">
         <div>
-          <p className="section-kicker">插入到当前关键帧{placement === 'before' ? '之前' : '之后'}</p>
-          <h2 id="studio-pose-picker-heading">添加关键帧</h2>
+          <p className="section-kicker">
+            {mode === 'replace'
+              ? '使用经过合同校验的完整姿态快照'
+              : `插入到当前关键帧${placement === 'before' ? '之前' : '之后'}`}
+          </p>
+          <h2 id="studio-pose-picker-heading">
+            {mode === 'replace' ? '替换问题关键帧' : '添加关键帧'}
+          </h2>
         </div>
         <button aria-label="关闭机位选择器" className="mini-command" disabled={busy} onClick={onClose} type="button">
           <X aria-hidden="true" />
@@ -121,12 +129,14 @@ export function StudioPosePicker({
       >
         <span className="studio-capture-card__icon"><Radio aria-hidden="true" /></span>
         <span>
-          <strong>捕获当前姿态</strong>
-          <small>通过后端统一状态快照入口添加；不会直接读取或控制硬件。</small>
+          <strong>{mode === 'replace' ? '捕获当前姿态并替换' : '捕获当前姿态'}</strong>
+          <small>通过后端统一状态快照入口{mode === 'replace' ? '替换' : '添加'}；不会直接读取或控制硬件。</small>
         </span>
         <Plus aria-hidden="true" />
       </button>
-      <div className="studio-drawer-divider"><span>从资产库添加</span></div>
+      <div className="studio-drawer-divider">
+        <span>从资产库{mode === 'replace' ? '替换' : '添加'}</span>
+      </div>
       <label className="studio-field">
         <span>搜索 Pose</span>
         <input

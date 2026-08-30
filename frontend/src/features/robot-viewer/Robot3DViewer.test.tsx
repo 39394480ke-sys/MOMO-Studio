@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const runtimeMocks = vi.hoisted(() => ({
   create: vi.fn(),
   dispose: vi.fn(),
+  loadAssets: vi.fn(),
+  setPlaybackActive: vi.fn(),
   setJointValues: vi.fn(),
   options: null as null | {
     variant: 'V1' | 'V2';
@@ -15,6 +17,10 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock('./viewerRuntime', () => ({
   createRobotViewerRuntime: runtimeMocks.create,
+}));
+
+vi.mock('./viewerAssets', () => ({
+  loadRobotViewerAssets: runtimeMocks.loadAssets,
 }));
 
 import { Robot3DViewer } from './Robot3DViewer';
@@ -32,11 +38,19 @@ describe('Robot3DViewer', () => {
   beforeEach(() => {
     vi.stubGlobal('WebGLRenderingContext', class WebGLRenderingContext {});
     runtimeMocks.dispose.mockReset();
+    runtimeMocks.setPlaybackActive.mockReset();
     runtimeMocks.setJointValues.mockReset();
+    runtimeMocks.loadAssets.mockReset().mockImplementation(async (variant: 'V1' | 'V2') => ({
+      variant,
+      urdfUrl: `${variant}.urdf`,
+      meshUrlsByFilename: {},
+      jointNamesByProfileJointId: {},
+    }));
     runtimeMocks.create.mockReset().mockImplementation((options) => {
       runtimeMocks.options = options;
       return {
         dispose: runtimeMocks.dispose,
+        setPlaybackActive: runtimeMocks.setPlaybackActive,
         setJointValues: runtimeMocks.setJointValues,
       };
     });
@@ -82,6 +96,7 @@ describe('Robot3DViewer', () => {
       j10: 0.1,
       j11: Math.PI / 2,
     });
+    expect(runtimeMocks.setPlaybackActive).toHaveBeenLastCalledWith(false);
 
     act(() => runtimeMocks.options?.onReady());
     expect(screen.getByText(/V2 三维模型已加载/)).toBeVisible();
@@ -100,6 +115,18 @@ describe('Robot3DViewer', () => {
       j10: 0.5,
       j11: -Math.PI / 2,
     });
+
+    rerender(
+      <Robot3DViewer
+        enabledJointIds={['j10', 'j11']}
+        jointDefinitions={definitions}
+        jointPositions={{ j10: 600, j11: -90 }}
+        jointUnits={{ j10: 'mm', j11: 'deg' }}
+        playbackActive
+        variant="V2"
+      />,
+    );
+    expect(runtimeMocks.setPlaybackActive).toHaveBeenLastCalledWith(true);
 
     unmount();
     expect(runtimeMocks.dispose).toHaveBeenCalledTimes(1);
@@ -133,6 +160,8 @@ describe('Robot3DViewer', () => {
     await waitFor(() => expect(runtimeMocks.create).toHaveBeenCalledTimes(2));
     expect(runtimeMocks.dispose).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.options?.variant).toBe('V2');
+    expect(runtimeMocks.loadAssets).toHaveBeenNthCalledWith(1, 'V1');
+    expect(runtimeMocks.loadAssets).toHaveBeenNthCalledWith(2, 'V2');
 
     act(() => firstRuntimeOptions?.onReady());
     expect(screen.queryByText(/V1 三维模型已加载/)).not.toBeInTheDocument();

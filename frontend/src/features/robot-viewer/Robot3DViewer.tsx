@@ -7,6 +7,7 @@ import {
   type RobotViewerJointUnits,
 } from './jointTransforms';
 import type { RobotViewerRuntime } from './viewerRuntime';
+import { loadRobotViewerAssets } from './viewerAssets';
 import './Robot3DViewer.css';
 
 export interface Robot3DViewerProps {
@@ -15,6 +16,7 @@ export interface Robot3DViewerProps {
   readonly enabledJointIds: readonly string[];
   readonly jointPositions: RobotViewerJointPositions;
   readonly jointUnits: RobotViewerJointUnits;
+  readonly playbackActive?: boolean;
   readonly className?: string;
   readonly ariaLabel?: string;
   readonly badgeLabel?: string;
@@ -112,6 +114,7 @@ export function Robot3DViewer({
   enabledJointIds,
   jointPositions,
   jointUnits,
+  playbackActive = false,
   className,
   ariaLabel = 'MOMO 机械臂只读三维视图',
   badgeLabel = '3D · SIMULATION ONLY',
@@ -132,6 +135,8 @@ export function Robot3DViewer({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const runtimeRef = useRef<RobotViewerRuntime | null>(null);
+  const latestPlaybackActiveRef = useRef(playbackActive);
+  latestPlaybackActiveRef.current = playbackActive;
 
   const urdfJointValues = useMemo(
     () => buildUrdfJointValues({
@@ -167,10 +172,13 @@ export function Robot3DViewer({
     let cancelled = false;
     setRuntimeState({ variant, state: loadingState(variant) });
 
-    void import('./viewerRuntime')
-      .then(({ createRobotViewerRuntime }) => {
+    void Promise.all([
+      import('./viewerRuntime'),
+      loadRobotViewerAssets(variant),
+    ]).then(([{ createRobotViewerRuntime }, assets]) => {
         if (cancelled) return;
         const runtime = createRobotViewerRuntime({
+          assets,
           host,
           canvas,
           variant,
@@ -203,6 +211,7 @@ export function Robot3DViewer({
           return;
         }
         runtimeRef.current = runtime;
+        runtime.setPlaybackActive(latestPlaybackActiveRef.current);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -226,6 +235,10 @@ export function Robot3DViewer({
   useEffect(() => {
     runtimeRef.current?.setJointValues(urdfJointValues);
   }, [urdfJointValues]);
+
+  useEffect(() => {
+    runtimeRef.current?.setPlaybackActive(playbackActive);
+  }, [playbackActive]);
 
   const state = unavailable ?? (
     runtimeState.variant === variant ? runtimeState.state : loadingState(variant)

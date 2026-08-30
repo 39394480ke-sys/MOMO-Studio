@@ -31,12 +31,17 @@ from momo.application.studio_commands import (
 from momo.domain.motion_draft import MotionDraft
 from momo.domain.motion_preflight import MotionAccepted
 from momo.domain.pose import PoseSnapshot
+from momo.domain.real_motion import RealExecutionAuthorization
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 StudioService = Annotated[StudioApplicationService, Depends(get_studio_service)]
 Page = Annotated[int, Query(ge=1, le=100000)]
 PageSize = Annotated[int, Query(ge=1, le=50)]
 ExpectedRevisionQuery = Annotated[int, Query(ge=1)]
+RealJointAuthorization = Annotated[
+    RealExecutionAuthorization | None,
+    Depends(authorize_real_joint_motion_request),
+]
 
 
 @router.get("/drafts", response_model=MotionDraftListResponse)
@@ -140,7 +145,6 @@ async def abandon_draft_save_intent(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_joint_motion_request),
     ],
 )
 async def goto_draft_keyframe(
@@ -148,8 +152,14 @@ async def goto_draft_keyframe(
     keyframe_id: UUID,
     request: MotionDraftGotoCommand,
     service: StudioService,
+    authorization: RealJointAuthorization,
 ) -> MotionAccepted:
-    return await service.goto_keyframe(draft_id, keyframe_id, request)
+    return await service.goto_keyframe(
+        draft_id,
+        keyframe_id,
+        request,
+        authorization=authorization,
+    )
 
 
 @router.post("/drafts/{draft_id}/validate", response_model=MotionDraftValidationResponse)

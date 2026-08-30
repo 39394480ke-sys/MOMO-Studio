@@ -29,12 +29,18 @@ from momo.application.services.library_service import LibraryApplicationService
 from momo.domain.motion import Motion
 from momo.domain.motion_preflight import MotionAccepted
 from momo.domain.pose import Pose
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 
 router = APIRouter(tags=["library"])
 LibraryService = Annotated[LibraryApplicationService, Depends(get_library_service)]
 Page = Annotated[int, Query(ge=1, le=100000)]
 PageSize = Annotated[int, Query(ge=1, le=50)]
 ExpectedRevisionQuery = Annotated[int, Query(ge=1)]
+RealJointAuthorization = Annotated[
+    RealExecutionAuthorization | None,
+    Depends(authorize_real_joint_motion_request),
+]
 
 
 @router.get("/poses", response_model=PoseListResponse)
@@ -119,13 +125,24 @@ async def duplicate_pose(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(authorize_control_request),
-        Depends(authorize_real_joint_motion_request),
     ],
 )
 async def goto_pose(
-    pose_id: UUID, request: GotoPoseCommand, service: LibraryService
+    pose_id: UUID,
+    request: GotoPoseCommand,
+    service: LibraryService,
+    authorization: RealJointAuthorization,
 ) -> MotionAccepted:
-    return await service.goto_pose(pose_id, request)
+    return await service.goto_pose(
+        pose_id,
+        request,
+        authorization=authorization,
+        execution_purpose=(
+            RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION
+            if authorization is not None
+            else None
+        ),
+    )
 
 
 @router.get("/motions", response_model=MotionListResponse)

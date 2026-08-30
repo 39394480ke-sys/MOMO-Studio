@@ -11,6 +11,7 @@ import {
   StudioPosePicker,
   StudioSaveAsDialog,
 } from '../features/studio/StudioDialogs';
+import { StudioCompatibilityNotice } from '../features/studio/StudioCompatibilityNotice';
 import { StudioInspector } from '../features/studio/StudioInspector';
 import { StudioTimeline } from '../features/studio/StudioTimeline';
 import { StudioToolbar } from '../features/studio/StudioToolbar';
@@ -45,6 +46,10 @@ export function StudioPage() {
   playheadRef.current = workspace.playheadS;
 
   const frameLimitReached = workspace.keyframes.length >= 1000;
+  const frameIds = useMemo(
+    () => new Set(workspace.keyframes.map((frame) => frame.id)),
+    [workspace.keyframes],
+  );
   const timeline = useMemo(() => timelineData(workspace.keyframes), [workspace.keyframes]);
   const simulationDuration = workspace.preview?.duration_s ?? timeline.duration;
   const viewerProfile = useMemo(() => {
@@ -110,6 +115,15 @@ export function StudioPage() {
     if (workspace.formalDirty) setConfirmNewOpen(true);
     else void workspace.createBlankDraft();
   };
+  const canSwitchCompatibilityVariant = Boolean(
+    workspace.compatibilityIssue
+    && runtime.backend === 'connected'
+    && runtime.controlMode === 'DRY RUN'
+    && runtime.hardwareAccessPolicy === 'DISABLED'
+    && runtime.realMotionEnabled === false
+    && runtime.robot?.connected === false
+    && runtime.pendingAction === null,
+  );
 
   const playSimulation = useCallback(async () => {
     let preview = workspace.preview;
@@ -200,6 +214,22 @@ export function StudioPage() {
           <button aria-label="关闭编排错误" className="mini-command" onClick={workspace.clearError} type="button"><X aria-hidden="true" /></button>
         </div>
       ) : null}
+      {workspace.compatibilityIssue ? (
+        <StudioCompatibilityNotice
+          busy={workspace.action !== null}
+          canSwitchVariant={canSwitchCompatibilityVariant}
+          frameCount={workspace.keyframes.length}
+          frameIds={frameIds}
+          issue={workspace.compatibilityIssue}
+          onCaptureReplace={(frameId) => void workspace.replaceSnapshot(frameId)}
+          onDelete={(frameId) => workspace.edit({ type: 'frame/delete', frameId })}
+          onDiscardDraft={requestNew}
+          onDismiss={workspace.clearError}
+          onReplaceFromLibrary={workspace.startPoseReplacement}
+          onSelect={(frameId) => workspace.edit({ type: 'selection/set', frameId })}
+          onSwitchVariant={() => void runtime.switchVariant(workspace.compatibilityIssue?.draftVariant ?? 'V2')}
+        />
+      ) : null}
       {workspace.conflict && workspace.conflictAcknowledged ? (
         <div className="studio-notice studio-notice--conflict" role="status">
           <AlertCircle aria-hidden="true" />
@@ -215,6 +245,7 @@ export function StudioPage() {
         <div className="studio-primary-grid">
           <StudioViewer
             onOpenInspector={() => setMobileInspectorOpen(true)}
+            playbackActive={simulationPlaying}
             runtimeMode={runtime.controlMode}
             selectedFrame={workspace.selectedFrame}
             viewerEnabledJointIds={viewerEnabledJointIds}
@@ -263,17 +294,28 @@ export function StudioPage() {
         <StudioPosePicker
           busy={workspace.posesBusy || workspace.action === 'capture'}
           error={workspace.poseError}
-          onChoose={(pose) => void workspace.addPose(pose)}
+          onChoose={(pose) => {
+            void workspace.addPose(pose).then((added) => {
+              if (added) workspace.clearError();
+            });
+          }}
           onClose={workspace.closePoseInsertion}
           onCapture={() => {
             const insertion = workspace.poseInsertion;
             if (!insertion) return;
-            void workspace.capture(insertion.position, insertion.anchorFrameId).then((captured) => {
-              if (captured) workspace.closePoseInsertion();
-            });
+            if (insertion.kind === 'replace') {
+              void workspace.replaceSnapshot(insertion.frameId).then((replaced) => {
+                if (replaced) workspace.closePoseInsertion();
+              });
+            } else {
+              void workspace.capture(insertion.position, insertion.anchorFrameId).then((captured) => {
+                if (captured) workspace.closePoseInsertion();
+              });
+            }
           }}
           onSearchChange={workspace.setPoseSearch}
           placement="after"
+          mode={workspace.poseInsertion.kind}
           poses={workspace.poses}
           search={workspace.poseSearch}
         />

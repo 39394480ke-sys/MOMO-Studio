@@ -82,6 +82,7 @@ export function MotionSimulationPlayer({
             jointDefinitions={jointDefinitions}
             jointPositions={sample.jointState.positions}
             jointUnits={sample.jointState.units}
+            playbackActive={playing}
             variant={motion.robot_variant}
           />
         ) : (

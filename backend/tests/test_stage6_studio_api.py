@@ -10,10 +10,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from momo.domain.enums import MotionCommandSource
-from momo.domain.motion import LegacyImportMetadata, Motion
+from momo.api.dependencies import authorize_real_joint_motion_request
+from momo.domain.enums import DomainUnit, MotionCommandSource, RobotVariant
+from momo.domain.errors import PoseIncompatibleError
+from momo.domain.motion import LegacyImportMetadata, Motion, MotionKeyframe
 from momo.domain.motion_draft import legacy_snapshot_sha256
-from momo.domain.pose import Pose, PoseSnapshot
+from momo.domain.pose import Pose, PoseSnapshot, SnapshotJointState
+from momo.domain.real_hardware import RealHardwareAuthorizationPurpose
+from momo.domain.real_motion import RealExecutionAuthorization
 from tests.stage4_helpers import api_request
 from tests.stage6_helpers import make_stage6_app
 
@@ -97,6 +101,151 @@ def legacy_metadata(*, digest_character: str = "a") -> dict[str, object]:
         "legacy_source": "web_record:arm_a",
         "warnings": ["Imported without a runtime state sequence"],
     }
+
+
+def test_incompatible_draft_reports_structured_keyframe_contract_diagnostics(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        app = make_stage6_app(tmp_path)
+        snapshot = await connect_and_capture(app)
+        frames = keyframes(snapshot)
+        first_id = "11111111-1111-4111-8111-111111111111"
+        second_id = "22222222-2222-4222-8222-222222222222"
+        source_pose_id = "33333333-3333-4333-8333-333333333333"
+        frames[0]["id"] = first_id
+        frames[0]["label"] = "Legacy start"
+        frames[0]["source_pose_id"] = source_pose_id
+        frames[0]["pose_snapshot"]["state_sequence"] = None
+        frames[0]["pose_snapshot"]["profile_fingerprint"] = "a" * 64
+        frames[0]["pose_snapshot"]["kinematics_fingerprint"] = "b" * 64
+        frames[1]["id"] = second_id
+        frames[1]["label"] = "TCP drift"
+        frames[1]["pose_snapshot"]["tcp_pose"]["position_mm"]["x"] += 1.0
+
+        response = await api_request(
+            app,
+            "POST",
+            "/api/v1/studio/drafts",
+            json_data=create_body(frames=frames, name="Incompatible diagnostics"),
+        )
+
+        assert response.status_code == 422, response.text
+        envelope = response.json()
+        assert envelope["code"] == "POSE_INCOMPATIBLE"
+        details = envelope["details"]
+        assert details["error_code"] == "STUDIO_DRAFT_CONTRACT_INCOMPATIBLE"
+        assert details["draft_variant"] == "V2"
+        assert details["active_variant"] == "V2"
+        assert details["checks"] == [
+            "kinematics_fingerprint",
+            "profile_fingerprint",
+            "state_sequence",
+            "tcp_pose",
+        ]
+        assert [item["keyframe_id"] for item in details["keyframes"]] == [
+            first_id,
+            second_id,
+        ]
+
+        first, second = details["keyframes"]
+        assert first["keyframe_index"] == 0
+        assert first["keyframe_name"] == "Legacy start"
+        assert first["source_pose_id"] == source_pose_id
+        assert first["state_sequence_issue"] is True
+        assert first["provenance_issue"] is True
+        assert first["tcp_mismatch"] is False
+        assert first["expected_joint_ids"] == ["j10", "j11", "j12", "j13", "j14", "j15"]
+        assert first["actual_joint_ids"] == ["j10", "j11", "j12", "j13", "j14", "j15"]
+        assert first["missing_joint_ids"] == []
+        assert first["extra_joint_ids"] == []
+        assert first["expected_units"] == snapshot["joint_state"]["units"]
+        assert first["actual_units"] == snapshot["joint_state"]["units"]
+        assert first["expected_profile_fingerprint"] == snapshot["profile_fingerprint"]
+        assert first["actual_profile_fingerprint"] == "a" * 64
+        assert first["expected_kinematics_fingerprint"] == snapshot["kinematics_fingerprint"]
+        assert first["actual_kinematics_fingerprint"] == "b" * 64
+
+        assert second["keyframe_index"] == 1
+        assert second["keyframe_name"] == "TCP drift"
+        assert second["checks"] == ["tcp_pose"]
+        assert second["tcp_mismatch"] is True
+        assert second["state_sequence_issue"] is False
+        assert second["provenance_issue"] is False
+
+    asyncio.run(scenario())
+
+
+def test_contract_diagnostics_preserve_wrong_variant_joint_and_unit_evidence(
+    tmp_path: Path,
+) -> None:
+    """Even pre-schema/corrupt legacy data gets a complete, fail-closed report."""
+
+    async def scenario() -> None:
+        app = make_stage6_app(tmp_path)
+        captured_data = await connect_and_capture(app)
+        captured = PoseSnapshot.model_validate(captured_data)
+
+        def keyframe(label: str, snapshot: PoseSnapshot) -> MotionKeyframe:
+            return MotionKeyframe.model_construct(
+                id=uuid4(),
+                label=label,
+                pose_snapshot=snapshot,
+                source_pose_id=None,
+                hold_s=0.0,
+                incoming_transition=None,
+            )
+
+        wrong_variant = captured.model_copy(update={"robot_variant": RobotVariant.V1})
+
+        missing_extra_positions = dict(captured.joint_state.positions)
+        missing_extra_units = dict(captured.joint_state.units)
+        missing_extra_positions.pop("j10")
+        missing_extra_units.pop("j10")
+        missing_extra_positions["j16"] = 0.0
+        missing_extra_units["j16"] = DomainUnit.DEG
+        missing_extra = captured.model_copy(
+            update={
+                "joint_state": SnapshotJointState.model_construct(
+                    positions=missing_extra_positions,
+                    units=missing_extra_units,
+                )
+            }
+        )
+
+        wrong_j10_units = dict(captured.joint_state.units)
+        wrong_j10_units["j10"] = DomainUnit.DEG
+        unit_mismatch = captured.model_copy(
+            update={
+                "joint_state": SnapshotJointState.model_construct(
+                    positions=dict(captured.joint_state.positions),
+                    units=wrong_j10_units,
+                )
+            }
+        )
+
+        with pytest.raises(PoseIncompatibleError) as raised:
+            await app.state.studio_service._validate_client_keyframes(
+                [
+                    keyframe("Wrong variant", wrong_variant),
+                    keyframe("Missing and extra", missing_extra),
+                    keyframe("Wrong j10 units", unit_mismatch),
+                ],
+                draft_variant=RobotVariant.V2,
+                trusted_legacy_snapshot_sha256=frozenset(),
+            )
+
+        details = cast(dict[str, Any], raised.value.details)
+        first, second, third = details["keyframes"]
+        assert "robot_variant" in first["checks"]
+        assert second["missing_joint_ids"] == ["j10"]
+        assert second["extra_joint_ids"] == ["j16"]
+        assert {"missing_joint_ids", "extra_joint_ids", "joint_state"} <= set(second["checks"])
+        assert third["expected_units"]["j10"] == "mm"
+        assert third["actual_units"]["j10"] == "deg"
+        assert {"joint_units", "joint_state"} <= set(third["checks"])
+
+    asyncio.run(scenario())
 
 
 async def seed_imported_motion(app: Any, snapshot: dict[str, Any]) -> Motion:
@@ -506,6 +655,69 @@ def test_keyframe_goto_loads_persisted_snapshot_with_studio_provenance(
         )
         assert stale.status_code == 409
         assert len(submitted) == 1
+
+    asyncio.run(scenario())
+
+
+def test_keyframe_goto_passes_the_route_authorization_to_the_executor_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        app = make_stage6_app(tmp_path)
+        snapshot = await connect_and_capture(app)
+        created = await api_request(
+            app,
+            "POST",
+            "/api/v1/studio/drafts",
+            json_data=create_body(frames=keyframes(snapshot), name="Authorization binding"),
+        )
+        assert created.status_code == 201, created.text
+        draft = created.json()
+        keyframe = draft["keyframes"][0]
+
+        authorization = cast(RealExecutionAuthorization, object())
+
+        async def authorized_dependency() -> RealExecutionAuthorization:
+            return authorization
+
+        app.dependency_overrides[authorize_real_joint_motion_request] = authorized_dependency
+        executor = app.state.motion_service.executor
+        original_submit = executor.submit
+        received: list[
+            tuple[RealExecutionAuthorization | None, RealHardwareAuthorizationPurpose | None]
+        ] = []
+
+        async def observe_executor_submit(
+            prepared: Any,
+            *,
+            authorization: RealExecutionAuthorization | None = None,
+            execution_purpose: RealHardwareAuthorizationPurpose | None = None,
+            continuous_write_guard: Any = None,
+        ) -> Any:
+            del continuous_write_guard
+            received.append((authorization, execution_purpose))
+            # The fixture executor is intentionally DRY_RUN. Execute without the
+            # injected sentinel after observing the application boundary.
+            return await original_submit(prepared)
+
+        monkeypatch.setattr(executor, "submit", observe_executor_submit)
+        accepted = await api_request(
+            app,
+            "POST",
+            f"/api/v1/studio/drafts/{draft['id']}/keyframes/{keyframe['id']}/goto",
+            json_data={
+                "expected_revision": draft["revision"],
+                "duration_s": 0.1,
+                "speed_scale": 0.5,
+                "idempotency_key": "studio-authorization-binding",
+            },
+        )
+
+        assert accepted.status_code == 202, accepted.text
+        assert len(received) == 1
+        assert received[0][0] is authorization
+        assert received[0][1] is RealHardwareAuthorizationPurpose.REAL_JOINT_MOTION
 
     asyncio.run(scenario())
 

@@ -118,7 +118,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
         position,
         anchorFrameId,
         frameId: id(),
-        label: `Capture ${editorRef.current.document.frames.length + 1}`,
+        label: `关键帧 ${editorRef.current.document.frames.length + 1}`,
         snapshot,
       });
       return true;
@@ -142,8 +142,10 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
       );
       if (incompatibility) throw new Error(incompatibility);
       edit({ type: 'frame/replace-snapshot', frameId, snapshot, sourcePoseId: null });
+      return true;
     } catch (caught) {
       setError(message(caught));
+      return false;
     } finally {
       setAction((currentAction) => currentAction === 'replace' ? null : currentAction);
     }
@@ -216,6 +218,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
     clearRecoveryMessage: draftSession.clearRecoveryMessage,
     compile: draftSession.compile,
     compileDisabledReason,
+    compatibilityIssue: draftSession.compatibilityIssue,
     conflict: draftSession.conflict,
     conflictAcknowledged: draftSession.conflictAcknowledged,
     createBlankDraft: draftSession.createBlankDraft,
@@ -267,6 +270,7 @@ export function useStudioWorkspace(entry: StudioEntry, runtime: RuntimeStatus) {
       Number.isFinite(value) ? Math.min(8, Math.max(0.25, value)) : current
     ),
     startPoseInsertion: poseInsertionSession.startPoseInsertion,
+    startPoseReplacement: poseInsertionSession.startPoseReplacement,
     stop: motionSession.stop,
     studioCommand: motionSession.studioCommand,
     timelineScrollS,

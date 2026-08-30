@@ -248,6 +248,7 @@ interface RequestRecord {
 interface BackendOptions {
   empty?: boolean;
   listError?: boolean;
+  legacyCompatibility?: boolean;
   duplicateConflict?: boolean;
   changedSourceRevision?: boolean;
   preflightPassed?: boolean;
@@ -268,6 +269,44 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function mockLibraryBackend(options: BackendOptions = {}) {
   const requests: RequestRecord[] = [];
+  const listedStartPose = options.legacyCompatibility
+    ? {
+        ...poseSummary(startPose),
+        tags: ['legacy-import'],
+        state_sequence: null,
+        profile_fingerprint: 'd'.repeat(64),
+        joint_state: {
+          ...startPose.snapshot.joint_state,
+          units: { ...startPose.snapshot.joint_state.units, j10: 'deg' as const },
+        },
+      }
+    : poseSummary(startPose);
+  const listedMotion = options.legacyCompatibility
+    ? { ...motionSummary, tags: ['legacy-import'] }
+    : motionSummary;
+  const loadedMotion = options.legacyCompatibility
+    ? {
+        ...fullMotion,
+        tags: ['legacy-import'],
+        keyframes: fullMotion.keyframes.map((frame, index) => index === 0
+          ? {
+              ...frame,
+              pose_snapshot: {
+                ...frame.pose_snapshot,
+                profile_fingerprint: 'd'.repeat(64),
+              },
+            }
+          : frame),
+        source_metadata: {
+          importer: 'momo.tools.import_legacy_actions' as const,
+          source_file_name: 'legacy.json',
+          source_sha256: 'e'.repeat(64),
+          legacy_id: null,
+          legacy_source: null,
+          warnings: [],
+        },
+      }
+    : fullMotion;
   let playbackStatus = options.playbackStatus ?? idlePlayback;
   let delayedPlaybackResponse = options.playbackGetResponse;
   let pauseErrorPending = options.pauseErrorOnce ?? false;
@@ -283,17 +322,17 @@ function mockLibraryBackend(options: BackendOptions = {}) {
         return jsonResponse({ code: 'ENTITY_INVALID', message: 'Repository index unavailable', details: {} }, 500);
       }
       const filtered = url.searchParams.get('search') === 'missing';
-      const items = options.empty || filtered ? [] : [poseSummary(startPose), poseSummary(endPose)];
+      const items = options.empty || filtered ? [] : [listedStartPose, poseSummary(endPose)];
       return jsonResponse({ items, page: 1, page_size: Number(url.searchParams.get('page_size')), total: items.length });
     }
     if (path === '/motions' && method === 'GET') {
-      return jsonResponse({ items: options.empty ? [] : [motionSummary], page: 1, page_size: 24, total: options.empty ? 0 : 1 });
+      return jsonResponse({ items: options.empty ? [] : [listedMotion], page: 1, page_size: 24, total: options.empty ? 0 : 1 });
     }
     if (path === `/poses/${START_ID}` && method === 'GET') {
       return jsonResponse(options.changedSourceRevision ? { ...startPose, revision: 2 } : startPose);
     }
     if (path === `/poses/${END_ID}` && method === 'GET') return jsonResponse(endPose);
-    if (path === `/motions/${MOTION_ID}` && method === 'GET') return jsonResponse(fullMotion);
+    if (path === `/motions/${MOTION_ID}` && method === 'GET') return jsonResponse(loadedMotion);
     if (path === `/motions/${MOTION_ID}/preflight` && method === 'POST') {
       playbackStatus = {
         ...idlePlayback,
@@ -581,6 +620,30 @@ describe('Stage 5 Library', () => {
     expect(backend.requestsMatching(`/poses/${START_ID}`)).toHaveLength(1);
     await user.click(detail.getByRole('button', { name: '关闭资源详情' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('warns about Legacy Pose compatibility at list time and defers Motion claims until detail', async () => {
+    const user = userEvent.setup();
+    mockLibraryBackend({ legacyCompatibility: true });
+    renderLibrary();
+
+    expect(await screen.findByText(/Legacy 导入 · 当前配置不兼容：/)).toHaveTextContent(
+      'j10 单位应为 mm，实际为 deg',
+    );
+    expect(screen.getByText(/Legacy 导入 · 当前配置不兼容：/)).toHaveAttribute(
+      'title',
+      expect.stringContaining('不会自动换算'),
+    );
+
+    await user.click(screen.getByRole('tab', { name: '运动' }));
+    expect(await screen.findByText('Legacy 导入 · 等待关键帧合同验证')).toBeVisible();
+
+    const detail = await openMotionDetail(user);
+    expect(await detail.findByText(/Legacy 导入 · 当前配置不兼容：关键帧 1/)).toHaveTextContent(
+      'Profile 指纹不匹配',
+    );
+    expect(detail.getByText(/不会自动换算/)).toBeVisible();
+    expect(detail.getByRole('link', { name: '在 Studio 中编辑' })).toBeVisible();
   });
 
   it('closes and invalidates Pose detail work when switching to Motions', async () => {

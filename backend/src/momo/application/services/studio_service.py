@@ -36,7 +36,7 @@ from momo.application.studio_commands import (
     MotionDraftSaveAsCommand,
     MotionDraftSaveCommand,
 )
-from momo.domain.enums import MotionCommandSource, RealReadiness
+from momo.domain.enums import MotionCommandSource, RealReadiness, RobotVariant
 from momo.domain.errors import (
     EntityInvalidError,
     EntityNotFoundError,
@@ -47,6 +47,7 @@ from momo.domain.motion import LegacyImportMetadata, Motion, MotionKeyframe
 from momo.domain.motion_draft import MotionDraft, legacy_snapshot_sha256
 from momo.domain.motion_preflight import MotionAccepted
 from momo.domain.pose import PoseSnapshot
+from momo.domain.real_motion import RealExecutionAuthorization
 from momo.domain.trajectory import TrajectoryCompileOutcome
 from momo.ports.clock import Clock
 from momo.ports.motion_draft_repository import MotionDraftRepository
@@ -141,6 +142,7 @@ class StudioApplicationService:
         )
         await self._validate_client_keyframes(
             request.keyframes,
+            draft_variant=request.robot_variant,
             trusted_legacy_snapshot_sha256=trusted_legacy_snapshot_sha256,
         )
         now = self.clock.now()
@@ -211,6 +213,7 @@ class StudioApplicationService:
             )
             await self._validate_client_keyframes(
                 request.keyframes,
+                draft_variant=request.robot_variant,
                 trusted_legacy_snapshot_sha256=trusted_legacy_snapshot_sha256,
             )
             updated = draft_from_data(
@@ -435,10 +438,17 @@ class StudioApplicationService:
         draft_id: UUID,
         keyframe_id: UUID,
         request: MotionDraftGotoCommand,
+        *,
+        authorization: RealExecutionAuthorization | None = None,
     ) -> MotionAccepted:
         async with self._mutation_lock:
             draft = await self._formal_save.recover_save_intent(await self._get_draft(draft_id))
-            return await self._robot_actions.goto_keyframe(draft, keyframe_id, request)
+            return await self._robot_actions.goto_keyframe(
+                draft,
+                keyframe_id,
+                request,
+                authorization=authorization,
+            )
 
     async def _compile(self, motion: Motion, *, sample_rate_hz: float) -> TrajectoryCompileOutcome:
         status, profile, start_state = await self.robot.get_motion_snapshot()
@@ -528,33 +538,65 @@ class StudioApplicationService:
         self,
         keyframes: Sequence[MotionKeyframe],
         *,
+        draft_variant: RobotVariant,
         trusted_legacy_snapshot_sha256: TrustedLegacySnapshotDigests,
     ) -> None:
-        for keyframe in keyframes:
+        profile = self.robot.profile_service.get_profile(draft_variant)
+        model = self.kinematics.model_for(profile)
+        expected_joint_ids = tuple(profile.enabled_joints)
+        expected_joint_id_set = set(expected_joint_ids)
+        expected_units = {
+            joint_id: profile.definitions_by_id[joint_id].domain_unit.value
+            for joint_id in expected_joint_ids
+        }
+        active_variant = self.robot.manager.get_active().profile.variant
+        incompatible_keyframes: list[dict[str, object]] = []
+        all_checks: set[str] = set()
+
+        for keyframe_index, keyframe in enumerate(keyframes):
             snapshot = keyframe.pose_snapshot
             checks: list[str] = []
+            provenance_issue = False
             if snapshot.hardware_snapshot is not None:
                 checks.append("hardware_snapshot_must_be_null")
+                provenance_issue = True
             if snapshot.calibration_fingerprint is not None:
                 checks.append("calibration_fingerprint_must_be_null")
-            profile = self.robot.profile_service.get_profile(snapshot.robot_variant)
-            model = self.kinematics.model_for(profile)
+                provenance_issue = True
             trusted_null_sequence = (
                 snapshot.state_sequence is None
                 and legacy_snapshot_sha256(snapshot) in trusted_legacy_snapshot_sha256
             )
             if snapshot.state_sequence is None and not trusted_null_sequence:
                 checks.append("state_sequence")
+                provenance_issue = True
+            if snapshot.robot_variant is not draft_variant:
+                checks.append("robot_variant")
             if snapshot.profile_fingerprint != profile.fingerprint:
                 checks.append("profile_fingerprint")
             if snapshot.kinematics_fingerprint != model.fingerprint:
                 checks.append("kinematics_fingerprint")
+            actual_joint_ids = tuple(sorted(snapshot.joint_state.positions))
+            actual_joint_id_set = set(actual_joint_ids)
+            missing_joint_ids = tuple(sorted(expected_joint_id_set - actual_joint_id_set))
+            extra_joint_ids = tuple(sorted(actual_joint_id_set - expected_joint_id_set))
+            actual_units = {
+                joint_id: unit.value
+                for joint_id, unit in sorted(snapshot.joint_state.units.items())
+            }
+            if missing_joint_ids:
+                checks.append("missing_joint_ids")
+            if extra_joint_ids:
+                checks.append("extra_joint_ids")
+            if actual_units != expected_units:
+                checks.append("joint_units")
             joint_state_valid = True
             try:
                 snapshot.validate_against(profile)
             except ValueError:
                 checks.append("joint_state")
                 joint_state_valid = False
+            tcp_mismatch = False
             if (snapshot.state_sequence is not None or trusted_null_sequence) and joint_state_valid:
                 forward = await self.kinematics.forward(
                     profile,
@@ -566,11 +608,49 @@ class StudioApplicationService:
                 )
                 if snapshot.tcp_pose != forward.tcp_pose:
                     checks.append("tcp_pose")
+                    tcp_mismatch = True
             if checks:
-                raise PoseIncompatibleError(
-                    "Draft snapshot is incompatible with its declared robot contract",
-                    details={"checks": sorted(set(checks))},
+                all_checks.update(checks)
+                incompatible_keyframes.append(
+                    {
+                        "keyframe_id": str(keyframe.id),
+                        "keyframe_index": keyframe_index,
+                        "keyframe_name": keyframe.label,
+                        "source_pose_id": (
+                            str(keyframe.source_pose_id)
+                            if keyframe.source_pose_id is not None
+                            else None
+                        ),
+                        "checks": sorted(set(checks)),
+                        "expected_joint_ids": list(expected_joint_ids),
+                        "actual_joint_ids": list(actual_joint_ids),
+                        "missing_joint_ids": list(missing_joint_ids),
+                        "extra_joint_ids": list(extra_joint_ids),
+                        "expected_units": expected_units,
+                        "actual_units": actual_units,
+                        "expected_profile_fingerprint": profile.fingerprint,
+                        "actual_profile_fingerprint": snapshot.profile_fingerprint,
+                        "expected_kinematics_fingerprint": model.fingerprint,
+                        "actual_kinematics_fingerprint": snapshot.kinematics_fingerprint,
+                        "tcp_mismatch": tcp_mismatch,
+                        "state_sequence_issue": (
+                            snapshot.state_sequence is None and not trusted_null_sequence
+                        ),
+                        "provenance_issue": provenance_issue,
+                    }
                 )
+
+        if incompatible_keyframes:
+            raise PoseIncompatibleError(
+                "Draft snapshot is incompatible with its declared robot contract",
+                details={
+                    "error_code": "STUDIO_DRAFT_CONTRACT_INCOMPATIBLE",
+                    "draft_variant": draft_variant.value,
+                    "active_variant": active_variant.value,
+                    "checks": sorted(all_checks),
+                    "keyframes": incompatible_keyframes,
+                },
+            )
 
     async def _trusted_library_legacy_snapshots(
         self,

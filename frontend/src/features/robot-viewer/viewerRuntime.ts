@@ -21,7 +21,6 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import URDFLoader, { type URDFRobot } from 'urdf-loader';
 
 import {
-  ROBOT_VIEWER_ASSETS,
   type RobotViewerAssetManifest,
   type RobotViewerAssetVariant,
 } from './viewerAssets';
@@ -45,6 +44,7 @@ export class RobotViewerRuntimeError extends Error {
 
 export interface RobotViewerRuntime {
   setJointValues(values: Readonly<Record<string, number>>): void;
+  setPlaybackActive(active: boolean): void;
   dispose(): void;
 }
 
@@ -52,7 +52,7 @@ export interface CreateRobotViewerRuntimeOptions {
   readonly host: HTMLElement;
   readonly canvas: HTMLCanvasElement;
   readonly variant: RobotViewerAssetVariant;
-  readonly assets?: RobotViewerAssetManifest;
+  readonly assets: RobotViewerAssetManifest;
   readonly initialJointValues: Readonly<Record<string, number>>;
   readonly onReady: () => void;
   readonly onError: (error: RobotViewerRuntimeError) => void;
@@ -210,13 +210,12 @@ export function createRobotViewerRuntime({
   onReady,
   onError,
 }: CreateRobotViewerRuntimeOptions): RobotViewerRuntime {
-  const selectedAssets = assets ?? ROBOT_VIEWER_ASSETS[variant];
+  const selectedAssets = assets;
   let renderer: WebGLRenderer;
   try {
     renderer = new WebGLRenderer({
       canvas,
       antialias: true,
-      powerPreference: 'high-performance',
     });
   } catch (error) {
     throw new RobotViewerRuntimeError(
@@ -246,7 +245,11 @@ export function createRobotViewerRuntime({
   renderer.outputColorSpace = SRGBColorSpace;
 
   const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
+  const reducedMotionQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+  let reducedMotion = reducedMotionQuery?.matches ?? false;
+  controls.enableDamping = !reducedMotion;
   controls.dampingFactor = 0.08;
   controls.enableRotate = true;
   controls.enableZoom = true;
@@ -269,12 +272,39 @@ export function createRobotViewerRuntime({
   let failed = false;
   let robot: URDFRobot | null = null;
   let jointValues = initialJointValues;
+  let animationFrame: number | null = null;
+  let playbackActive = false;
+  let interacting = false;
+  let pageVisible = document.visibilityState !== 'hidden';
+  let intersecting = typeof IntersectionObserver === 'undefined';
   const abortController = new AbortController();
   const disposalRegistry = createDisposalRegistry();
+
+  const cancelScheduledRender = (): void => {
+    if (animationFrame === null) return;
+    window.cancelAnimationFrame(animationFrame);
+    animationFrame = null;
+  };
+
+  const canRender = (): boolean => !disposed && !failed && pageVisible && intersecting;
+  const renderFrame = (): void => {
+    animationFrame = null;
+    if (!canRender()) return;
+    const controlsChanged = controls.update();
+    renderer.render(scene, camera);
+    if (!reducedMotion && (playbackActive || interacting || controlsChanged)) {
+      animationFrame = window.requestAnimationFrame(renderFrame);
+    }
+  };
+  const invalidate = (): void => {
+    if (!canRender() || animationFrame !== null) return;
+    animationFrame = window.requestAnimationFrame(renderFrame);
+  };
 
   const fail = (error: unknown): void => {
     if (disposed || failed) return;
     failed = true;
+    cancelScheduledRender();
     onError(asRuntimeError(error, variant));
   };
 
@@ -292,6 +322,7 @@ export function createRobotViewerRuntime({
       }
       robot.setJointValue(urdfJointName, value);
     }
+    invalidate();
   };
 
   const manager = new LoadingManager();
@@ -319,6 +350,7 @@ export function createRobotViewerRuntime({
       ));
       return;
     }
+    invalidate();
     onReady();
   };
 
@@ -348,16 +380,55 @@ export function createRobotViewerRuntime({
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    invalidate();
   };
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(host);
   resize();
 
-  renderer.setAnimationLoop(() => {
-    if (disposed) return;
-    controls.update();
-    renderer.render(scene, camera);
-  });
+  const onControlsStart = (): void => {
+    interacting = true;
+    invalidate();
+  };
+  const onControlsChange = (): void => invalidate();
+  const onControlsEnd = (): void => {
+    interacting = false;
+    invalidate();
+  };
+  controls.addEventListener('start', onControlsStart);
+  controls.addEventListener('change', onControlsChange);
+  controls.addEventListener('end', onControlsEnd);
+
+  const onVisibilityChange = (): void => {
+    pageVisible = document.visibilityState !== 'hidden';
+    if (!pageVisible) {
+      cancelScheduledRender();
+      return;
+    }
+    invalidate();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
+
+  const intersectionObserver = typeof IntersectionObserver === 'undefined'
+    ? null
+    : new IntersectionObserver((entries) => {
+        intersecting = entries.some((entry) => entry.target === host && entry.isIntersecting);
+        if (!intersecting) {
+          cancelScheduledRender();
+          return;
+        }
+        invalidate();
+      });
+  intersectionObserver?.observe(host);
+
+  const onReducedMotionChange = (event: MediaQueryListEvent): void => {
+    reducedMotion = event.matches;
+    controls.enableDamping = !reducedMotion;
+    cancelScheduledRender();
+    invalidate();
+  };
+  reducedMotionQuery?.addEventListener('change', onReducedMotionChange);
+  invalidate();
 
   return {
     setJointValues(values) {
@@ -365,11 +436,23 @@ export function createRobotViewerRuntime({
       jointValues = values;
       applyJointValues();
     },
+    setPlaybackActive(active) {
+      if (disposed || failed || playbackActive === active) return;
+      playbackActive = active;
+      invalidate();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
       abortController.abort();
+      cancelScheduledRender();
       resizeObserver.disconnect();
+      intersectionObserver?.disconnect();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      reducedMotionQuery?.removeEventListener('change', onReducedMotionChange);
+      controls.removeEventListener('start', onControlsStart);
+      controls.removeEventListener('change', onControlsChange);
+      controls.removeEventListener('end', onControlsEnd);
       renderer.setAnimationLoop(null);
       controls.dispose();
       disposeObjectResources(scene, disposalRegistry);
