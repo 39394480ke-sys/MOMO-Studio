@@ -3,6 +3,31 @@
 All notable changes to MOMO Studio are recorded here. The project has not selected a
 distribution license; a release tag does not itself grant redistribution rights.
 
+## Unreleased
+
+### Changed
+
+- Unified the product Control/Studio/Library surfaces and added a lazy V1/V2 3D Viewer
+  that renders on demand and suspends hidden, offscreen, or reduced-motion work.
+- Restored capability-specific REAL authorization. Joint, Cartesian, Playback, and
+  Vision scopes bind their own immutable acceptance evidence; Kinematics evidence is a
+  separate binding and an existing Session never upgrades in place.
+- Moved exact command sample compilation before final safety validation. REAL executors
+  consume the same immutable trajectory digest/report that the gateway accepted.
+- Added monotonic Stop/Close/session fences, explicit per-Servo torque lifecycle and
+  rollback, trusted lifecycle cleanup, and deterministic blocking-fake regressions.
+- Split short hardware-operator authority (300 seconds by default) from LAN browser
+  transport authority (1,800 seconds by default).
+- Added structured Studio contract recovery, proactive Legacy compatibility warnings,
+  the canonical `/api/v1/ws/robot` contract, and exact Three.js/URDF-loader license texts.
+
+### Safety status
+
+- Defaults remain DRY RUN, hardware disabled, production/commissioning/raw motion off,
+  and Synthetic camera only.
+- Physical Stop, torque transitions, Feetech timing, stale-call cancellation, physical
+  geometry, and every REAL capability still require exact-unit field verification.
+
 ## 0.1.0-rc1 - 2026-08-24
 
 Release status: `FIELD_ACCEPTANCE_REQUIRED`.

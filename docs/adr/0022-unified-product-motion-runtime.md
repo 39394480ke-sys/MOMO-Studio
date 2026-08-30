@@ -89,6 +89,13 @@ prepared-trajectory executor. Cancellation requests software Hold and reports
 `SAFETY_STATE_UNCERTAIN`; it never represents that result as a physical E-stop. REAL
 playback currently fixes rate at 1.0 and rejects pause, resume, and loop controls.
 
+Authorization clarification (2026-08-30): ADR 0023 corrects the first implementation's
+unsafe interpretation of “unified.” The shared runtime does not merge capability grants.
+Joint, Cartesian, Playback, and Vision retain ADR 0019's capability-specific evidence,
+and the REAL executor may consume only the exact trajectory and digest produced by final
+preflight. Where this implementation note conflicts with ADR 0019 or ADR 0023, the later
+capability-bound decision controls.
+
 ## Alternatives
 
 - Let the UI call the Legacy controller directly: rejected because it duplicates state,

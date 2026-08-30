@@ -1,14 +1,14 @@
 # API audit
 
-Audit date: 2026-08-25. Branch: `codex/v1-autonomous-completion`. Starting commit:
-`eb90d516dcc1cb7c09d75fc7c5894e9f619116a6`.
+Audit refreshed: 2026-08-30. Branch: `codex/9da6853-system-audit-fixes`. Starting commit:
+`9da68536d26eb2d37c4f9acbed8f30dee57843e4`.
 
 This is a static inventory of the versioned HTTP/WebSocket surface, its product caller,
 application owner, authorization boundary, Stage provenance, and disposition. It does
 not claim physical verification. The count and tables must be regenerated after the
 final route wiring and before the final report is marked complete.
 
-The current generated OpenAPI contains **126 HTTP operations over 111 unique `/api/v1`
+The current generated OpenAPI contains **128 HTTP operations over 113 unique `/api/v1`
 paths**, plus one read-only Robot WebSocket. The earlier Stage 8 baseline was 93
 operations over 79 paths; later additions include commissioning, Kinematics verification,
 staged acceptance, camera-preview, and supervised runtime-mode operations.
@@ -51,7 +51,7 @@ not manufacture a Real Operator Session.
 | `POST /motion/jog/{session_id}/stop` | `useDeadmanJog` | `JogApplicationService` | R+P | 3 | Retain; idempotent lease Stop |
 | `GET /motion/commands/{command_id}` | Control/Studio motion hooks | `MotionApplicationService` | R | 3 | Retain; bounded status polling |
 | `POST /motion/stop` | Control/Studio motion hooks | `MotionApplicationService` | R+P | 3 | Retain; ordinary motion-slot Stop |
-| `WS /ws/robot` | `RuntimeStatusProvider` | Robot/Kinematics/motion/playback observers | WS | 3 | Retain; server-to-client read-only, no command frames |
+| `WS /api/v1/ws/robot` | `RuntimeStatusProvider` | Robot/Kinematics/motion/playback observers | WS | 3 | Retain; canonical versioned server-to-client read-only path, no command frames |
 
 ## Stage 4–7 inventory
 

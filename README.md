@@ -221,17 +221,16 @@ Start with the [documentation index](docs/README.md). Key entry points:
 
 The latest candidate verification passes:
 
-- Backend: 670 tests.
-- Frontend: 296 tests across 31 files.
-- Hardware/camera/commissioning isolation: 140 tests.
+- Backend: 728 tests.
+- Frontend: 295 tests across 31 files.
+- Hardware/camera/commissioning/production-Bomb isolation: 187 tests.
 - Ruff, Ruff format, strict mypy, ESLint, TypeScript, Vite production build,
   deterministic schemas, lock/dependency checks, secret scan, `pip-audit`, and
   `npm audit`.
 
-The historical release-candidate commit and CI runs are recorded in the Draft PR and final
-handoff. The newer local Figma redesign and V1/V2 Viewer verification is recorded in the
-[frontend redesign report](docs/stage-reports/frontend-figma-redesign.md) and remains
-uncommitted.
+Historical release-candidate counts remain point-in-time evidence in their Stage reports.
+The Figma redesign was integrated by `9da6853`; the current system-audit evidence is in
+the [9da6853 repair report](docs/stage-reports/9da6853-system-audit-fixes.md).
 
 ## Known limitations
 

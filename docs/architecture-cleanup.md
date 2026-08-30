@@ -35,7 +35,7 @@ MOMO Studio product flow
 |---|---|---|
 | Generic bootstrap names | Renamed to explicit simulation builders and service bundle | No caller can mistake the current product graph for production REAL execution |
 | Layer rules documented only in prose | Added executable AST dependency tests | API/application/domain/ports cannot import concrete adapters or Legacy controllers |
-| DRY_RUN/REAL product relationship | Recorded ADR 0022 | Both modes share product logic and differ only at reviewed outer adapters |
+| DRY_RUN/REAL product relationship | Recorded ADR 0022 and authorization clarification ADR 0023 | Both modes share product logic and differ only at reviewed outer adapters; every REAL capability still has its own evidence grant |
 | Production REAL composition | Implemented in a separate `real_bootstrap.py` outer composition | REAL supplies lifecycle, command, and playback ports; an unavailable or incoherent field configuration fails closed and never falls back to DRY_RUN |
 | Control workspace UI | Extracted one `ControlWorkspaceView` and shared product control panel | DRY RUN, production REAL, and restricted commissioning reuse the same view; controller adapters provide commands and state without replacing the page |
 
@@ -94,12 +94,14 @@ MOMO Studio product flow
   adapter no longer starts a second per-sample Servo Profile interpolation. Readback is
   checked against a bounded following window and the final goal receives a bounded
   settle check.
-- [x] REAL now has one product control surface. Manual Joint, Home, and Cartesian commands
-  are the field-acceptance surface and share the same operator session, gateway, limits,
-  reachability checks, Stop path, production binding, and executor with Studio playback.
-  Studio keeps document save, trajectory compilation, limits, reachability, and preflight,
-  but it does not require a second Operator Session or Playback Acceptance gate. Vision
-  automation remains separately gated.
+- [x] REAL has one product control surface and one runtime, but not one undifferentiated
+  grant. Joint/Home/Pose Goto require current Joint Motion acceptance. Cartesian also
+  requires current Kinematics verification and Cartesian acceptance. Studio/Library
+  Playback requires Playback acceptance and additionally requires the Cartesian gates
+  when its exact prepared trajectory contains any `CARTESIAN_LINEAR` segment. Vision
+  Follow retains its independent acceptance and Kinematics gates. These production
+  commands cannot be used to create their own acceptance evidence; the only implemented
+  pre-production write workflow remains bounded `COMMISSIONING_MOTION_TEST`.
 - [x] Settings no longer owns `/device/connect` or `/device/disconnect`; product lifecycle
   is exclusively `/robot/connect`, `/robot/disconnect`, and `/robot/stop`. The old
   Commissioning control, raw-direction, and hardware panels were removed from the product
@@ -111,8 +113,10 @@ The code-side composition is complete, but the repository defaults remain DRY_RU
 hardware `DISABLED`, and production adapter disabled. This work does not constitute
 physical acceptance. A field operator must explicitly select a device-local REAL
 configuration, confirm the physical E-stop, issue a short-lived `REAL_MOTION` session,
-and connect the exact configured serial identity before manual Joint, Home, Cartesian, or
-Studio motion. These four sources share one `REAL_MOTION` session and the same reviewed
-execution path. Vision automation remains locked until its separate verification and
-acceptance evidence is complete. REAL pause, rate changes, and looping remain deliberately
-unavailable; software Hold never claims a physical stop.
+and connect the exact configured serial identity before any production motion. A
+`REAL_MOTION` session contains only the scopes backed by current capability-specific
+evidence and freezes the evidence UUIDs used for each scope; it is never upgraded in
+place. All sources share the reviewed execution path, while Joint, Cartesian, Playback,
+and Vision remain separately gated as defined by ADR 0019 and ADR 0023. REAL pause, rate
+changes, and looping remain deliberately unavailable; software Hold never claims a
+physical stop.
